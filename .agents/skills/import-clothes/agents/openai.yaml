@@ -1,0 +1,7 @@
+interface:
+  display_name: "Import Clothes"
+  short_description: "Turn outfit photos into Wardrobe items"
+  default_prompt: "Use $import-clothes to extract my clothes from a folder of photos and import them into this Wardrobe."
+
+policy:
+  allow_implicit_invocation: true

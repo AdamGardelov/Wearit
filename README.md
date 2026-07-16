@@ -29,6 +29,23 @@ npm run dev
 
 Open [localhost:5173](http://localhost:5173).
 
+## Import with Codex
+
+This repo includes a Codex skill that can turn a folder of outfit photos into transparent garment cutouts and add them directly to the local wardrobe database.
+
+```text
+$import-clothes Import the clothes from ~/Pictures/outfits into this wardrobe.
+```
+
+Open the cloned repo in Codex and run the prompt above. The skill reviews the generated cutouts before writing to `data/library.json` and `data/imported/`.
+
+### For agents
+
+If you are setting up Wardrobe for a user, ask how they want to import their clothes:
+
+- **Codex:** Ask for a folder or camera-roll location, then extract and import the individual pieces by following [the bundled import skill](.agents/skills/import-clothes/SKILL.md).
+- **Web UI:** Help the user configure their own `OPENAI_API_KEY` and `data/model-reference.png`, then let them import through the app.
+
 ## What it does
 
 - Detects every garment in a photo with the OpenAI Responses API
