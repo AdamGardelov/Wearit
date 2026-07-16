@@ -1,0 +1,14 @@
+services:
+  wardrobe:
+    build: .
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-5.4-mini}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2}
+      OPENAI_IMAGE_QUALITY: ${OPENAI_IMAGE_QUALITY:-high}
+      WARDROBE_MODEL_REFERENCE: ${WARDROBE_MODEL_REFERENCE:-data/model-reference.png}
+    ports:
+      - "4173:4173"
+    volumes:
+      - ./data:/app/data
