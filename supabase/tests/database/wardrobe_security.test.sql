@@ -67,8 +67,8 @@ select is(
 );
 select is(
   pg_temp.table_privileges('authenticated', 'public.wardrobe_items'),
-  array['INSERT', 'SELECT', 'UPDATE']::text[],
-  'authenticated has only intended wardrobe item privileges'
+  array['INSERT', 'SELECT']::text[],
+  'authenticated has table INSERT/SELECT while metadata UPDATE is column-scoped'
 );
 
 select is(
