@@ -22,7 +22,11 @@ export const OptimizedImage = forwardRef(function OptimizedImage({
 }, ref) {
   const normalizedSource = sourcePath(src);
 
-  if (!normalizedSource || normalizedSource.startsWith("data:") || normalizedSource.startsWith("blob:") || normalizedSource.startsWith("/api/")) {
+  if (
+    !normalizedSource
+    || /^(?:https?:|data:|blob:)/i.test(normalizedSource)
+    || normalizedSource.startsWith("/api/")
+  ) {
     return <img ref={ref} src={src} alt={alt} sizes={sizes} loading={loading || (priority ? "eager" : "lazy")} decoding={decoding || "async"} {...props} />;
   }
 

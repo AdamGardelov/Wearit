@@ -5,5 +5,5 @@ dist/
 .env.*
 !.env.example
 *.log
-data/
+/data/
 .superpowers/
