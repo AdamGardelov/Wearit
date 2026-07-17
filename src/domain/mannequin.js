@@ -63,10 +63,79 @@ function compareItems(left, right) {
   return slotDifference || compareIds(left, right);
 }
 
+function sameSnapshot(left, right) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return (
+    leftKeys.length === rightKeys.length
+    && leftKeys.every((slot) => left[slot] === right[slot])
+  );
+}
+
+function sanitizeSnapshot(snapshot, liveItemsById) {
+  const candidatesBySlot = new Map();
+
+  for (const [previousSlot, selectedItem] of Object.entries(snapshot)) {
+    const liveItem = liveItemsById.get(selectedItem.id);
+    if (!isItem(liveItem)) continue;
+
+    const candidates = candidatesBySlot.get(liveItem.slot) ?? [];
+    candidates.push({
+      item: liveItem,
+      canonical: previousSlot === liveItem.slot,
+    });
+    candidatesBySlot.set(liveItem.slot, candidates);
+  }
+
+  const sanitized = {};
+  for (const slot of SLOT_ORDER) {
+    const candidates = candidatesBySlot.get(slot);
+    if (!candidates?.length) continue;
+    candidates.sort((left, right) => {
+      if (left.canonical !== right.canonical) return left.canonical ? -1 : 1;
+      return compareIds(left.item, right.item);
+    });
+    sanitized[slot] = candidates[0].item;
+  }
+
+  if (sanitized.dress) {
+    delete sanitized.top;
+    delete sanitized.bottom;
+  }
+
+  return sanitized;
+}
+
+function reconcileState(state, items) {
+  const liveItemsById = new Map(items.filter(isItem).map((item) => [item.id, item]));
+  const selectedBySlot = sanitizeSnapshot(state.selectedBySlot, liveItemsById);
+  const history = [];
+
+  for (const snapshot of state.history) {
+    const sanitized = sanitizeSnapshot(snapshot, liveItemsById);
+    if (!history.length || !sameSnapshot(history.at(-1), sanitized)) {
+      history.push(sanitized);
+    }
+  }
+  while (history.length && sameSnapshot(history.at(-1), selectedBySlot)) {
+    history.pop();
+  }
+
+  const selectionUnchanged = sameSnapshot(state.selectedBySlot, selectedBySlot);
+  const historyUnchanged = (
+    history.length === state.history.length
+    && history.every((snapshot, index) => sameSnapshot(snapshot, state.history[index]))
+  );
+  return selectionUnchanged && historyUnchanged ? state : { selectedBySlot, history };
+}
+
 export function mannequinReducer(state, action) {
   switch (action.type) {
     case "select": {
       if (!isItem(action.item)) {
+        return state;
+      }
+      if (state.selectedBySlot[action.item.slot]?.id === action.item.id) {
         return state;
       }
 
@@ -104,6 +173,13 @@ export function mannequinReducer(state, action) {
         selectedBySlot,
         history: [...state.history, state.selectedBySlot],
       };
+    }
+
+    case "reconcile": {
+      if (!Array.isArray(action.items)) {
+        return state;
+      }
+      return reconcileState(state, action.items);
     }
 
     case "undo": {

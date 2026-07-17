@@ -28,7 +28,7 @@ function GalleryItem({ item, selected, onOpen, buttonRef }) {
   );
 }
 
-export function WardrobeView({ repository }) {
+export function WardrobeView({ repository, active = true }) {
   const galleryButtonRefs = useRef(new Map());
   const categoryButtonRefs = useRef(new Map());
   const returnFocusTargetRef = useRef(null);
@@ -37,25 +37,31 @@ export function WardrobeView({ repository }) {
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const repositoryRef = useRef(repository);
+  repositoryRef.current = repository;
 
   useEffect(() => {
-    let active = true;
+    let mounted = true;
     setLoading(true);
     setError("");
     repository.listItems()
       .then((loadedItems) => {
-        if (active) setItems(loadedItems);
+        if (mounted) setItems(loadedItems);
       })
       .catch((loadError) => {
-        if (active) setError(loadError.message || "Could not load the wardrobe.");
+        if (mounted) setError(loadError.message || "Could not load the wardrobe.");
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (mounted) setLoading(false);
       });
     return () => {
-      active = false;
+      mounted = false;
     };
   }, [repository]);
+
+  useEffect(() => {
+    if (!active) setSelectedId(null);
+  }, [active]);
 
   const selectedItem = items.find((item) => item.id === selectedId) || null;
   const visibleItems = useMemo(
@@ -90,7 +96,9 @@ export function WardrobeView({ repository }) {
   };
 
   const saveItem = async (item) => {
+    const requestRepository = repository;
     const savedItem = await repository.updateItem(item);
+    if (repositoryRef.current !== requestRepository) return savedItem;
     setItems((current) => current.map((existing) => existing.id === item.id
       ? {
           ...existing,
@@ -102,7 +110,9 @@ export function WardrobeView({ repository }) {
   };
 
   const archiveItem = async (itemId) => {
+    const requestRepository = repository;
     await repository.archiveItem(itemId);
+    if (repositoryRef.current !== requestRepository) return;
     const selectedIndex = visibleItems.findIndex((item) => item.id === itemId);
     const fallbackItem = visibleItems[selectedIndex + 1] ?? visibleItems[selectedIndex - 1];
     returnFocusTargetRef.current = (

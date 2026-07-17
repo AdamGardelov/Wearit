@@ -1,0 +1,176 @@
+.dressing-room {
+  min-width: 0;
+  min-height: calc(100dvh - 70px);
+  padding: 18px 14px 98px;
+}
+
+.dress-canvas-pane { width: 100%; min-width: 0; }
+
+.dress-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  max-width: 320px;
+  margin: 0 auto 10px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.dress-heading p { margin: 0; color: var(--ink); font-weight: 650; }
+
+.mannequin-stage {
+  position: relative;
+  width: min(64vw, 280px);
+  aspect-ratio: 1 / 2;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(110, 48, 46, .13);
+  background: radial-gradient(circle at 50% 40%, rgba(255, 255, 255, .86), transparent 56%), #eee8de;
+  box-shadow: 0 14px 40px rgba(61, 49, 39, .09);
+}
+
+.mannequin-base {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.mannequin-garment {
+  position: absolute;
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.composition-controls,
+.outfit-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 360px);
+  margin: 12px auto 0;
+}
+
+.composition-controls button,
+.outfit-actions button,
+.dress-category-chips button,
+.garment-option {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, .24);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.composition-controls button,
+.outfit-actions button {
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .035em;
+}
+
+.outfit-actions button { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+
+.composition-controls button:disabled,
+.outfit-actions button:disabled {
+  border-color: var(--line);
+  background: transparent;
+  color: #9b958c;
+  cursor: not-allowed;
+}
+
+.composition-controls button:focus-visible,
+.outfit-actions button:focus-visible,
+.dress-category-chips button:focus-visible,
+.garment-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.garment-tray {
+  min-width: 0;
+  margin-top: 28px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.dress-category-chips,
+.garment-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dress-category-chips::-webkit-scrollbar,
+.garment-strip::-webkit-scrollbar { display: none; }
+
+.dress-category-chips button {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 8px 15px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .04em;
+}
+
+.dress-category-chips button.active { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.garment-strip { margin-top: 12px; padding: 2px; }
+
+.garment-option {
+  flex: 0 0 104px;
+  display: grid;
+  grid-template-rows: 88px auto;
+  gap: 7px;
+  align-items: center;
+  border-color: transparent;
+  padding: 8px;
+  text-align: left;
+}
+
+.garment-option[aria-pressed="true"] { border-color: var(--accent); background: rgba(110, 48, 46, .07); }
+.garment-option img { width: 100%; height: 88px; object-fit: contain; }
+
+.garment-option > span:last-child {
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.garment-empty,
+.summary-empty { margin: 18px 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.selected-summary { display: none; }
+
+@media (min-width: 900px) {
+  .dressing-room {
+    display: grid;
+    grid-template-columns: minmax(220px, .85fr) minmax(320px, 540px) minmax(220px, .85fr);
+    grid-template-areas: "tray canvas summary";
+    gap: clamp(24px, 4vw, 72px);
+    align-items: start;
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: 48px clamp(28px, 4vw, 72px) 120px;
+  }
+
+  .dress-canvas-pane { grid-area: canvas; }
+  .mannequin-stage { width: min(100%, 410px); }
+  .garment-tray { grid-area: tray; margin: 34px 0 0; border-top: 0; padding: 0; }
+  .dress-category-chips { flex-wrap: wrap; overflow: visible; }
+  .garment-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+  .garment-option { width: 100%; min-width: 0; }
+  .selected-summary { grid-area: summary; display: block; margin-top: 34px; border-left: 1px solid var(--line); padding-left: 26px; }
+  .summary-kicker { margin: 0 0 12px; color: var(--accent); font-size: 10px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+  .selected-summary h2 { margin: 0; font-size: 18px; font-weight: 520; }
+  .selected-summary ol { margin: 22px 0 0; padding: 0; list-style: none; counter-reset: selected-piece; }
+  .selected-summary li { counter-increment: selected-piece; border-top: 1px solid var(--line); padding: 13px 0; font-size: 13px; }
+  .selected-summary li::before { content: counter(selected-piece, decimal-leading-zero) " "; margin-right: 10px; color: var(--muted); font-size: 10px; }
+}
