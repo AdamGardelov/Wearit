@@ -991,6 +991,24 @@ button { font: inherit; }
   box-shadow: 0 8px 26px rgba(25, 25, 25, .1);
 }
 
+.admin-launch {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 14;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  background: rgba(244, 240, 232, .94);
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .04em;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+}
+
+.admin-launch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .wearit-app .app-shell { padding-bottom: 72px; }
 
 @media (min-width: 900px) {

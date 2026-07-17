@@ -31,6 +31,249 @@ afterEach(() => {
 });
 
 describe("createWardrobeRepository", () => {
+  it("imports reviewed assets under the authenticated owner and reports completed stages", async () => {
+    const ownerId = "owner-1";
+    const itemId = "96541a13-deb2-51da-bc91-8d0505624551";
+    const cutoutFile = new File(["cutout"], "cutout.png", { type: "image/png" });
+    const detailFile = new File(["detail"], "label.webp", { type: "image/webp" });
+    const existingQuery = {
+      select: vi.fn(() => existingQuery),
+      eq: vi.fn(() => existingQuery),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    };
+    const from = vi.fn(() => existingQuery);
+    const upload = vi.fn().mockResolvedValue({ data: {}, error: null });
+    const createSignedUrls = vi.fn().mockResolvedValue({
+      data: [
+        { path: `${ownerId}/items/${itemId}/cutout.png`, signedUrl: "https://signed.test/cutout" },
+        { path: `${ownerId}/items/${itemId}/details/label.webp`, signedUrl: "https://signed.test/label" },
+      ],
+      error: null,
+    });
+    const rpc = vi.fn().mockResolvedValue({ data: itemId, error: null });
+    const client = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: ownerId } }, error: null }) },
+      from,
+      rpc,
+      storage: { from: vi.fn(() => ({ upload, createSignedUrls })) },
+    };
+
+    const result = await createWardrobeRepository(client).importWardrobeItem({
+      manifestItem: {
+        id: itemId,
+        name: "Navy cardigan",
+        category: "jacket",
+        slot: "outerwear",
+        colors: ["#172033"],
+        tags: ["knit"],
+        detailFiles: [`assets/${itemId}/details/label.webp`],
+      },
+      cutoutFile,
+      detailFiles: [detailFile],
+      placement: { anchorX: 0.51, anchorY: 0.39, scale: 0.7, rotationDegrees: -2, layerOrder: 41 },
+    });
+
+    expect(upload).toHaveBeenNthCalledWith(1, `${ownerId}/items/${itemId}/cutout.png`, cutoutFile, {
+      contentType: "image/png",
+      upsert: true,
+    });
+    expect(upload).toHaveBeenNthCalledWith(2, `${ownerId}/items/${itemId}/details/label.webp`, detailFile, {
+      contentType: "image/webp",
+      upsert: true,
+    });
+    expect(rpc).toHaveBeenCalledWith("import_wardrobe_item", expect.objectContaining({
+      p_item_id: itemId,
+      p_cutout_path: `${ownerId}/items/${itemId}/cutout.png`,
+      p_detail_image_paths: [`${ownerId}/items/${itemId}/details/label.webp`],
+      p_anchor_x: 0.51,
+      p_anchor_y: 0.39,
+      p_scale: 0.7,
+      p_rotation_degrees: -2,
+      p_layer_order: 41,
+    }));
+    expect(result).toMatchObject({
+      alreadyImported: false,
+      cutoutUrl: "https://signed.test/cutout",
+      detailUrls: ["https://signed.test/label"],
+      stages: { cutout: true, details: true, database: true, all: true },
+    });
+  });
+
+  it("keeps failed imports retryable with exact stage information", async () => {
+    const detailError = new Error("detail upload failed");
+    const upload = vi.fn()
+      .mockResolvedValueOnce({ data: {}, error: null })
+      .mockResolvedValueOnce({ data: null, error: detailError });
+    const query = {
+      select: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    };
+    const client = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "owner-1" } }, error: null }) },
+      from: vi.fn(() => query),
+      storage: { from: vi.fn(() => ({ upload })) },
+    };
+
+    const error = await createWardrobeRepository(client).importWardrobeItem({
+      manifestItem: {
+        id: "item-1", name: "Top", category: "top", slot: "top", colors: [], tags: [],
+        detailFiles: ["assets/item-1/details/label.webp"],
+      },
+      cutoutFile: new File(["x"], "cutout.png", { type: "image/png" }),
+      detailFiles: [new File(["x"], "label.webp", { type: "image/webp" })],
+      placement: { anchorX: 0.5, anchorY: 0.5, scale: 0.5, rotationDegrees: 0, layerOrder: 30 },
+    }).catch((reason) => reason);
+
+    expect(error).toMatchObject({
+      cause: detailError,
+      stages: { cutout: true, details: false, database: false, all: false },
+    });
+    expect(client.from).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists reviewed metadata through the import RPC when the stable ID already exists", async () => {
+    const ownerId = "owner-1";
+    const itemId = "96541a13-deb2-51da-bc91-8d0505624551";
+    const query = {
+      select: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: itemId }, error: null }),
+    };
+    const upload = vi.fn().mockResolvedValue({ data: {}, error: null });
+    const createSignedUrls = vi.fn().mockResolvedValue({ data: [], error: null });
+    const rpc = vi.fn().mockResolvedValue({ data: itemId, error: null });
+    const client = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: ownerId } }, error: null }) },
+      from: vi.fn(() => query),
+      rpc,
+      storage: { from: vi.fn(() => ({ upload, createSignedUrls })) },
+    };
+
+    const result = await createWardrobeRepository(client).importWardrobeItem({
+      manifestItem: {
+        id: itemId,
+        name: "Updated cardigan",
+        category: "coat",
+        slot: "outerwear",
+        colors: ["#101820"],
+        tags: ["smart"],
+        detailFiles: [`assets/${itemId}/details/new-label.jpg`],
+      },
+      cutoutFile: new File(["cutout"], "cutout.png", { type: "image/png" }),
+      detailFiles: [new File(["detail"], "new-label.jpg", { type: "image/jpeg" })],
+      placement: { anchorX: 0.52, anchorY: 0.4, scale: 0.7, rotationDegrees: -2, layerOrder: 44 },
+    });
+
+    expect(rpc).toHaveBeenCalledWith("import_wardrobe_item", {
+      p_item_id: itemId,
+      p_name: "Updated cardigan",
+      p_category: "coat",
+      p_slot: "outerwear",
+      p_colors: ["#101820"],
+      p_tags: ["smart"],
+      p_cutout_path: `${ownerId}/items/${itemId}/cutout.png`,
+      p_detail_image_paths: [`${ownerId}/items/${itemId}/details/new-label.jpg`],
+      p_anchor_x: 0.52,
+      p_anchor_y: 0.4,
+      p_scale: 0.7,
+      p_rotation_degrees: -2,
+      p_layer_order: 44,
+    });
+    expect(result).toMatchObject({ alreadyImported: true, stages: { database: true, all: true } });
+  });
+
+  it("reconciles owner storage objects against database asset paths", async () => {
+    const ownerId = "owner-1";
+    const list = vi.fn(async (prefix) => ({
+      data: {
+        [`${ownerId}/items`]: [{ name: "item-a", id: null }, { name: "orphan.png", id: "object-orphan" }],
+        [`${ownerId}/items/item-a`]: [{ name: "cutout.png", id: "object-cutout" }],
+      }[prefix] || [],
+      error: null,
+    }));
+    const query = {
+      select: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      then: (resolve, reject) => Promise.resolve({
+        data: [
+          { id: "item-a", cutout_path: `${ownerId}/items/item-a/cutout.png`, detail_image_paths: [] },
+          { id: "item-missing", cutout_path: `${ownerId}/items/item-missing/cutout.png`, detail_image_paths: [] },
+        ],
+        error: null,
+      }).then(resolve, reject),
+    };
+    const client = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: ownerId } }, error: null }) },
+      from: vi.fn(() => query),
+      storage: { from: vi.fn(() => ({ list })) },
+    };
+
+    await expect(createWardrobeRepository(client).reconcileWardrobeAssets()).resolves.toEqual({
+      orphanedStoragePaths: [`${ownerId}/items/orphan.png`],
+      missingStorageItemIds: ["item-missing"],
+    });
+    expect(query.eq).toHaveBeenCalledWith("owner_id", ownerId);
+    expect(list).toHaveBeenCalledWith(`${ownerId}/items`, expect.any(Object));
+  });
+
+  it("revalidates confirmed paths as current import orphans before deleting", async () => {
+    const remove = vi.fn().mockResolvedValue({ data: [], error: null });
+    const query = {
+      select: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      then: (resolve, reject) => Promise.resolve({ data: [], error: null }).then(resolve, reject),
+    };
+    const list = vi.fn().mockResolvedValue({
+      data: [{ name: "orphan.png", id: "object-orphan" }],
+      error: null,
+    });
+    const repository = createWardrobeRepository({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "owner-1" } }, error: null }) },
+      from: vi.fn(() => query),
+      storage: { from: vi.fn(() => ({ list, remove })) },
+    });
+
+    await expect(repository.removeOrphanedWardrobeAssets(["owner-2/items/nope.png"]))
+      .rejects.toThrow(/current owner/i);
+    await repository.removeOrphanedWardrobeAssets(["owner-1/items/orphan.png"]);
+
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith(["owner-1/items/orphan.png"]);
+  });
+
+  it("refuses cleanup when a previously orphaned path is no longer orphaned", async () => {
+    const remove = vi.fn().mockResolvedValue({ data: [], error: null });
+    const query = {
+      select: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      then: (resolve, reject) => Promise.resolve({
+        data: [{ id: "item-1", cutout_path: "owner-1/items/item-1/cutout.png", detail_image_paths: [] }],
+        error: null,
+      }).then(resolve, reject),
+    };
+    const client = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "owner-1" } }, error: null }) },
+      from: vi.fn(() => query),
+      storage: { from: vi.fn(() => ({
+        list: vi.fn().mockResolvedValue({ data: [{ name: "item-1", id: null }], error: null }),
+        remove,
+      })) },
+    };
+    client.storage.from = vi.fn(() => ({
+      list: vi.fn(async (prefix) => ({
+        data: prefix.endsWith("item-1") ? [{ name: "cutout.png", id: "object-1" }] : [{ name: "item-1", id: null }],
+        error: null,
+      })),
+      remove,
+    }));
+
+    await expect(createWardrobeRepository(client)
+      .removeOrphanedWardrobeAssets(["owner-1/items/item-1/cutout.png"]))
+      .rejects.toThrow(/no longer orphaned/i);
+    expect(remove).not.toHaveBeenCalled();
+  });
+
   it("records a wear event with every selected item and retry-safe context", async () => {
     const rpcError = new Error("database unavailable");
     const rpc = vi.fn().mockResolvedValue({ data: null, error: rpcError });

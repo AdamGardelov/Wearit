@@ -1,0 +1,116 @@
+.import-admin {
+  min-height: 100vh;
+  padding: 52px clamp(18px, 5vw, 72px) 120px;
+}
+
+.import-admin-header,
+.reconciliation-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.import-admin-header > div > p:first-child,
+.review-card-heading p {
+  margin: 0 0 10px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.import-admin h1 {
+  margin: 0;
+  font-size: clamp(34px, 6vw, 64px);
+  font-weight: 430;
+  letter-spacing: -.045em;
+  line-height: 1;
+}
+
+.import-admin-header > div > p:last-child,
+.import-bundle-picker > p,
+.reconciliation-panel p { color: var(--muted); }
+
+.text-action,
+.primary-action,
+.danger-action,
+.bundle-file-label {
+  min-height: 44px;
+  border: 1px solid var(--ink);
+  padding: 11px 16px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.primary-action { background: var(--ink); color: var(--paper); }
+.danger-action { border-color: var(--accent); color: var(--accent); }
+button:disabled { cursor: not-allowed; opacity: .55; }
+
+.import-bundle-picker,
+.reconciliation-panel {
+  margin-top: 40px;
+  border-top: 1px solid var(--line);
+  padding-top: 24px;
+}
+
+.bundle-file-label { display: inline-flex; align-items: center; }
+.bundle-file-label input { max-width: min(100%, 360px); margin-left: 14px; }
+
+.import-review-layout {
+  display: grid;
+  grid-template-columns: minmax(190px, 280px) minmax(0, 1fr);
+  gap: 28px;
+  margin-top: 38px;
+}
+
+.review-card-list { display: flex; flex-direction: column; gap: 8px; }
+.review-card-list button {
+  min-height: 60px;
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.review-card-list button[aria-current="true"] { border-color: var(--ink); }
+.review-card-list small { display: block; margin-top: 5px; color: var(--muted); }
+
+.import-review-card { border: 1px solid var(--line); padding: clamp(16px, 3vw, 32px); }
+.review-card-heading { display: flex; justify-content: space-between; gap: 18px; }
+.review-card-heading h2 { margin: 0; font-size: clamp(24px, 4vw, 40px); font-weight: 450; }
+.import-state { font-size: 12px; color: var(--muted); }
+.import-state.imported,
+.import-state.already-imported { color: #28643d; }
+
+.alignment-editor { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(190px, .65fr); gap: 24px; margin: 28px 0; }
+.alignment-preview .mannequin-stage { min-height: 420px; }
+.alignment-controls { min-width: 0; border: 0; padding: 0; }
+.alignment-controls legend { margin-bottom: 16px; font-weight: 600; }
+.alignment-controls label { display: grid; grid-template-columns: 1fr auto; gap: 7px 12px; margin-bottom: 17px; }
+.alignment-controls input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.alignment-controls output { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.admin-error { color: var(--accent) !important; }
+.reconciliation-panel { flex-wrap: wrap; }
+.reconciliation-results { flex: 1 0 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.reconciliation-results h3 { font-size: 14px; }
+.reconciliation-results li { overflow-wrap: anywhere; }
+.cleanup-confirmation { grid-column: 1 / -1; border: 1px solid var(--accent); padding: 16px; }
+.cleanup-confirmation .text-action { margin-left: 10px; }
+
+@media (max-width: 760px) {
+  .import-admin { padding-top: 32px; }
+  .import-admin-header { align-items: stretch; flex-direction: column; }
+  .import-review-layout,
+  .alignment-editor,
+  .reconciliation-results { grid-template-columns: 1fr; }
+  .review-card-list { flex-direction: row; overflow-x: auto; }
+  .review-card-list button { flex: 0 0 190px; }
+  .alignment-preview .mannequin-stage { min-height: 360px; }
+  .bundle-file-label { width: 100%; align-items: flex-start; flex-direction: column; gap: 10px; }
+  .bundle-file-label input { margin-left: 0; }
+}

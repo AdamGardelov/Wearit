@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { createWardrobeRepository } from "./data/wardrobeRepository.js";
+import { ImportAdminView } from "./features/admin/ImportAdminView.jsx";
 import { DressingRoom } from "./features/dress/DressingRoom.jsx";
 import { HistoryView } from "./features/history/HistoryView.jsx";
 import { WearDialog } from "./features/history/WearDialog.jsx";
@@ -204,6 +205,27 @@ export function App({ repository: injectedRepository }) {
           </div>
         )}
       </section>
+      {section === "admin" && (
+        <section className="app-section">
+          <ImportAdminView
+            repository={repository}
+            onClose={() => setSection("wardrobe")}
+            onImported={async () => {
+              try {
+                await repository.refreshItems();
+              } catch {
+                // The import is committed; returning to Wardrobe will retry loading it.
+              }
+            }}
+          />
+        </section>
+      )}
+
+      {section !== "admin" && typeof repository.importWardrobeItem === "function" && (
+        <button type="button" className="admin-launch" onClick={() => setSection("admin")}>
+          Import wardrobe
+        </button>
+      )}
 
       <nav className="bottom-nav" aria-label="Primary">
         {SECTIONS.map((entry) => {

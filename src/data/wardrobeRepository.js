@@ -25,6 +25,14 @@ function orderedOutfitItems(rows = []) {
 }
 
 export function createWardrobeRepository(client) {
+  async function authenticatedOwnerId() {
+    const result = await client.auth.getUser();
+    if (result.error) throw result.error;
+    const ownerId = result.data?.user?.id;
+    if (!ownerId) throw new Error("Authentication is required.");
+    return ownerId;
+  }
+
   async function createSignedAssetUrls(paths, expiresIn = 3600) {
     if (!paths.length) return [];
 
@@ -295,6 +303,144 @@ export function createWardrobeRepository(client) {
     }));
   }
 
+  async function importWardrobeItem({ manifestItem, cutoutFile, detailFiles, placement }) {
+    const stages = { cutout: false, details: false, database: false, all: false };
+    try {
+      const ownerId = await authenticatedOwnerId();
+      if (detailFiles.length !== manifestItem.detailFiles.length) {
+        throw new Error("Every reviewed detail derivative must have a matching file.");
+      }
+      const cutoutPath = `${ownerId}/items/${manifestItem.id}/cutout.png`;
+      const detailPaths = manifestItem.detailFiles.map((sourcePath) => {
+        const assetName = sourcePath.split("/").at(-1);
+        return `${ownerId}/items/${manifestItem.id}/details/${assetName}`;
+      });
+      const existingQuery = client
+        .from("wardrobe_items")
+        .select("id")
+        .eq("id", manifestItem.id)
+        .eq("owner_id", ownerId);
+      const existingResult = await existingQuery.maybeSingle();
+      if (existingResult.error) throw existingResult.error;
+      const alreadyImported = Boolean(existingResult.data);
+
+      const storage = client.storage.from("wardrobe-assets");
+      dataOrThrow(await storage.upload(cutoutPath, cutoutFile, {
+        contentType: cutoutFile.type || "image/png",
+        upsert: true,
+      }));
+      stages.cutout = true;
+
+      for (let index = 0; index < detailFiles.length; index += 1) {
+        const detailFile = detailFiles[index];
+        dataOrThrow(await storage.upload(detailPaths[index], detailFile, {
+          contentType: detailFile.type || "application/octet-stream",
+          upsert: true,
+        }));
+      }
+      stages.details = true;
+
+      const savedItemId = dataOrThrow(await client.rpc("import_wardrobe_item", {
+        p_item_id: manifestItem.id,
+        p_name: manifestItem.name,
+        p_category: manifestItem.category,
+        p_slot: manifestItem.slot,
+        p_colors: manifestItem.colors,
+        p_tags: manifestItem.tags,
+        p_cutout_path: cutoutPath,
+        p_detail_image_paths: detailPaths,
+        p_anchor_x: placement.anchorX,
+        p_anchor_y: placement.anchorY,
+        p_scale: placement.scale,
+        p_rotation_degrees: placement.rotationDegrees,
+        p_layer_order: placement.layerOrder,
+      }));
+      stages.database = true;
+
+      const signedAssets = await createSignedAssetUrls([cutoutPath, ...detailPaths]);
+      const signedUrlByPath = new Map(
+        signedAssets.map((asset) => [asset.path, asset.signedUrl]),
+      );
+      stages.all = true;
+      return {
+        item: { id: savedItemId },
+        alreadyImported,
+        cutoutUrl: signedUrlByPath.get(cutoutPath) ?? null,
+        detailUrls: detailPaths.map((path) => signedUrlByPath.get(path) ?? null),
+        stages,
+      };
+    } catch (cause) {
+      const error = new Error(cause.message || "The wardrobe item could not be imported.", { cause });
+      error.stages = { ...stages };
+      throw error;
+    }
+  }
+
+  async function listStorageFiles(storage, prefix) {
+    const paths = [];
+    let offset = 0;
+    while (true) {
+      const entries = dataOrThrow(await storage.list(prefix, {
+        limit: 1000,
+        offset,
+        sortBy: { column: "name", order: "asc" },
+      })) || [];
+      for (const entry of entries) {
+        const path = `${prefix}/${entry.name}`;
+        if (entry.id) paths.push(path);
+        else paths.push(...await listStorageFiles(storage, path));
+      }
+      if (entries.length < 1000) break;
+      offset += entries.length;
+    }
+    return paths;
+  }
+
+  async function reconcileWardrobeAssets() {
+    const ownerId = await authenticatedOwnerId();
+    const rows = dataOrThrow(
+      await client
+        .from("wardrobe_items")
+        .select("id, cutout_path, detail_image_paths")
+        .eq("owner_id", ownerId),
+    ) || [];
+    const storagePaths = new Set(
+      await listStorageFiles(client.storage.from("wardrobe-assets"), `${ownerId}/items`),
+    );
+    const databasePaths = new Set(rows.flatMap((row) => [
+      row.cutout_path,
+      ...(row.detail_image_paths || []),
+    ]));
+    return {
+      orphanedStoragePaths: [...storagePaths]
+        .filter((path) => !databasePaths.has(path))
+        .sort(),
+      missingStorageItemIds: rows
+        .filter((row) => [row.cutout_path, ...(row.detail_image_paths || [])]
+          .some((path) => !storagePaths.has(path)))
+        .map((row) => row.id)
+        .sort(),
+    };
+  }
+
+  async function removeOrphanedWardrobeAssets(paths) {
+    const ownerId = await authenticatedOwnerId();
+    if (paths.some((path) => !path.startsWith(`${ownerId}/items/`))) {
+      throw new Error("Cleanup paths must belong to the current owner.");
+    }
+    if (!paths.length) return [];
+    const uniquePaths = [...new Set(paths)];
+    const currentOrphans = new Set(
+      (await reconcileWardrobeAssets()).orphanedStoragePaths,
+    );
+    if (uniquePaths.some((path) => !currentOrphans.has(path))) {
+      throw new Error("A selected path is no longer orphaned. Check storage again.");
+    }
+    return dataOrThrow(
+      await client.storage.from("wardrobe-assets").remove(uniquePaths),
+    ) || [];
+  }
+
   return {
     listItems,
     updateItem,
@@ -306,5 +452,8 @@ export function createWardrobeRepository(client) {
     listItemsWithLastWorn,
     recordWear,
     createSignedAssetUrls,
+    importWardrobeItem,
+    reconcileWardrobeAssets,
+    removeOrphanedWardrobeAssets,
   };
 }
