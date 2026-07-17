@@ -194,7 +194,8 @@ describe("WardrobeView", () => {
 
     await user.click(screen.getByRole("button", { name: "Archive" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Archive failed.");
+    expect(await screen.findByRole("alert"))
+      .toHaveTextContent("Changes were not saved. Try again.");
     expect(screen.getByRole("button", { name: "View Blue shirt", hidden: true })).toBeInTheDocument();
   });
 

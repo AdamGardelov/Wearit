@@ -28,7 +28,7 @@ function GalleryItem({ item, selected, onOpen, buttonRef }) {
   );
 }
 
-export function WardrobeView({ repository, active = true }) {
+export function WardrobeView({ repository, active = true, onMarkWorn }) {
   const galleryButtonRefs = useRef(new Map());
   const categoryButtonRefs = useRef(new Map());
   const returnFocusTargetRef = useRef(null);
@@ -124,6 +124,10 @@ export function WardrobeView({ repository, active = true }) {
     setSelectedId(null);
   };
 
+  const markWorn = (item) => {
+    onMarkWorn?.([item]);
+  };
+
   const activeLabel = CATEGORY_BY_ID[activeCategory]?.label || "All";
 
   return (
@@ -192,6 +196,7 @@ export function WardrobeView({ repository, active = true }) {
           onClose={() => setSelectedId(null)}
           onSave={saveItem}
           onArchive={archiveItem}
+          onMarkWorn={markWorn}
           onRestoreFocus={restoreEditorFocus}
         />
       )}

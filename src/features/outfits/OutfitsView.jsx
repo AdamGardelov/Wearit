@@ -5,7 +5,13 @@ function archivedItems(outfit) {
   return outfit.items.filter((item) => item.status === "archived");
 }
 
-export function OutfitsView({ repository, active = true, refreshKey = 0, onLoad }) {
+export function OutfitsView({
+  repository,
+  active = true,
+  refreshKey = 0,
+  onLoad,
+  onWear,
+}) {
   const [outfits, setOutfits] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -65,14 +71,27 @@ export function OutfitsView({ repository, active = true, refreshKey = 0, onLoad 
                       <strong>Missing {item.saved_slot || item.slot}</strong>
                     </div>
                   ))}
-                  <button
-                    type="button"
-                    onClick={() => onLoad(outfit.items, outfit)}
-                    disabled={unavailable}
-                    aria-label={`Load ${outfit.name}`}
-                  >
-                    Load outfit
-                  </button>
+                  <div className="outfit-card-actions">
+                    <button
+                      type="button"
+                      onClick={() => onLoad(outfit.items, outfit)}
+                      disabled={unavailable}
+                      aria-label={`Load ${outfit.name}`}
+                    >
+                      Load outfit
+                    </button>
+                    {onWear && (
+                      <button
+                        type="button"
+                        className="outfit-wear-action"
+                        onClick={() => onWear(outfit.items, outfit)}
+                        disabled={unavailable}
+                        aria-label={`Wear ${outfit.name}`}
+                      >
+                        Wear outfit
+                      </button>
+                    )}
+                  </div>
                 </div>
               </article>
             );

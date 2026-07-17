@@ -338,13 +338,67 @@ begin
 end;
 $$;
 
+create or replace function public.restore_wardrobe_item(p_item_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_owner_id uuid := auth.uid();
+  v_restored_item_id uuid;
+begin
+  if v_owner_id is null then
+    raise exception using errcode = '42501', message = 'Authentication is required.';
+  end if;
+
+  update public.wardrobe_items
+  set
+    status = 'active',
+    archived_at = null,
+    updated_at = now()
+  where id = p_item_id
+    and owner_id = v_owner_id
+    and status = 'archived'
+  returning id into v_restored_item_id;
+
+  if v_restored_item_id is null then
+    raise exception using errcode = '42501', message = 'The wardrobe item is unavailable.';
+  end if;
+
+  update public.outfits as outfit
+  set
+    needs_attention = exists (
+      select 1
+      from public.outfit_items as outfit_item
+      join public.wardrobe_items as wardrobe_item
+        on wardrobe_item.id = outfit_item.wardrobe_item_id
+       and wardrobe_item.owner_id = outfit_item.owner_id
+      where outfit_item.outfit_id = outfit.id
+        and outfit_item.owner_id = outfit.owner_id
+        and wardrobe_item.status = 'archived'
+    ),
+    updated_at = now()
+  where outfit.owner_id = v_owner_id
+    and exists (
+      select 1
+      from public.outfit_items as restored_item
+      where restored_item.outfit_id = outfit.id
+        and restored_item.owner_id = outfit.owner_id
+        and restored_item.wardrobe_item_id = v_restored_item_id
+    );
+end;
+$$;
+
 revoke all on function public.save_outfit(uuid, text, uuid[], text) from PUBLIC, anon, authenticated;
 revoke all on function public.record_wear(uuid[], timestamptz, uuid, text) from PUBLIC, anon, authenticated;
 revoke all on function public.archive_wardrobe_item(uuid) from PUBLIC, anon, authenticated;
+revoke all on function public.restore_wardrobe_item(uuid) from PUBLIC, anon, authenticated;
 
 grant execute on function public.save_outfit(uuid, text, uuid[], text) to authenticated;
 grant execute on function public.record_wear(uuid[], timestamptz, uuid, text) to authenticated;
 grant execute on function public.archive_wardrobe_item(uuid) to authenticated;
+grant execute on function public.restore_wardrobe_item(uuid) to authenticated;
 
 create view public.wardrobe_item_last_worn
 with (security_invoker = true)

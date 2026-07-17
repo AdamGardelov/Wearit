@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(94);
+select plan(107);
 
 create function pg_temp.table_privileges(role_name name, relation regclass)
 returns text[]
@@ -64,6 +64,7 @@ select has_view('public', 'wardrobe_item_last_worn', 'last-worn view exists');
 select has_function('public', 'save_outfit', array['uuid', 'text', 'uuid[]', 'text'], 'save_outfit exists');
 select has_function('public', 'record_wear', array['uuid[]', 'timestamp with time zone', 'uuid', 'text'], 'record_wear exists');
 select has_function('public', 'archive_wardrobe_item', array['uuid'], 'archive RPC exists');
+select has_function('public', 'restore_wardrobe_item', array['uuid'], 'restore RPC exists');
 
 select policies_are('public', 'outfits', array['owners_select_outfits'], 'outfits expose only owner SELECT');
 select policies_are('public', 'outfit_items', array['owners_select_outfit_items'], 'outfit items expose only owner SELECT');
@@ -88,6 +89,8 @@ select is((select prosecdef from pg_proc where oid = 'public.record_wear(uuid[],
 select is((select proconfig from pg_proc where oid = 'public.record_wear(uuid[],timestamp with time zone,uuid,text)'::regprocedure), array['search_path=""']::text[], 'record_wear has empty search path');
 select is((select prosecdef from pg_proc where oid = 'public.archive_wardrobe_item(uuid)'::regprocedure), true, 'archive RPC is security definer');
 select is((select proconfig from pg_proc where oid = 'public.archive_wardrobe_item(uuid)'::regprocedure), array['search_path=""']::text[], 'archive RPC has empty search path');
+select is((select prosecdef from pg_proc where oid = 'public.restore_wardrobe_item(uuid)'::regprocedure), true, 'restore RPC is security definer');
+select is((select proconfig from pg_proc where oid = 'public.restore_wardrobe_item(uuid)'::regprocedure), array['search_path=""']::text[], 'restore RPC has empty search path');
 select ok(position('for update' in lower(pg_get_functiondef('public.save_outfit(uuid,text,uuid[],text)'::regprocedure))) > 0, 'save_outfit locks selected rows against concurrent archive');
 select ok(position('for update' in lower(pg_get_functiondef('public.record_wear(uuid[],timestamp with time zone,uuid,text)'::regprocedure))) > 0, 'record_wear locks selected rows against concurrent archive');
 
@@ -100,6 +103,9 @@ select is(has_function_privilege('authenticated', 'public.record_wear(uuid[],tim
 select is(pg_temp.public_can_execute('public.archive_wardrobe_item(uuid)'::regprocedure), false, 'PUBLIC cannot archive items');
 select is(has_function_privilege('anon', 'public.archive_wardrobe_item(uuid)', 'EXECUTE'), false, 'anon cannot archive items');
 select is(has_function_privilege('authenticated', 'public.archive_wardrobe_item(uuid)', 'EXECUTE'), true, 'authenticated can archive items');
+select is(pg_temp.public_can_execute('public.restore_wardrobe_item(uuid)'::regprocedure), false, 'PUBLIC cannot restore items');
+select is(has_function_privilege('anon', 'public.restore_wardrobe_item(uuid)', 'EXECUTE'), false, 'anon cannot restore items');
+select is(has_function_privilege('authenticated', 'public.restore_wardrobe_item(uuid)', 'EXECUTE'), true, 'authenticated can restore items');
 
 insert into auth.users (id, aud, role, email, raw_user_meta_data, created_at, updated_at)
 values
@@ -119,6 +125,7 @@ values
 select is(pg_temp.sqlstate_for($sql$select public.save_outfit(null, 'Anon', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid], null)$sql$), '42501', 'save_outfit rejects unauthenticated callers');
 select is(pg_temp.sqlstate_for($sql$select public.record_wear(array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid], '2026-07-01 10:00+00', null, null)$sql$), '42501', 'record_wear rejects unauthenticated callers');
 select is(pg_temp.sqlstate_for($sql$select public.archive_wardrobe_item('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1')$sql$), '42501', 'archive RPC rejects unauthenticated callers');
+select is(pg_temp.sqlstate_for($sql$select public.restore_wardrobe_item('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1')$sql$), '42501', 'restore RPC rejects unauthenticated callers');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '31111111-1111-4111-8111-111111111111';
@@ -174,6 +181,15 @@ select is((select needs_attention from public.outfits where id = (select id from
 select is((select count(*) from public.wear_event_items where wardrobe_item_id = '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'), 1::bigint, 'archive flow preserves existing wear snapshots');
 select is(pg_temp.sqlstate_for($sql$select public.save_outfit(null, 'Archived', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid], null)$sql$), '22023', 'save_outfit rejects archived items');
 select is(pg_temp.sqlstate_for($sql$select public.record_wear(array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid], '2026-07-05 12:00+00', null, null)$sql$), '22023', 'record_wear rejects archived items');
+select public.archive_wardrobe_item('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2');
+select public.restore_wardrobe_item('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+select is((select status from public.wardrobe_items where id = '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'), 'active', 'restore RPC reactivates an owned archived item');
+select is((select needs_attention from public.outfits where id = (select id from saved_ids where kind = 'outfit')), true, 'restore keeps attention while another referenced item is archived');
+select public.restore_wardrobe_item('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2');
+select is((select status from public.wardrobe_items where id = '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'), 'active', 'restore RPC reactivates the other archived item');
+select is((select needs_attention from public.outfits where id = (select id from saved_ids where kind = 'outfit')), false, 'restore clears attention after every referenced item is active');
+select is(pg_temp.sqlstate_for($sql$select public.restore_wardrobe_item('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1')$sql$), '42501', 'restore RPC rejects active items');
+select public.archive_wardrobe_item('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
 
 set local request.jwt.claim.sub = '32222222-2222-4222-8222-222222222222';
 select is((select count(*) from public.outfits), 0::bigint, 'other user sees zero outfits');
@@ -184,6 +200,7 @@ select is((select count(*) from public.wardrobe_item_last_worn), 0::bigint, 'oth
 select is(pg_temp.sqlstate_for(format($sql$select public.save_outfit(%L, 'Stolen', array['3bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1'::uuid, '3bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2'::uuid], null)$sql$, (select id from saved_ids where kind = 'outfit'))), '42501', 'save_outfit rejects a foreign outfit update');
 select is(pg_temp.sqlstate_for(format($sql$select public.record_wear(array['3bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1'::uuid], '2026-07-06 12:00+00', %L, null)$sql$, (select id from saved_ids where kind = 'outfit'))), '42501', 'record_wear rejects a foreign outfit');
 select is(pg_temp.sqlstate_for($sql$select public.archive_wardrobe_item('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1')$sql$), '42501', 'archive RPC rejects foreign items');
+select is(pg_temp.sqlstate_for($sql$select public.restore_wardrobe_item('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1')$sql$), '42501', 'restore RPC rejects foreign items');
 
 reset role;
 select * from finish();

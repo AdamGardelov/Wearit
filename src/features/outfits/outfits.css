@@ -16,7 +16,9 @@
 .outfit-card-copy { padding-top: 12px; }
 .outfit-card h2 { margin: 0; font-size: 16px; font-weight: 560; }
 .outfit-card-copy > p { margin: 5px 0 12px; color: var(--muted); font-size: 11px; }
+.outfit-card-actions { display: grid; grid-template-columns: 1fr; gap: 7px; }
 .outfit-card button { width: 100%; min-height: 44px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper); cursor: pointer; }
+.outfit-card .outfit-wear-action { background: transparent; color: var(--ink); }
 .outfit-card button:disabled { border-color: var(--line); background: transparent; color: var(--muted); cursor: not-allowed; }
 .outfit-attention { display: grid; gap: 3px; margin: 0 0 12px; border-left: 2px solid var(--accent); padding-left: 8px; color: var(--accent); font-size: 10px; line-height: 1.35; }
 .outfit-attention strong { font-weight: 650; text-transform: capitalize; }

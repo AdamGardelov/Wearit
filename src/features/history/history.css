@@ -1,0 +1,38 @@
+.history-view { min-height: 100dvh; padding: 34px 16px 112px; }
+.history-header, .history-list, .history-status { max-width: 920px; margin-right: auto; margin-left: auto; }
+.history-header { margin-bottom: 34px; }
+.history-header > p { margin: 0 0 8px; color: var(--accent); font-size: 11px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+.history-header h1 { margin: 0; font-size: clamp(30px, 8vw, 56px); font-weight: 430; letter-spacing: -.045em; }
+.history-header > span { display: block; margin-top: 12px; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.history-status { margin-top: 60px; color: var(--muted); }
+.history-status.error, .wear-error { color: var(--accent); }
+.history-list { display: grid; }
+.history-entry { display: grid; grid-template-columns: minmax(95px, .45fr) minmax(0, 1fr); gap: 18px; border-top: 1px solid var(--line); padding: 20px 0 26px; }
+.history-date { display: grid; align-content: start; gap: 6px; color: var(--muted); font-size: 11px; }
+.history-date span { color: var(--accent); }
+.history-copy h2 { margin: 0 0 10px; font-size: 16px; font-weight: 560; }
+.history-copy ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.history-copy li { display: flex; justify-content: space-between; gap: 12px; }
+.history-copy small { color: var(--accent); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+.history-copy > p { margin: 14px 0 0; color: var(--muted); font-size: 12px; }
+.wear-dialog-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; align-items: end; background: rgba(25, 24, 22, .35); }
+.wear-dialog { width: 100%; max-height: 92dvh; overflow: auto; border-top: 1px solid var(--line); padding: 24px 20px max(24px, env(safe-area-inset-bottom)); background: var(--paper); box-shadow: 0 -16px 50px rgba(25, 24, 22, .12); }
+.wear-dialog header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.wear-dialog header p { margin: 0 0 5px; color: var(--accent); font-size: 10px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+.wear-dialog h2 { margin: 0; font-size: 24px; font-weight: 480; }
+.wear-dialog header button { width: 44px; height: 44px; border: 0; background: transparent; font-size: 28px; cursor: pointer; }
+.wear-field { display: grid; gap: 7px; margin-top: 24px; }
+.wear-field > span, .wear-selection > span { color: var(--muted); font-size: 11px; letter-spacing: .07em; text-transform: uppercase; }
+.wear-field input, .wear-field textarea { width: 100%; min-height: 48px; border: 1px solid var(--line); padding: 10px 12px; background: transparent; color: var(--ink); font: inherit; }
+.wear-selection { margin-top: 24px; }
+.wear-selection ul { display: grid; gap: 5px; margin: 8px 0 0; padding-left: 20px; }
+.wear-error { margin: 14px 0 0; font-size: 12px; }
+.wear-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 28px; }
+.wear-dialog-actions button { min-height: 44px; border: 1px solid var(--line); padding: 10px 14px; background: transparent; color: var(--ink); cursor: pointer; }
+.wear-dialog-actions button:disabled { opacity: .55; cursor: not-allowed; }
+.wear-dialog-actions .wear-primary { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+@media (min-width: 700px) {
+  .history-view { padding: 72px 38px 130px; }
+  .wear-dialog-backdrop { place-items: center; padding: 24px; }
+  .wear-dialog { width: min(520px, 100%); border: 1px solid var(--line); padding: 32px; }
+}

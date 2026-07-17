@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import { createWardrobeRepository } from "./data/wardrobeRepository.js";
 import { DressingRoom } from "./features/dress/DressingRoom.jsx";
+import { HistoryView } from "./features/history/HistoryView.jsx";
+import { WearDialog } from "./features/history/WearDialog.jsx";
 import { OutfitsView } from "./features/outfits/OutfitsView.jsx";
 import { SaveOutfitDialog } from "./features/outfits/SaveOutfitDialog.jsx";
 import { WardrobeView } from "./features/wardrobe/WardrobeView.jsx";
@@ -20,6 +22,8 @@ export function App({ repository: injectedRepository }) {
   const [loadedOutfit, setLoadedOutfit] = useState(null);
   const [loadRequest, setLoadRequest] = useState(null);
   const [outfitsRefreshKey, setOutfitsRefreshKey] = useState(0);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [wearRequest, setWearRequest] = useState(null);
   const baseRepository = useMemo(
     () => injectedRepository ?? createWardrobeRepository(supabase),
     [injectedRepository],
@@ -44,6 +48,14 @@ export function App({ repository: injectedRepository }) {
       itemSnapshotRef.current = nextSnapshot;
       setItemSnapshot(nextSnapshot);
     };
+    const refreshItems = async () => {
+      const loadItems = typeof baseRepository.listItemsWithLastWorn === "function"
+        ? baseRepository.listItemsWithLastWorn.bind(baseRepository)
+        : baseRepository.listItems.bind(baseRepository);
+      const loadedItems = await loadItems();
+      synchronize(loadedItems);
+      return loadedItems;
+    };
 
     return {
       ...baseRepository,
@@ -53,11 +65,7 @@ export function App({ repository: injectedRepository }) {
         }
         if (!activeItemsRequest) {
           const request = Promise.resolve()
-            .then(() => baseRepository.listItems(options))
-            .then((loadedItems) => {
-              synchronize(loadedItems);
-              return loadedItems;
-            })
+            .then(refreshItems)
             .finally(() => {
               if (activeItemsRequest === request) activeItemsRequest = null;
             });
@@ -86,22 +94,26 @@ export function App({ repository: injectedRepository }) {
       },
       async archiveItem(itemId) {
         const archivedItem = await baseRepository.archiveItem(itemId);
-        synchronize(ownedItems().filter((item) => item.id !== itemId));
+        try {
+          await refreshItems();
+        } catch {
+          synchronize(ownedItems().filter((item) => item.id !== itemId));
+        }
+        setOutfitsRefreshKey((current) => current + 1);
         return archivedItem;
       },
+      refreshItems,
       async restoreItem(itemId) {
         const restoredItem = await baseRepository.restoreItem(itemId);
-        const existing = ownedItems().find((item) => item.id === itemId);
-        const synchronizedItem = {
-          ...existing,
-          ...restoredItem,
-          cutoutUrl: restoredItem.cutoutUrl ?? existing?.cutoutUrl,
-        };
-        synchronize([
-          ...ownedItems().filter((item) => item.id !== itemId),
-          synchronizedItem,
-        ]);
-        return synchronizedItem;
+        let refreshedItem = null;
+        try {
+          const refreshedItems = await refreshItems();
+          refreshedItem = refreshedItems.find((item) => item.id === itemId) ?? null;
+        } catch {
+          // The restore is committed; the next wardrobe load will retry the refresh.
+        }
+        setOutfitsRefreshKey((current) => current + 1);
+        return refreshedItem ?? restoredItem;
       },
     };
   }, [baseRepository]);
@@ -123,10 +135,31 @@ export function App({ repository: injectedRepository }) {
     setActionStatus(`Loaded ${outfit.name}.`);
   };
 
+  const requestWear = (selection, sourceOutfit = null) => {
+    const selectionIds = selection.map((item) => item.id).sort();
+    const sourceIds = (sourceOutfit?.items || []).map((item) => item.id).sort();
+    const keepsOutfitContext = sourceOutfit
+      && selectionIds.length === sourceIds.length
+      && selectionIds.every((itemId, index) => itemId === sourceIds[index]);
+    setWearRequest({
+      items: selection,
+      outfitId: keepsOutfitContext ? sourceOutfit.id : null,
+    });
+  };
+
   return (
     <div className="wearit-app">
+      <div
+        data-testid="wearit-background"
+        aria-hidden={wearRequest ? "true" : undefined}
+        inert={wearRequest ? true : undefined}
+      >
       <section className="app-section" hidden={section !== "wardrobe"}>
-        <WardrobeView repository={repository} active={section === "wardrobe"} />
+        <WardrobeView
+          repository={repository}
+          active={section === "wardrobe"}
+          onMarkWorn={(selection) => requestWear(selection)}
+        />
       </section>
       <section className="app-section" hidden={section !== "dress"}>
         <DressingRoom
@@ -137,7 +170,7 @@ export function App({ repository: injectedRepository }) {
             setActionStatus("");
             setSaveSelection(selection);
           }}
-          onWear={() => setActionStatus("Wear tracking is not available yet.")}
+          onWear={(selection) => requestWear(selection, loadedOutfit)}
         />
         {actionStatus && <p className="app-action-status" role="status">{actionStatus}</p>}
       </section>
@@ -148,6 +181,7 @@ export function App({ repository: injectedRepository }) {
             active={section === "outfits"}
             refreshKey={outfitsRefreshKey}
             onLoad={loadOutfit}
+            onWear={(selection, outfit) => requestWear(selection, outfit)}
           />
         ) : (
           <div className="placeholder-section">
@@ -156,9 +190,19 @@ export function App({ repository: injectedRepository }) {
           </div>
         )}
       </section>
-      <section className="app-section placeholder-section" hidden={section !== "history"}>
-        <p>History</p>
-        <h1>Wear history is not available yet.</h1>
+      <section className="app-section" hidden={section !== "history"}>
+        {typeof repository.listWearHistory === "function" ? (
+          <HistoryView
+            repository={repository}
+            active={section === "history"}
+            refreshKey={historyRefreshKey}
+          />
+        ) : (
+          <div className="placeholder-section">
+            <p>History</p>
+            <h1>Wear history is not available yet.</h1>
+          </div>
+        )}
       </section>
 
       <nav className="bottom-nav" aria-label="Primary">
@@ -188,6 +232,24 @@ export function App({ repository: injectedRepository }) {
             setLoadedOutfit(savedOutfit);
             setOutfitsRefreshKey((current) => current + 1);
             setActionStatus(`Saved ${savedOutfit.name}.`);
+          }}
+        />
+      )}
+      </div>
+      {wearRequest && (
+        <WearDialog
+          items={wearRequest.items}
+          outfitId={wearRequest.outfitId}
+          onClose={() => setWearRequest(null)}
+          onRecord={async (payload) => {
+            await repository.recordWear(payload);
+            try {
+              await repository.refreshItems();
+            } catch {
+              // The immutable event is saved; a later navigation will retry the refresh.
+            }
+            setHistoryRefreshKey((current) => current + 1);
+            setActionStatus("Wear recorded.");
           }}
         />
       )}

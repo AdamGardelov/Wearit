@@ -1,0 +1,80 @@
+import { useEffect, useMemo, useState } from "react";
+import "./history.css";
+
+function displayDate(value) {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(new Date(value));
+}
+
+export function HistoryView({ repository, active = true, refreshKey = 0 }) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!active) return undefined;
+    let mounted = true;
+    setLoading(true);
+    setError("");
+    repository.listWearHistory()
+      .then((loaded) => {
+        if (mounted) setEvents(loaded);
+      })
+      .catch((loadError) => {
+        if (mounted) setError(loadError.message || "Could not load wear history.");
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => { mounted = false; };
+  }, [active, refreshKey, repository]);
+
+  const orderedEvents = useMemo(
+    () => [...events].sort((left, right) => (
+      new Date(right.worn_at).getTime() - new Date(left.worn_at).getTime()
+    )),
+    [events],
+  );
+
+  return (
+    <main className="history-view" aria-busy={loading}>
+      <header className="history-header">
+        <p>History</p>
+        <h1>What you wore</h1>
+        <span>{orderedEvents.length} {orderedEvents.length === 1 ? "wear" : "wears"}</span>
+      </header>
+      {error && <p className="history-status error" role="alert">{error}</p>}
+      {!error && loading && <p className="history-status">Loading history</p>}
+      {!error && !loading && !orderedEvents.length && (
+        <p className="history-status">No wear history yet.</p>
+      )}
+      {!!orderedEvents.length && (
+        <section className="history-list" aria-label="Wear history">
+          {orderedEvents.map((event) => (
+            <article className="history-entry" key={event.id}>
+              <div className="history-date">
+                <time dateTime={event.worn_at}>{displayDate(event.worn_at)}</time>
+                {event.outfit?.name && <span>{event.outfit.name}</span>}
+              </div>
+              <div className="history-copy">
+                <h2>{event.items.length} {event.items.length === 1 ? "piece" : "pieces"}</h2>
+                <ul>
+                  {event.items.map((item) => (
+                    <li key={item.id || item.wardrobe_item_id}>
+                      <span>{item.name || "Unnamed garment"}</span>
+                      {item.status === "archived" && <small>Archived</small>}
+                    </li>
+                  ))}
+                </ul>
+                {event.notes && <p>{event.notes}</p>}
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+    </main>
+  );
+}

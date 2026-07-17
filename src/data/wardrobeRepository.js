@@ -1,6 +1,8 @@
 import { slotForCategory } from "../domain/slots.js";
 
 const OUTFIT_SELECT = "*, outfit_items(*, wardrobe_item:wardrobe_items(*))";
+const WEAR_HISTORY_SELECT =
+  "*, outfit:outfits(id, name), wear_event_items(*, wardrobe_item:wardrobe_items(id, name, status))";
 
 function dataOrThrow(result) {
   if (result.error) throw result.error;
@@ -109,23 +111,13 @@ export function createWardrobeRepository(client) {
 
   async function archiveItem(itemId) {
     return dataOrThrow(
-      await client
-        .from("wardrobe_items")
-        .update({ status: "archived", archived_at: new Date().toISOString() })
-        .eq("id", itemId)
-        .select()
-        .single(),
+      await client.rpc("archive_wardrobe_item", { p_item_id: itemId }),
     );
   }
 
   async function restoreItem(itemId) {
     return dataOrThrow(
-      await client
-        .from("wardrobe_items")
-        .update({ status: "active", archived_at: null })
-        .eq("id", itemId)
-        .select()
-        .single(),
+      await client.rpc("restore_wardrobe_item", { p_item_id: itemId }),
     );
   }
 
@@ -236,6 +228,73 @@ export function createWardrobeRepository(client) {
     }
   }
 
+  async function recordWear({ itemIds, wornAt, outfitId = null, notes = null }) {
+    const retryContext = {
+      itemIds: [...itemIds],
+      wornAt,
+      outfitId,
+      notes,
+    };
+    let result;
+    try {
+      result = await client.rpc("record_wear", {
+        p_item_ids: retryContext.itemIds,
+        p_worn_at: retryContext.wornAt,
+        p_outfit_id: retryContext.outfitId,
+        p_notes: retryContext.notes,
+      });
+    } catch (cause) {
+      const error = new Error(cause.message || "The wear event could not be saved.", { cause });
+      error.retryContext = retryContext;
+      throw error;
+    }
+    if (result.error) {
+      const error = new Error(result.error.message || "The wear event could not be saved.", {
+        cause: result.error,
+      });
+      error.retryContext = retryContext;
+      throw error;
+    }
+    return result.data;
+  }
+
+  async function listWearHistory() {
+    const events = dataOrThrow(
+      await client
+        .from("wear_events")
+        .select(WEAR_HISTORY_SELECT)
+        .order("worn_at", { ascending: false }),
+    ) || [];
+
+    return events.map((event) => ({
+      ...event,
+      items: (event.wear_event_items || [])
+        .map((row) => row.wardrobe_item && ({
+          ...row.wardrobe_item,
+          wardrobe_item_id: row.wardrobe_item_id,
+        }))
+        .filter(Boolean),
+    }));
+  }
+
+  async function listItemsWithLastWorn() {
+    const [items, lastWornRows] = await Promise.all([
+      listItems(),
+      dataOrThrow(
+        await client
+          .from("wardrobe_item_last_worn")
+          .select("wardrobe_item_id, last_worn_at"),
+      ) || [],
+    ]);
+    const lastWornByItem = new Map(
+      lastWornRows.map((row) => [row.wardrobe_item_id, row.last_worn_at]),
+    );
+    return items.map((item) => ({
+      ...item,
+      last_worn_at: lastWornByItem.get(item.id) ?? null,
+    }));
+  }
+
   return {
     listItems,
     updateItem,
@@ -243,6 +302,9 @@ export function createWardrobeRepository(client) {
     restoreItem,
     listOutfits,
     saveOutfit,
+    listWearHistory,
+    listItemsWithLastWorn,
+    recordWear,
     createSignedAssetUrls,
   };
 }

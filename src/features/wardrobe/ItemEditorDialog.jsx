@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Archive, Check, X } from "@phosphor-icons/react";
+import { Archive, CalendarCheck, Check, X } from "@phosphor-icons/react";
 import { CATEGORIES } from "../../domain/slots.js";
 import { OptimizedImage } from "../../OptimizedImage.jsx";
 
@@ -88,7 +88,14 @@ function initialDraft(item) {
   };
 }
 
-export function ItemEditorDialog({ item, onClose, onSave, onArchive, onRestoreFocus }) {
+export function ItemEditorDialog({
+  item,
+  onClose,
+  onSave,
+  onArchive,
+  onMarkWorn,
+  onRestoreFocus,
+}) {
   const dialogRef = useRef(null);
   const nameInputRef = useRef(null);
   const [draft, setDraft] = useState(() => initialDraft(item));
@@ -194,8 +201,8 @@ export function ItemEditorDialog({ item, onClose, onSave, onArchive, onRestoreFo
     setBusyAction("archive");
     try {
       await onArchive(item.id);
-    } catch (archiveError) {
-      setError(archiveError.message || "Could not archive this item.");
+    } catch {
+      setError("Changes were not saved. Try again.");
     } finally {
       setBusyAction(null);
     }
@@ -239,6 +246,12 @@ export function ItemEditorDialog({ item, onClose, onSave, onArchive, onRestoreFo
           </div>
 
           <form className="viewer-details editing" onSubmit={save}>
+            <p className="item-last-worn">
+              Last worn: {item.last_worn_at
+                ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium" })
+                  .format(new Date(item.last_worn_at))
+                : "Never"}
+            </p>
             <div className="item-editor">
               <label className="field">
                 <span>Name</span>
@@ -323,6 +336,15 @@ export function ItemEditorDialog({ item, onClose, onSave, onArchive, onRestoreFo
 
             {error && <p className="status error" role="alert">{error}</p>}
             <div className="viewer-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => onMarkWorn?.(item)}
+                disabled={Boolean(busyAction)}
+              >
+                <CalendarCheck size={15} weight="regular" aria-hidden="true" />
+                Mark worn
+              </button>
               <button
                 className="delete-button"
                 type="button"

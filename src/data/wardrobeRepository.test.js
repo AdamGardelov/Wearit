@@ -31,6 +31,117 @@ afterEach(() => {
 });
 
 describe("createWardrobeRepository", () => {
+  it("records a wear event with every selected item and retry-safe context", async () => {
+    const rpcError = new Error("database unavailable");
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: rpcError });
+    const client = { rpc };
+    const request = {
+      itemIds: ["item-a", "item-b"],
+      wornAt: "2026-07-17T08:00:00.000Z",
+      outfitId: "outfit-a",
+      notes: null,
+    };
+
+    const error = await createWardrobeRepository(client)
+      .recordWear(request)
+      .catch((reason) => reason);
+
+    expect(rpc).toHaveBeenCalledWith("record_wear", {
+      p_item_ids: ["item-a", "item-b"],
+      p_worn_at: "2026-07-17T08:00:00.000Z",
+      p_outfit_id: "outfit-a",
+      p_notes: null,
+    });
+    expect(error).toMatchObject({ cause: rpcError, retryContext: request });
+  });
+
+  it("returns the recorded event id when wear persistence succeeds", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "wear-event-1", error: null });
+
+    await expect(createWardrobeRepository({ rpc }).recordWear({
+      itemIds: ["item-a"],
+      wornAt: "2026-07-17T10:00:00.000Z",
+      outfitId: null,
+      notes: "Sunny",
+    })).resolves.toBe("wear-event-1");
+  });
+
+  it("preserves retry context when the wear request throws before a response", async () => {
+    const transportError = new Error("offline");
+    const request = {
+      itemIds: ["item-a"],
+      wornAt: "2026-07-17T10:00:00.000Z",
+      outfitId: null,
+      notes: null,
+    };
+
+    const error = await createWardrobeRepository({
+      rpc: vi.fn().mockRejectedValue(transportError),
+    }).recordWear(request).catch((reason) => reason);
+
+    expect(error).toMatchObject({
+      cause: transportError,
+      retryContext: request,
+    });
+  });
+
+  it("lists newest wear events with their immutable item membership", async () => {
+    const rows = [{
+      id: "wear-2",
+      worn_at: "2026-07-17T12:00:00.000Z",
+      outfit: { id: "outfit-a", name: "Office day" },
+      wear_event_items: [{
+        wardrobe_item_id: "archived-a",
+        wardrobe_item: { id: "archived-a", name: "Old trousers", status: "archived" },
+      }],
+    }];
+    const query = createQuery({ data: rows, error: null });
+    const client = { from: vi.fn(() => query) };
+
+    const result = await createWardrobeRepository(client).listWearHistory();
+
+    expect(client.from).toHaveBeenCalledWith("wear_events");
+    expect(query.select).toHaveBeenCalledWith(
+      "*, outfit:outfits(id, name), wear_event_items(*, wardrobe_item:wardrobe_items(id, name, status))",
+    );
+    expect(query.order).toHaveBeenCalledWith("worn_at", { ascending: false });
+    expect(result[0]).toMatchObject({
+      id: "wear-2",
+      items: [{ id: "archived-a", name: "Old trousers", status: "archived" }],
+    });
+  });
+
+  it("derives last-worn timestamps from the read-only view", async () => {
+    const itemQuery = createQuery({
+      data: [{ id: "item-a", cutout_path: "owner/item-a.png" }],
+      error: null,
+    });
+    const lastWornQuery = createQuery({
+      data: [{ wardrobe_item_id: "item-a", last_worn_at: "2026-07-16T12:00:00.000Z" }],
+      error: null,
+    });
+    const client = {
+      from: vi.fn((table) => table === "wardrobe_items" ? itemQuery : lastWornQuery),
+      storage: {
+        from: vi.fn(() => ({
+          createSignedUrls: vi.fn().mockResolvedValue({
+            data: [{ path: "owner/item-a.png", signedUrl: "https://assets.test/item-a" }],
+            error: null,
+          }),
+        })),
+      },
+    };
+
+    const result = await createWardrobeRepository(client).listItemsWithLastWorn();
+
+    expect(client.from).toHaveBeenCalledWith("wardrobe_item_last_worn");
+    expect(lastWornQuery.select).toHaveBeenCalledWith("wardrobe_item_id, last_worn_at");
+    expect(result).toEqual([expect.objectContaining({
+      id: "item-a",
+      last_worn_at: "2026-07-16T12:00:00.000Z",
+    })]);
+  });
+
   it("lists only active items by default", async () => {
     const query = createQuery({ data: [], error: null });
     const { client, createSignedUrls } = createClient(query);
@@ -134,30 +245,26 @@ describe("createWardrobeRepository", () => {
     expect(result).toEqual(saved);
   });
 
-  it("archives an item with an archive timestamp", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(NOW);
-    const archived = { id: "item-1", status: "archived", archived_at: NOW };
-    const query = createQuery({ data: archived, error: null });
-    const { client } = createClient(query);
+  it("archives through the transactional RPC", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
 
-    const result = await createWardrobeRepository(client).archiveItem("item-1");
+    await expect(createWardrobeRepository({ rpc }).archiveItem("item-1"))
+      .resolves.toBeNull();
 
-    expect(query.update).toHaveBeenCalledWith({ status: "archived", archived_at: NOW });
-    expect(query.eq).toHaveBeenCalledWith("id", "item-1");
-    expect(result).toEqual(archived);
+    expect(rpc).toHaveBeenCalledWith("archive_wardrobe_item", {
+      p_item_id: "item-1",
+    });
   });
 
-  it("restores an item to active status and clears its archive timestamp", async () => {
-    const restored = { id: "item-1", status: "active", archived_at: null };
-    const query = createQuery({ data: restored, error: null });
-    const { client } = createClient(query);
+  it("restores through the owner-validating transactional RPC", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
 
-    const result = await createWardrobeRepository(client).restoreItem("item-1");
+    await expect(createWardrobeRepository({ rpc }).restoreItem("item-1"))
+      .resolves.toBeNull();
 
-    expect(query.update).toHaveBeenCalledWith({ status: "active", archived_at: null });
-    expect(query.eq).toHaveBeenCalledWith("id", "item-1");
-    expect(result).toEqual(restored);
+    expect(rpc).toHaveBeenCalledWith("restore_wardrobe_item", {
+      p_item_id: "item-1",
+    });
   });
 
   it("rejects an update whose category has no mapped slot", async () => {
