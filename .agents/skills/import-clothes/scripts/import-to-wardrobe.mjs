@@ -102,7 +102,7 @@ const modeledDir = options.modeled ? path.resolve(options.modeled) : null;
 const manifestFile = path.resolve(options.manifest);
 const packageFile = path.join(repo, "package.json");
 const packageJson = await readJson(packageFile, null);
-if (!packageJson || packageJson.name !== "wardrobe") throw new Error(`Not a Wardrobe repository: ${repo}`);
+if (!packageJson || packageJson.name !== "wearit") throw new Error(`Not a Wearit repository: ${repo}`);
 
 const manifest = await readJson(manifestFile, null);
 if (!manifest || !Array.isArray(manifest.items)) throw new Error("Manifest must contain an items array");

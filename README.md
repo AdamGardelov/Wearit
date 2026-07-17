@@ -1,6 +1,6 @@
 <div align="center">
 
-# Wardrobe
+# Wearit
 
 Your clothes, extracted and organized with gpt-image.
 
@@ -18,8 +18,8 @@ Your clothes, extracted and organized with gpt-image.
 ## Quick start
 
 ```bash
-git clone https://github.com/tandpfun/wardrobe.git
-cd wardrobe
+git clone https://github.com/AdamGardelov/Wearit.git
+cd Wearit
 npm install
 cp .env.example .env
 npm run dev

@@ -1,4 +1,4 @@
-# Personal Wardrobe V1 Design
+# Wearit V1 Design
 
 **Date:** 2026-07-17
 
@@ -6,7 +6,7 @@
 
 ## Summary
 
-Adapt the upstream Wardrobe project into a private, phone-first wardrobe for one primary user. She photographs one garment at a time, a local Codex-assisted workflow prepares transparent cutouts, and the deployed application lets her combine those garments on a neutral faceless mannequin. She can save outfit combinations and record when either an outfit or an individual garment was worn.
+Adapt the upstream Wardrobe project into Wearit, a private, phone-first wardrobe for one primary user. She photographs one garment at a time, a local Codex-assisted workflow prepares transparent cutouts, and the deployed application lets her combine those garments on a neutral faceless mannequin. She can save outfit combinations and record when either an outfit or an individual garment was worn.
 
 V1 deliberately avoids generating images of her face or body. The dressing room is an instant 2D composition of approved garment cutouts on a synthetic mannequin. A later version may offer optional realistic AI rendering on a fully synthetic mannequin, but that is not part of this release.
 
