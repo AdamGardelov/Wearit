@@ -2,69 +2,62 @@
 
 # Wearit
 
-Your clothes, extracted and organized with gpt-image.
+A private wardrobe and outfit planner built around your real clothes and a faceless mannequin.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-191919?style=flat-square)](LICENSE)
 [![Node 22+](https://img.shields.io/badge/node-22%2B-191919?style=flat-square)](package.json)
 
-[See the original post →](https://x.com/cdngdev/status/2076812846793650485)
-
 </div>
 
-![Wardrobe gallery](docs/screenshots/gallery.png)
+Wearit is phone-first and works equally well on desktop. It lets one invited owner browse photographed garments, combine them on a neutral mannequin, save outfits with two or more pieces, and record what was worn and when.
 
-![Modeled wardrobe editor](docs/screenshots/editor.png)
+## Privacy model
 
-## Quick start
+- Supabase Auth protects the app; wardrobe rows and Storage assets are owner-scoped.
+- The browser uses only the Supabase URL and publishable key. No secret or service-role key belongs in Git or Vercel client variables.
+- Wearit does not need a personal face/body reference and does not generate photos of the owner wearing clothes.
+- Purpose-shot source files and Codex working files stay on local disk and outside Git, the app, and the bundle. When requested, their visual content is processed by Codex-managed built-in image tooling; strict on-device-only workflows need a separate local background remover. Only reviewed cutouts, explicitly selected detail derivatives, and metadata enter an import bundle.
+
+## Local development
+
+Requirements: Node.js 22+, npm, Docker, and the Supabase CLI dependency installed by `npm install`.
 
 ```bash
 git clone https://github.com/AdamGardelov/Wearit.git
 cd Wearit
 npm install
-cp .env.example .env
+npx supabase start
+cp .env.example .env.local
 npm run dev
 ```
 
-⚠️ The importer stays disabled until you add `OPENAI_API_KEY` to `.env` and place a PNG reference photo of yourself at `data/model-reference.png`.
+Copy the local publishable/anon key printed by `npx supabase status` into `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local`. Open [127.0.0.1:5173](http://127.0.0.1:5173). Local passwordless sign-in messages appear in Supabase Mailpit.
 
-Open [localhost:5173](http://localhost:5173).
+## Import clothes with Codex
 
-## Import with Codex
+Take a clear front photo of each garment against a simple background and place the purpose-shot photos in a dedicated local folder. Optional back/detail photos can help recover source-supported construction.
 
-This repo includes two Codex skills: one imports clothes and generates modeled item photos; the other styles complete outfits and generates a modeled lookbook.
+Then ask Codex:
 
 ```text
-$import-clothes Import the clothes from ~/Pictures/outfits, create modeled photos, and add them to this wardrobe.
-$generate-outfits Create modeled outfit ideas from my wardrobe.
+$import-clothes Prepare the purpose-shot clothes in ~/Pictures/wearit-import for Wearit.
 ```
 
-Open the cloned repo in Codex and run either prompt. The import skill asks for a local model-reference PNG when needed, reviews every cutout and modeled photo, then writes to `data/library.json` and `data/imported/`. The outfit skill asks how many looks to create, then curates, generates, verifies, and saves the complete collection under `data/`.
+The bundled skill creates evidence-bound transparent cutouts, keeps uncertain items on hold, and runs the deterministic bundle preparer. The output contains only `manifest.json` and accepted derivative assets. Sign in to Wearit and use the authenticated Admin import screen to align, review, and upload the bundle.
 
-### For agents
+Codex's built-in image capability performs the local preparation workflow; the deployed app does not require an AI API key.
 
-If you are setting up Wardrobe for a user, ask how they want to import their clothes:
+## Checks
 
-- **Codex:** Ask for a folder or camera-roll location and a model-reference PNG, then extract, model, and import the individual pieces by following [the bundled import skill](.agents/skills/import-clothes/SKILL.md). Afterward, offer to create a requested number of modeled looks with [the outfit-generation skill](.agents/skills/generate-outfits/SKILL.md).
-- **Web UI:** Help the user configure their own `OPENAI_API_KEY` and `data/model-reference.png`, then let them import through the app.
+```bash
+npm run test
+npm run test:db
+npm run build
+```
 
-## What it does
+## Credits
 
-- Detects every garment in a photo with the OpenAI Responses API
-- Extracts clean product cutouts with the OpenAI Images API
-- Generates an optional modeled editorial preview
-- Keeps originals, jobs, generated images, and the JSON database local in `data/`
-- Supports drag, drop, paste, editing, review, regeneration, and approval
-
-## Configuration
-
-| Variable | Default |
-| --- | --- |
-| `OPENAI_API_KEY` | Required |
-| `OPENAI_VISION_MODEL` | `gpt-5.4-mini` |
-| `OPENAI_IMAGE_MODEL` | `gpt-image-2` |
-| `OPENAI_IMAGE_QUALITY` | `high` |
-| `WARDROBE_MODEL_REFERENCE` | `data/model-reference.png` |
-| `WARDROBE_DATA_DIR` | `data` |
+Wearit began from [tandpfun/wardrobe](https://github.com/tandpfun/wardrobe) and is being reshaped into a private mannequin-based wardrobe.
 
 ## License
 
