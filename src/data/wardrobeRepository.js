@@ -1,8 +1,25 @@
 import { slotForCategory } from "../domain/slots.js";
 
+const OUTFIT_SELECT = "*, outfit_items(*, wardrobe_item:wardrobe_items(*))";
+
 function dataOrThrow(result) {
   if (result.error) throw result.error;
   return result.data;
+}
+
+function orderedOutfitItems(rows = []) {
+  return rows
+    .filter((row) => row.wardrobe_item)
+    .sort((left, right) => (
+      left.layer_order - right.layer_order
+      || String(left.wardrobe_item_id ?? left.wardrobe_item.id)
+        .localeCompare(String(right.wardrobe_item_id ?? right.wardrobe_item.id))
+    ))
+    .map((row) => ({
+      ...row.wardrobe_item,
+      saved_slot: row.slot,
+      saved_layer_order: row.layer_order,
+    }));
 }
 
 export function createWardrobeRepository(client) {
@@ -18,6 +35,24 @@ export function createWardrobeRepository(client) {
     const assetError = signedAssets.find((asset) => asset?.error)?.error;
     if (assetError) throw new Error(assetError);
     return signedAssets;
+  }
+
+  async function signOutfits(outfits) {
+    const thumbnailPaths = outfits
+      .map((outfit) => outfit.thumbnail_path)
+      .filter(Boolean);
+    const signedAssets = await createSignedAssetUrls(thumbnailPaths);
+    const signedUrlByPath = new Map(
+      signedAssets.map((asset) => [asset.path, asset.signedUrl]),
+    );
+
+    return outfits.map((outfit) => ({
+      ...outfit,
+      thumbnailUrl: outfit.thumbnail_path
+        ? signedUrlByPath.get(outfit.thumbnail_path) ?? null
+        : null,
+      items: orderedOutfitItems(outfit.outfit_items),
+    }));
   }
 
   async function listItems({ includeArchived = false } = {}) {
@@ -94,11 +129,120 @@ export function createWardrobeRepository(client) {
     );
   }
 
+  async function listOutfits() {
+    const outfits = dataOrThrow(
+      await client
+        .from("outfits")
+        .select(OUTFIT_SELECT)
+        .order("updated_at", { ascending: false }),
+    ) || [];
+    return signOutfits(outfits);
+  }
+
+  async function fetchOutfit(outfitId) {
+    const outfit = dataOrThrow(
+      await client
+        .from("outfits")
+        .select(OUTFIT_SELECT)
+        .eq("id", outfitId)
+        .single(),
+    );
+    return (await signOutfits([outfit]))[0];
+  }
+
+  async function removeAssets(paths) {
+    if (!paths.length) return null;
+    try {
+      const result = await client.storage.from("wardrobe-assets").remove(paths);
+      return result?.error ?? null;
+    } catch (error) {
+      return error;
+    }
+  }
+
+  async function saveOutfit({ id, name, items, thumbnailBlob }) {
+    const authResult = await client.auth.getUser();
+    if (authResult.error) throw authResult.error;
+    const ownerId = authResult.data?.user?.id;
+    if (!ownerId) throw new Error("Authentication is required.");
+
+    const outfitId = id ?? crypto.randomUUID();
+    let previousThumbnailPath = null;
+    if (id) {
+      const previousResult = await client
+        .from("outfits")
+        .select("thumbnail_path")
+        .eq("id", outfitId)
+        .maybeSingle();
+      if (previousResult.error) throw previousResult.error;
+      previousThumbnailPath = previousResult.data?.thumbnail_path ?? null;
+    }
+
+    const thumbnailVersionId = crypto.randomUUID();
+    const thumbnailPath = `${ownerId}/outfits/${outfitId}/thumbnail-${thumbnailVersionId}.webp`;
+    dataOrThrow(await client.storage.from("wardrobe-assets").upload(
+      thumbnailPath,
+      thumbnailBlob,
+      { contentType: "image/webp", upsert: false },
+    ));
+
+    const rpcResult = await client.rpc("save_outfit", {
+      p_outfit_id: outfitId,
+      p_name: name.trim(),
+      p_item_ids: items.map((item) => item.id),
+      p_thumbnail_path: thumbnailPath,
+    });
+    if (rpcResult.error) {
+      const rollbackCleanupError = await removeAssets([thumbnailPath]);
+      const error = new Error(
+        rollbackCleanupError
+          ? `The outfit could not be saved and its thumbnail remains at ${thumbnailPath}.`
+          : "The outfit could not be saved.",
+        { cause: rpcResult.error },
+      );
+      if (rollbackCleanupError) {
+        error.recoverable = true;
+        error.uploadedPath = thumbnailPath;
+        error.cleanupWarning = rollbackCleanupError.message || "Thumbnail cleanup failed.";
+      }
+      throw error;
+    }
+
+    const obsoleteThumbnailPath = previousThumbnailPath !== thumbnailPath
+      ? previousThumbnailPath
+      : null;
+    const cleanupError = obsoleteThumbnailPath
+      ? await removeAssets([obsoleteThumbnailPath])
+      : null;
+    const cleanupWarning = cleanupError
+      ? "The old thumbnail could not be removed and will need cleanup."
+      : "";
+
+    try {
+      const savedOutfit = await fetchOutfit(outfitId);
+      return cleanupWarning ? { ...savedOutfit, cleanupWarning } : savedOutfit;
+    } catch {
+      return {
+        id: outfitId,
+        name: name.trim(),
+        items,
+        thumbnail_path: thumbnailPath,
+        thumbnailUrl: null,
+        needs_attention: false,
+        committed: true,
+        refreshWarning: "The outfit was saved, but its refreshed preview could not be loaded.",
+        ...(cleanupWarning ? { cleanupWarning } : {}),
+      };
+    }
+  }
+
   return {
     listItems,
     updateItem,
     archiveItem,
     restoreItem,
+    listOutfits,
+    saveOutfit,
     createSignedAssetUrls,
   };
 }

@@ -1,0 +1,50 @@
+.outfits-view {
+  min-height: 100dvh;
+  padding: 34px 16px 112px;
+}
+
+.outfits-header { max-width: 1180px; margin: 0 auto 30px; }
+.outfits-header > p { margin: 0 0 8px; color: var(--accent); font-size: 11px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+.outfits-header h1 { margin: 0; font-size: clamp(30px, 8vw, 56px); font-weight: 430; letter-spacing: -.045em; }
+.outfits-header span { display: block; margin-top: 12px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.outfits-status { max-width: 1180px; margin: 60px auto; color: var(--muted); }
+.outfits-status.error, .outfit-error { color: var(--accent); }
+.outfits-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; max-width: 1180px; margin: 0 auto; }
+.outfit-card { min-width: 0; border-top: 1px solid var(--line); padding-top: 10px; }
+.outfit-thumbnail { aspect-ratio: 1 / 2; display: grid; place-items: center; overflow: hidden; background: #eee8de; color: var(--muted); font-size: 11px; }
+.outfit-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+.outfit-card-copy { padding-top: 12px; }
+.outfit-card h2 { margin: 0; font-size: 16px; font-weight: 560; }
+.outfit-card-copy > p { margin: 5px 0 12px; color: var(--muted); font-size: 11px; }
+.outfit-card button { width: 100%; min-height: 44px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper); cursor: pointer; }
+.outfit-card button:disabled { border-color: var(--line); background: transparent; color: var(--muted); cursor: not-allowed; }
+.outfit-attention { display: grid; gap: 3px; margin: 0 0 12px; border-left: 2px solid var(--accent); padding-left: 8px; color: var(--accent); font-size: 10px; line-height: 1.35; }
+.outfit-attention strong { font-weight: 650; text-transform: capitalize; }
+
+.outfit-dialog-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; align-items: end; background: rgba(25, 24, 22, .35); }
+.outfit-dialog { width: 100%; max-height: 92dvh; overflow: auto; border-top: 1px solid var(--line); padding: 24px 20px max(24px, env(safe-area-inset-bottom)); background: var(--paper); box-shadow: 0 -16px 50px rgba(25, 24, 22, .12); }
+.outfit-dialog header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.outfit-dialog header p { margin: 0 0 5px; color: var(--accent); font-size: 10px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+.outfit-dialog h2 { margin: 0; font-size: 24px; font-weight: 480; }
+.outfit-dialog header button { width: 44px; height: 44px; border: 0; background: transparent; font-size: 28px; cursor: pointer; }
+.outfit-name-field { display: grid; gap: 7px; margin-top: 28px; }
+.outfit-name-field span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
+.outfit-name-field input { min-height: 48px; border: 1px solid var(--line); padding: 10px 12px; background: transparent; color: var(--ink); font: inherit; }
+.outfit-validation, .outfit-duplicate, .outfit-error { margin: 14px 0 0; font-size: 12px; line-height: 1.45; }
+.outfit-duplicate { color: var(--accent); }
+.outfit-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 28px; }
+.outfit-dialog-actions button { min-height: 44px; border: 1px solid var(--line); padding: 10px 14px; cursor: pointer; }
+.outfit-dialog-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.outfit-primary { border-color: var(--ink) !important; background: var(--ink); color: var(--paper); }
+.outfit-secondary { background: transparent; color: var(--ink); }
+
+@media (min-width: 700px) {
+  .outfits-view { padding: 72px 38px 130px; }
+  .outfits-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 34px 24px; }
+  .outfit-dialog-backdrop { place-items: center; padding: 24px; }
+  .outfit-dialog { width: min(560px, 100%); border: 1px solid var(--line); padding: 32px; }
+}
+
+@media (min-width: 1100px) {
+  .outfits-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

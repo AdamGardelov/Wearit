@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(93);
+select plan(94);
 
 create function pg_temp.table_privileges(role_name name, relation regclass)
 returns text[]
@@ -131,13 +131,14 @@ select is(pg_temp.sqlstate_for($sql$select public.save_outfit(null, 'Missing', a
 select is(pg_temp.sqlstate_for($sql$select public.save_outfit(null, 'Same slot', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5'::uuid], null)$sql$), '22023', 'save_outfit rejects duplicate slots');
 select is(pg_temp.sqlstate_for($sql$select public.save_outfit(null, 'Dress mix', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'::uuid], null)$sql$), '22023', 'save_outfit rejects dresses mixed with separates');
 select is(pg_temp.sqlstate_for($sql$select public.save_outfit('3ccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'Bad path', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid], 'thumb.png')$sql$), '22023', 'save_outfit rejects malformed thumbnail paths');
-select is(pg_temp.sqlstate_for($sql$select public.save_outfit('3ccccccc-cccc-4ccc-8ccc-ccccccccccc2', 'Foreign path', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid], '32222222-2222-4222-8222-222222222222/outfits/3ccccccc-cccc-4ccc-8ccc-ccccccccccc2/thumbnail.webp')$sql$), '22023', 'save_outfit rejects another owner thumbnail path');
+select is(pg_temp.sqlstate_for($sql$select public.save_outfit('3ccccccc-cccc-4ccc-8ccc-ccccccccccc2', 'Stable path', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid], '31111111-1111-4111-8111-111111111111/outfits/3ccccccc-cccc-4ccc-8ccc-ccccccccccc2/thumbnail.webp')$sql$), '22023', 'save_outfit rejects overwrite-prone stable thumbnail paths');
+select is(pg_temp.sqlstate_for($sql$select public.save_outfit('3ccccccc-cccc-4ccc-8ccc-ccccccccccc2', 'Foreign path', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid], '32222222-2222-4222-8222-222222222222/outfits/3ccccccc-cccc-4ccc-8ccc-ccccccccccc2/thumbnail-11111111-1111-4111-8111-111111111111.webp')$sql$), '22023', 'save_outfit rejects another owner thumbnail path');
 
 create temporary table saved_ids (kind text primary key, id uuid not null);
-select is(public.save_outfit('3ccccccc-cccc-4ccc-8ccc-ccccccccccc3', 'Work look', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid], '31111111-1111-4111-8111-111111111111/outfits/3ccccccc-cccc-4ccc-8ccc-ccccccccccc3/thumbnail.webp'), '3ccccccc-cccc-4ccc-8ccc-ccccccccccc3'::uuid, 'save_outfit creates a caller-supplied unused outfit ID');
+select is(public.save_outfit('3ccccccc-cccc-4ccc-8ccc-ccccccccccc3', 'Work look', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid], '31111111-1111-4111-8111-111111111111/outfits/3ccccccc-cccc-4ccc-8ccc-ccccccccccc3/thumbnail-11111111-1111-4111-8111-111111111111.webp'), '3ccccccc-cccc-4ccc-8ccc-ccccccccccc3'::uuid, 'save_outfit creates a caller-supplied unused outfit ID');
 insert into saved_ids values ('outfit', '3ccccccc-cccc-4ccc-8ccc-ccccccccccc3');
 select is((select count(*) from public.outfits), 1::bigint, 'save_outfit creates one outfit');
-select is((select thumbnail_path from public.outfits), '31111111-1111-4111-8111-111111111111/outfits/3ccccccc-cccc-4ccc-8ccc-ccccccccccc3/thumbnail.webp', 'save_outfit stores the exact owner-scoped thumbnail path');
+select is((select thumbnail_path from public.outfits), '31111111-1111-4111-8111-111111111111/outfits/3ccccccc-cccc-4ccc-8ccc-ccccccccccc3/thumbnail-11111111-1111-4111-8111-111111111111.webp', 'save_outfit stores the exact owner-scoped versioned thumbnail path');
 select is((select count(*) from public.outfit_items), 2::bigint, 'save_outfit creates one association per item');
 select is((select string_agg(slot, ',' order by slot) from public.outfit_items), 'bottom,top', 'outfit associations snapshot item slots');
 select is(public.save_outfit((select id from saved_ids where kind = 'outfit'), 'Evening', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4'::uuid], null), (select id from saved_ids where kind = 'outfit'), 'save_outfit returns the updated outfit ID');

@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import { createWardrobeRepository } from "./data/wardrobeRepository.js";
 import { DressingRoom } from "./features/dress/DressingRoom.jsx";
+import { OutfitsView } from "./features/outfits/OutfitsView.jsx";
+import { SaveOutfitDialog } from "./features/outfits/SaveOutfitDialog.jsx";
 import { WardrobeView } from "./features/wardrobe/WardrobeView.jsx";
 import { supabase } from "./lib/supabase.js";
 
@@ -14,6 +16,10 @@ const SECTIONS = [
 export function App({ repository: injectedRepository }) {
   const [section, setSection] = useState("wardrobe");
   const [actionStatus, setActionStatus] = useState("");
+  const [saveSelection, setSaveSelection] = useState(null);
+  const [loadedOutfit, setLoadedOutfit] = useState(null);
+  const [loadRequest, setLoadRequest] = useState(null);
+  const [outfitsRefreshKey, setOutfitsRefreshKey] = useState(0);
   const baseRepository = useMemo(
     () => injectedRepository ?? createWardrobeRepository(supabase),
     [injectedRepository],
@@ -101,6 +107,22 @@ export function App({ repository: injectedRepository }) {
   }, [baseRepository]);
   const items = itemSnapshot.repository === baseRepository ? itemSnapshot.items : [];
 
+  const loadOutfit = (savedItems, outfit) => {
+    const liveItemsById = new Map(items.map((item) => [item.id, item]));
+    const composition = savedItems
+      .map((item) => liveItemsById.get(item.id) ?? item)
+      .filter((item) => item.status !== "archived");
+    setLoadedOutfit(outfit);
+    setLoadRequest((current) => ({
+      key: (current?.key ?? 0) + 1,
+      items: composition,
+      previousSourceOutfit: loadedOutfit,
+      sourceOutfit: outfit,
+    }));
+    setSection("dress");
+    setActionStatus(`Loaded ${outfit.name}.`);
+  };
+
   return (
     <div className="wearit-app">
       <section className="app-section" hidden={section !== "wardrobe"}>
@@ -109,14 +131,30 @@ export function App({ repository: injectedRepository }) {
       <section className="app-section" hidden={section !== "dress"}>
         <DressingRoom
           items={items}
-          onSave={() => setActionStatus("Outfit persistence is not available yet.")}
+          loadRequest={loadRequest}
+          onLoadedOutfitChange={setLoadedOutfit}
+          onSave={(selection) => {
+            setActionStatus("");
+            setSaveSelection(selection);
+          }}
           onWear={() => setActionStatus("Wear tracking is not available yet.")}
         />
         {actionStatus && <p className="app-action-status" role="status">{actionStatus}</p>}
       </section>
-      <section className="app-section placeholder-section" hidden={section !== "outfits"}>
-        <p>Outfits</p>
-        <h1>Saved outfits are not available yet.</h1>
+      <section className="app-section" hidden={section !== "outfits"}>
+        {typeof repository.listOutfits === "function" ? (
+          <OutfitsView
+            repository={repository}
+            active={section === "outfits"}
+            refreshKey={outfitsRefreshKey}
+            onLoad={loadOutfit}
+          />
+        ) : (
+          <div className="placeholder-section">
+            <p>Outfits</p>
+            <h1>Saved outfits are not available yet.</h1>
+          </div>
+        )}
       </section>
       <section className="app-section placeholder-section" hidden={section !== "history"}>
         <p>History</p>
@@ -139,6 +177,20 @@ export function App({ repository: injectedRepository }) {
           );
         })}
       </nav>
+
+      {saveSelection && (
+        <SaveOutfitDialog
+          items={saveSelection}
+          sourceOutfit={loadedOutfit}
+          repository={repository}
+          onClose={() => setSaveSelection(null)}
+          onSaved={(savedOutfit) => {
+            setLoadedOutfit(savedOutfit);
+            setOutfitsRefreshKey((current) => current + 1);
+            setActionStatus(`Saved ${savedOutfit.name}.`);
+          }}
+        />
+      )}
     </div>
   );
 }
