@@ -1,0 +1,1745 @@
+# Personal Wardrobe V1 Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+
+**Goal:** Build a private, responsive wardrobe that composes photographed garments on a faceless mannequin, saves outfit combinations, and records immutable wear history.
+
+**Architecture:** Keep the existing React/Vite client but replace the local JSON and unauthenticated import middleware with an owner-scoped Supabase repository. Vercel serves a static installable web app; Supabase Auth, Postgres, private Storage, RLS, and transactional database functions provide the backend. A local Codex workflow creates a deterministic import bundle, and an authenticated in-app admin view aligns and uploads only approved derivative assets.
+
+**Tech Stack:** React 19, Vite 6, Supabase JavaScript client and CLI, Postgres/RLS, Vitest, Testing Library, Playwright, Sharp, Vercel
+
+---
+
+## Execution shape
+
+This is one integrated plan because the vertical slices share the same ownership model, wardrobe repository, and responsive shell. Each task ends with working software and a focused commit. Do not begin the ten-garment pilot until Tasks 1-12 pass.
+
+Use Node 22 or newer. Run commands from the repository root. Never put Supabase secret keys, source photos, or generated import workspaces in Git.
+
+## File map
+
+### Remove after their replacements exist
+
+- **scripts/import-job-api.mjs** — unauthenticated local OpenAI HTTP API.
+- **src/import-flow.jsx** and **src/import-flow.css** — deployed browser importer.
+- **.agents/skills/generate-outfits/** — likeness-based modeled-look workflow outside V1.
+
+### Modify
+
+- **package.json**, **package-lock.json** — Supabase and test dependencies/scripts.
+- **vite.config.mjs** — React plus test-friendly build; no wardrobe import middleware.
+- **.env.example** — public Supabase configuration only.
+- **src/main.jsx**, **src/App.jsx**, **src/styles.css** — authenticated application shell.
+- **src/OptimizedImage.jsx** — native handling for private signed asset URLs.
+- **public/manifest.webmanifest**, **public/sw.js** — private Wardrobe naming and safe shell caching.
+- **README.md**, **CONTRIBUTING.md**, **.github/workflows/ci.yml** — setup, test, deploy, and CI instructions.
+- **.agents/skills/import-clothes/SKILL.md** and **.agents/skills/import-clothes/scripts/import-to-wardrobe.mjs** — cutout-only import bundles.
+
+### Create
+
+- **vitest.config.mjs**, **src/test/setup.js** — unit/component test harness.
+- **src/config.js**, **src/lib/supabase.js** — environment validation and browser client.
+- **src/auth/AuthProvider.jsx**, **src/auth/LoginScreen.jsx** — passwordless invited-user access.
+- **src/domain/slots.js**, **src/domain/mannequin.js**, **src/domain/outfits.js** — pure business rules.
+- **src/data/wardrobeRepository.js** — all Supabase queries, RPC calls, signed URLs, and uploads.
+- **src/features/wardrobe/** — gallery and item editor/archive flow.
+- **src/features/dress/** — mannequin canvas, garment tray, and dressing-room controls.
+- **src/features/outfits/** — saved outfit list, save/update/variation dialog, thumbnail rendering.
+- **src/features/history/** — wear recording and history timeline.
+- **src/features/admin/** — import bundle parsing, alignment, upload, and reconciliation.
+- **public/mannequin.svg** — canonical 600 by 1200 faceless neutral mannequin.
+- **supabase/config.toml**, **supabase/migrations/**, **supabase/tests/database/** — local backend and database tests.
+- **tests/e2e/**, **playwright.config.mjs** — browser acceptance coverage.
+- **scripts/prepare-import-bundle.mjs**, **tests/import/prepare-import-bundle.test.mjs** — deterministic local bundle tool.
+- **docs/import-pilot.md**, **docs/deployment.md** — operational handoff.
+
+### Boundaries
+
+- React components never call Supabase directly. They call **wardrobeRepository.js**.
+- Database functions own multi-row invariants for saved outfits and wear events.
+- Domain modules are pure and do not import React, Supabase, DOM, or Storage.
+- Raw photos are read only by the local Codex workflow. The browser bundle contains approved cutouts and metadata only.
+- The Supabase publishable key may be in the browser. A secret or service-role key may not.
+
+## Task 1: Add the test harness and public environment contract
+
+**Files:**
+- Modify: **package.json**
+- Modify: **package-lock.json**
+- Create: **vitest.config.mjs**
+- Create: **src/test/setup.js**
+- Create: **src/config.test.js**
+- Create: **src/config.js**
+
+- [ ] **Step 1: Install runtime and test dependencies**
+
+Run:
+
+~~~bash
+npm install @supabase/supabase-js
+npm install --save-dev supabase vitest jsdom @testing-library/react @testing-library/jest-dom @testing-library/user-event @playwright/test
+~~~
+
+Expected: package.json and package-lock.json change with no audit command required for correctness.
+
+- [ ] **Step 2: Add exact test scripts and Vitest configuration**
+
+Set the package scripts to:
+
+~~~json
+{
+  "dev": "vite",
+  "build": "vite build",
+  "preview": "vite preview",
+  "test": "vitest run",
+  "test:watch": "vitest",
+  "test:db": "supabase test db",
+  "test:e2e": "playwright test",
+  "check": "npm run test && npm run build"
+}
+~~~
+
+Create **vitest.config.mjs**:
+
+~~~js
+import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.js"],
+    restoreMocks: true,
+    clearMocks: true,
+  },
+});
+~~~
+
+Create **src/test/setup.js**:
+
+~~~js
+import "@testing-library/jest-dom/vitest";
+import { vi } from "vitest";
+
+vi.stubEnv("VITE_SUPABASE_URL", "http://127.0.0.1:54321");
+vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test");
+~~~
+
+- [ ] **Step 3: Write the failing public-environment test**
+
+Create **src/config.test.js**:
+
+~~~js
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { readPublicConfig } from "./config.js";
+
+describe("readPublicConfig", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("returns the Supabase public configuration", () => {
+    vi.stubEnv("VITE_SUPABASE_URL", "https://wardrobe.supabase.co");
+    vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test");
+
+    expect(readPublicConfig(import.meta.env)).toEqual({
+      supabaseUrl: "https://wardrobe.supabase.co",
+      supabasePublishableKey: "sb_publishable_test",
+    });
+  });
+
+  it("rejects a missing public value without printing secrets", () => {
+    expect(() => readPublicConfig({})).toThrow("VITE_SUPABASE_URL");
+  });
+});
+~~~
+
+- [ ] **Step 4: Run the focused test and verify the red state**
+
+Run: **npm test -- src/config.test.js**
+
+Expected: FAIL because **src/config.js** does not exist.
+
+- [ ] **Step 5: Implement the public configuration reader**
+
+Create **src/config.js**:
+
+~~~js
+export function readPublicConfig(env) {
+  const supabaseUrl = env.VITE_SUPABASE_URL?.trim();
+  const supabasePublishableKey = env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+  if (!supabaseUrl) throw new Error("Missing VITE_SUPABASE_URL.");
+  if (!supabasePublishableKey) throw new Error("Missing VITE_SUPABASE_PUBLISHABLE_KEY.");
+  return { supabaseUrl, supabasePublishableKey };
+}
+~~~
+
+Run: **npm test -- src/config.test.js**
+
+Expected: 2 tests PASS.
+
+- [ ] **Step 6: Commit the harness**
+
+~~~bash
+git add package.json package-lock.json vitest.config.mjs src/test/setup.js src/config.js src/config.test.js
+git commit -m "test: add wardrobe test harness"
+~~~
+
+## Task 2: Create the owner-scoped wardrobe database and private bucket
+
+**Files:**
+- Create: **supabase/config.toml**
+- Create: **supabase/migrations/202607170001_wardrobe_foundation.sql**
+- Create: **supabase/tests/database/wardrobe_foundation.test.sql**
+- Modify: **package.json**
+
+- [ ] **Step 1: Initialize the local Supabase project**
+
+Run:
+
+~~~bash
+npx supabase init
+~~~
+
+Keep the generated **supabase/config.toml**, set **auth.enable_signup = false**, and keep the local site URL at **http://127.0.0.1:5173**.
+
+- [ ] **Step 2: Write the failing pgTAP schema contract**
+
+Create **supabase/tests/database/wardrobe_foundation.test.sql**:
+
+~~~sql
+begin;
+create extension if not exists pgtap with schema extensions;
+select plan(12);
+
+select has_table('public', 'profiles', 'profiles exists');
+select has_table('public', 'wardrobe_items', 'wardrobe_items exists');
+select has_column('public', 'wardrobe_items', 'owner_id', 'items have an owner');
+select has_column('public', 'wardrobe_items', 'anchor_x', 'items have mannequin x');
+select has_column('public', 'wardrobe_items', 'anchor_y', 'items have mannequin y');
+select has_column('public', 'wardrobe_items', 'scale', 'items have mannequin scale');
+select has_column('public', 'wardrobe_items', 'rotation_degrees', 'items have rotation');
+select has_column('public', 'wardrobe_items', 'layer_order', 'items have layer order');
+select col_is_fk('public', 'wardrobe_items', 'owner_id', 'item owner is a foreign key');
+select policies_are('public', 'wardrobe_items',
+  array['owners_select_items', 'owners_insert_items', 'owners_update_items'],
+  'items expose only owner policies');
+select is((select public.wardrobe_slot_for_category('dress')), 'dress', 'dress maps to dress');
+select is((select public.wardrobe_slot_for_category('jacket')), 'outerwear', 'jacket maps to outerwear');
+
+select * from finish();
+rollback;
+~~~
+
+Run:
+
+~~~bash
+npx supabase start
+npm run test:db
+~~~
+
+Expected: FAIL because the tables and function do not exist.
+
+- [ ] **Step 3: Add the complete foundation migration**
+
+Create **supabase/migrations/202607170001_wardrobe_foundation.sql** with:
+
+~~~sql
+create extension if not exists pgcrypto;
+
+create table public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  display_name text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create or replace function public.create_profile_for_user()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+begin
+  insert into public.profiles (id, display_name)
+  values (new.id, coalesce(new.raw_user_meta_data ->> 'name', ''))
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+create trigger auth_user_created
+after insert on auth.users
+for each row execute function public.create_profile_for_user();
+
+create or replace function public.wardrobe_slot_for_category(category text)
+returns text language sql immutable set search_path = ''
+as $$
+  select case category
+    when 'top' then 'top'
+    when 'bottom' then 'bottom'
+    when 'dress' then 'dress'
+    when 'jacket' then 'outerwear'
+    when 'coat' then 'outerwear'
+    when 'shoes' then 'shoes'
+    when 'accessory' then 'accessory'
+    else null
+  end;
+$$;
+
+create table public.wardrobe_items (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references public.profiles(id) on delete cascade,
+  name text not null check (char_length(trim(name)) between 1 and 120),
+  category text not null check (category in ('top', 'bottom', 'dress', 'jacket', 'coat', 'shoes', 'accessory')),
+  slot text not null check (slot in ('top', 'bottom', 'dress', 'outerwear', 'shoes', 'accessory')),
+  brand text,
+  size text,
+  notes text,
+  colors text[] not null default '{}',
+  tags text[] not null default '{}',
+  cutout_path text not null,
+  detail_image_paths text[] not null default '{}',
+  anchor_x double precision not null default 0.5 check (anchor_x between 0 and 1),
+  anchor_y double precision not null default 0.5 check (anchor_y between 0 and 1),
+  scale double precision not null default 0.5 check (scale between 0.05 and 2),
+  rotation_degrees double precision not null default 0 check (rotation_degrees between -180 and 180),
+  layer_order integer not null default 30 check (layer_order between 0 and 100),
+  status text not null default 'active' check (status in ('active', 'archived')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  archived_at timestamptz,
+  unique (owner_id, id),
+  check (slot = public.wardrobe_slot_for_category(category)),
+  check ((status = 'archived') = (archived_at is not null))
+);
+
+create index wardrobe_items_owner_status_idx
+on public.wardrobe_items (owner_id, status, created_at desc);
+
+alter table public.profiles enable row level security;
+alter table public.wardrobe_items enable row level security;
+
+create policy owners_select_profile on public.profiles
+for select to authenticated using ((select auth.uid()) = id);
+create policy owners_update_profile on public.profiles
+for update to authenticated
+using ((select auth.uid()) = id)
+with check ((select auth.uid()) = id);
+
+create policy owners_select_items on public.wardrobe_items
+for select to authenticated using ((select auth.uid()) = owner_id);
+create policy owners_insert_items on public.wardrobe_items
+for insert to authenticated with check ((select auth.uid()) = owner_id);
+create policy owners_update_items on public.wardrobe_items
+for update to authenticated
+using ((select auth.uid()) = owner_id)
+with check ((select auth.uid()) = owner_id);
+
+grant select, update on public.profiles to authenticated;
+grant select, insert, update on public.wardrobe_items to authenticated;
+revoke delete on public.profiles, public.wardrobe_items from authenticated, anon;
+
+insert into storage.buckets (id, name, public)
+values ('wardrobe-assets', 'wardrobe-assets', false)
+on conflict (id) do update set public = false;
+
+create policy owners_select_assets on storage.objects
+for select to authenticated
+using (
+  bucket_id = 'wardrobe-assets'
+  and (storage.foldername(name))[1] = (select auth.uid())::text
+);
+create policy owners_insert_assets on storage.objects
+for insert to authenticated
+with check (
+  bucket_id = 'wardrobe-assets'
+  and (storage.foldername(name))[1] = (select auth.uid())::text
+);
+create policy owners_update_assets on storage.objects
+for update to authenticated
+using (
+  bucket_id = 'wardrobe-assets'
+  and (storage.foldername(name))[1] = (select auth.uid())::text
+)
+with check (
+  bucket_id = 'wardrobe-assets'
+  and (storage.foldername(name))[1] = (select auth.uid())::text
+);
+create policy owners_delete_assets on storage.objects
+for delete to authenticated
+using (
+  bucket_id = 'wardrobe-assets'
+  and (storage.foldername(name))[1] = (select auth.uid())::text
+);
+~~~
+
+- [ ] **Step 4: Reset and verify the database**
+
+Run:
+
+~~~bash
+npx supabase db reset
+npm run test:db
+~~~
+
+Expected: 12 pgTAP assertions PASS.
+
+- [ ] **Step 5: Commit the backend foundation**
+
+~~~bash
+git add package.json package-lock.json supabase
+git commit -m "feat: add private wardrobe database"
+~~~
+
+## Task 3: Add invitation-only passwordless authentication
+
+**Files:**
+- Modify: **.env.example**
+- Create: **src/lib/supabase.js**
+- Create: **src/auth/AuthProvider.jsx**
+- Create: **src/auth/AuthProvider.test.jsx**
+- Create: **src/auth/LoginScreen.jsx**
+- Create: **src/auth/LoginScreen.test.jsx**
+- Modify: **src/main.jsx**
+
+- [ ] **Step 1: Replace the OpenAI environment example**
+
+Set **.env.example** to:
+
+~~~dotenv
+VITE_SUPABASE_URL=http://127.0.0.1:54321
+VITE_SUPABASE_PUBLISHABLE_KEY=
+~~~
+
+The local publishable key comes from **npx supabase status -o env**. Do not add a secret key.
+
+- [ ] **Step 2: Write failing auth-provider and login tests**
+
+The provider test must assert initial loading, session resolution, auth event updates, and subscription cleanup. The login test must assert this exact call:
+
+~~~js
+expect(signInWithOtp).toHaveBeenCalledWith({
+  email: "wife@example.com",
+  options: {
+    emailRedirectTo: window.location.origin,
+    shouldCreateUser: false,
+  },
+});
+~~~
+
+Run: **npm test -- src/auth**
+
+Expected: FAIL because the auth components do not exist.
+
+- [ ] **Step 3: Create the browser client and provider**
+
+Create **src/lib/supabase.js**:
+
+~~~js
+import { createClient } from "@supabase/supabase-js";
+import { readPublicConfig } from "../config.js";
+
+const config = readPublicConfig(import.meta.env);
+
+export const supabase = createClient(
+  config.supabaseUrl,
+  config.supabasePublishableKey,
+  { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } },
+);
+~~~
+
+Create **src/auth/AuthProvider.jsx** with an exported **AuthProvider**, **useAuth**, and injectable **client** prop. On mount, call **client.auth.getSession()**, subscribe with **onAuthStateChange**, and unsubscribe on cleanup. Expose:
+
+~~~js
+{
+  loading,
+  session,
+  user: session?.user ?? null,
+  signOut: () => client.auth.signOut(),
+}
+~~~
+
+- [ ] **Step 4: Create the passwordless login screen**
+
+Create **src/auth/LoginScreen.jsx** with a labeled email input and **Email me a sign-in link** button. Submit with:
+
+~~~js
+await client.auth.signInWithOtp({
+  email: email.trim(),
+  options: {
+    emailRedirectTo: window.location.origin,
+    shouldCreateUser: false,
+  },
+});
+~~~
+
+Show **Check your email for the private sign-in link.** on success and the returned safe error message on failure. Never imply that a new account was created.
+
+- [ ] **Step 5: Gate the application in main.jsx**
+
+Wrap **App** in **AuthProvider**. Render a neutral loading screen while auth initializes, **LoginScreen** without a session, and **App** with a session.
+
+Run:
+
+~~~bash
+npm test -- src/auth
+npm run build
+~~~
+
+Expected: auth tests PASS and the production build exits 0.
+
+- [ ] **Step 6: Commit authentication**
+
+~~~bash
+git add .env.example src/lib src/auth src/main.jsx
+git commit -m "feat: add private passwordless access"
+~~~
+
+## Task 4: Replace local JSON with the Supabase wardrobe repository
+
+**Files:**
+- Create: **src/domain/slots.js**
+- Create: **src/data/wardrobeRepository.js**
+- Create: **src/data/wardrobeRepository.test.js**
+- Create: **src/features/wardrobe/WardrobeView.jsx**
+- Create: **src/features/wardrobe/WardrobeView.test.jsx**
+- Create: **src/features/wardrobe/ItemEditorDialog.jsx**
+- Modify: **src/App.jsx**
+- Modify: **src/OptimizedImage.jsx**
+- Modify: **vite.config.mjs**
+- Delete: **src/import-flow.jsx**
+- Delete: **src/import-flow.css**
+- Delete: **scripts/import-job-api.mjs**
+
+- [ ] **Step 1: Define the shared taxonomy**
+
+Create **src/domain/slots.js**:
+
+~~~js
+export const CATEGORIES = [
+  { id: "all", label: "All" },
+  { id: "top", label: "Tops", slot: "top" },
+  { id: "bottom", label: "Bottoms", slot: "bottom" },
+  { id: "dress", label: "Dresses", slot: "dress" },
+  { id: "jacket", label: "Jackets", slot: "outerwear" },
+  { id: "coat", label: "Coats", slot: "outerwear" },
+  { id: "shoes", label: "Shoes", slot: "shoes" },
+  { id: "accessory", label: "Accessories", slot: "accessory" },
+];
+
+export const CATEGORY_BY_ID = Object.fromEntries(
+  CATEGORIES.map((category) => [category.id, category]),
+);
+
+export function slotForCategory(category) {
+  return CATEGORY_BY_ID[category]?.slot ?? null;
+}
+~~~
+
+- [ ] **Step 2: Write the failing repository contract**
+
+Mock the supplied Supabase client and cover:
+
+- list active or archived items;
+- batch-create signed URLs for cutouts;
+- update only editable metadata and placement fields;
+- archive with **status: archived** and a non-null **archived_at**;
+- reject an update whose category does not map to its slot.
+
+Run: **npm test -- src/data/wardrobeRepository.test.js**
+
+Expected: FAIL because the repository does not exist.
+
+- [ ] **Step 3: Implement the repository**
+
+Create **createWardrobeRepository(client)**. Its public API is:
+
+~~~js
+{
+  listItems({ includeArchived = false }),
+  updateItem(item),
+  archiveItem(itemId),
+  restoreItem(itemId),
+  createSignedAssetUrls(paths, expiresIn = 3600),
+}
+~~~
+
+Use **client.from("wardrobe_items")** for records and **client.storage.from("wardrobe-assets").createSignedUrls(paths, expiresIn)** for display URLs. Return each record with **cutoutUrl** added; never persist a signed URL.
+
+The editable payload is exactly:
+
+~~~js
+{
+  name,
+  category,
+  slot: slotForCategory(category),
+  brand,
+  size,
+  notes,
+  colors,
+  tags,
+  anchor_x,
+  anchor_y,
+  scale,
+  rotation_degrees,
+  layer_order,
+  updated_at: new Date().toISOString(),
+}
+~~~
+
+- [ ] **Step 4: Write the gallery component test**
+
+Render **WardrobeView** with an injected repository. Verify loading, category filtering, editing, and Archive. Archive must remove the item from the active gallery only after the repository resolves; on rejection it remains and an alert is shown.
+
+Run: **npm test -- src/features/wardrobe**
+
+Expected: FAIL because the components do not exist.
+
+- [ ] **Step 5: Replace App.jsx with the repository-backed shell**
+
+Create the repository once from the authenticated Supabase client. Move the current gallery and editor behavior into focused components, preserving palette extraction and metadata editing. Replace Delete with Archive and remove all localStorage edit/deletion keys.
+
+Change **OptimizedImage.jsx** so absolute **https:** signed URLs render as a native img element instead of passing through the local IPX filesystem adapter:
+
+~~~js
+const isRemote = /^https?:\/\//.test(normalizedSource || "");
+if (!normalizedSource || isRemote || normalizedSource.startsWith("data:")
+  || normalizedSource.startsWith("blob:") || normalizedSource.startsWith("/api/")) {
+  return <img ref={ref} src={src} alt={alt} sizes={sizes}
+    loading={loading || (priority ? "eager" : "lazy")}
+    decoding={decoding || "async"} {...props} />;
+}
+~~~
+
+Remove **wardrobeImportApi** from **vite.config.mjs**, delete the legacy import UI/server files, and remove their imports.
+
+- [ ] **Step 6: Verify and commit the repository slice**
+
+Run:
+
+~~~bash
+npm test -- src/data src/features/wardrobe
+npm run build
+~~~
+
+Expected: focused tests PASS and no build reference to **/api/import** remains.
+
+~~~bash
+git add src vite.config.mjs scripts
+git commit -m "feat: load wardrobe from Supabase"
+~~~
+
+## Task 5: Implement deterministic mannequin state
+
+**Files:**
+- Create: **src/domain/mannequin.js**
+- Create: **src/domain/mannequin.test.js**
+
+- [ ] **Step 1: Write the complete reducer tests**
+
+Cover these cases with named items containing **id** and **slot**:
+
+~~~js
+it("replaces an item in the same slot");
+it("selecting a dress clears top and bottom");
+it("selecting a top clears a dress");
+it("selecting a bottom clears a dress");
+it("keeps outerwear shoes and accessory");
+it("undo restores the prior complete selection");
+it("clear can be undone");
+it("ignores a malformed item");
+~~~
+
+Run: **npm test -- src/domain/mannequin.test.js**
+
+Expected: FAIL because the reducer does not exist.
+
+- [ ] **Step 2: Implement the reducer**
+
+Create **src/domain/mannequin.js**:
+
+~~~js
+export const EMPTY_MANNEQUIN = { selectedBySlot: {}, history: [] };
+
+function nextSelection(current, item) {
+  const next = { ...current, [item.slot]: item };
+  if (item.slot === "dress") {
+    delete next.top;
+    delete next.bottom;
+  }
+  if (item.slot === "top" || item.slot === "bottom") delete next.dress;
+  return next;
+}
+
+export function mannequinReducer(state, action) {
+  if (action.type === "select") {
+    const item = action.item;
+    if (!item?.id || !item?.slot) return state;
+    return {
+      selectedBySlot: nextSelection(state.selectedBySlot, item),
+      history: [...state.history, state.selectedBySlot],
+    };
+  }
+  if (action.type === "clear") {
+    if (!Object.keys(state.selectedBySlot).length) return state;
+    return {
+      selectedBySlot: {},
+      history: [...state.history, state.selectedBySlot],
+    };
+  }
+  if (action.type === "load") {
+    return {
+      selectedBySlot: Object.fromEntries(action.items.map((item) => [item.slot, item])),
+      history: [...state.history, state.selectedBySlot],
+    };
+  }
+  if (action.type === "undo") {
+    if (!state.history.length) return state;
+    return {
+      selectedBySlot: state.history.at(-1),
+      history: state.history.slice(0, -1),
+    };
+  }
+  return state;
+}
+
+export function selectedItems(state) {
+  return Object.values(state.selectedBySlot)
+    .sort((first, second) => first.layer_order - second.layer_order);
+}
+~~~
+
+- [ ] **Step 3: Verify and commit the domain rule**
+
+Run: **npm test -- src/domain/mannequin.test.js**
+
+Expected: 8 tests PASS.
+
+~~~bash
+git add src/domain/mannequin.js src/domain/mannequin.test.js
+git commit -m "feat: add mannequin composition rules"
+~~~
+
+## Task 6: Build the phone-first responsive dressing room
+
+**Files:**
+- Create: **public/mannequin.svg**
+- Create: **src/features/dress/MannequinCanvas.jsx**
+- Create: **src/features/dress/GarmentTray.jsx**
+- Create: **src/features/dress/DressingRoom.jsx**
+- Create: **src/features/dress/DressingRoom.test.jsx**
+- Create: **src/features/dress/dress.css**
+- Modify: **src/App.jsx**
+- Modify: **src/styles.css**
+
+- [ ] **Step 1: Create the canonical mannequin asset**
+
+Create a 600 by 1200 SVG with a transparent background, a centered neutral warm-gray body silhouette, no face, no hair, no anatomy detail, and enough margin for coats and dresses. Its viewBox is **0 0 600 1200** and it has **role presentation** at render time.
+
+Use this exact starting asset:
+
+~~~svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1200">
+  <g fill="#d8d1c7">
+    <circle cx="300" cy="105" r="68"/>
+    <rect x="272" y="168" width="56" height="68" rx="24"/>
+    <path d="M222 224 Q300 188 378 224 L414 514 Q392 588 366 640 L354 1112 H306 L292 690 H308 L294 1112 H246 L234 640 Q208 588 186 514 Z"/>
+    <path d="M212 246 Q172 282 156 390 L126 668 Q124 700 150 704 Q178 704 184 674 L224 390 Z"/>
+    <path d="M388 246 Q428 282 444 390 L474 668 Q476 700 450 704 Q422 704 416 674 L376 390 Z"/>
+    <ellipse cx="270" cy="1140" rx="62" ry="24"/>
+    <ellipse cx="330" cy="1140" rx="62" ry="24"/>
+  </g>
+</svg>
+~~~
+
+- [ ] **Step 2: Write the failing interaction test**
+
+Render **DressingRoom** with a top, bottom, dress, jacket, shoes, and accessory. Verify:
+
+- tapping the top and bottom renders both named garment images;
+- tapping the dress removes the top and bottom;
+- tapping the jacket keeps the dress and renders above it;
+- Undo restores top and bottom;
+- Clear empties the outfit;
+- Save outfit is disabled for fewer than two selected items.
+
+Run: **npm test -- src/features/dress/DressingRoom.test.jsx**
+
+Expected: FAIL because the dressing-room components do not exist.
+
+- [ ] **Step 3: Implement the mannequin canvas**
+
+Render a fixed-aspect stage with the base SVG and one absolute image per selected item:
+
+~~~jsx
+<img
+  className="mannequin-garment"
+  src={item.cutoutUrl}
+  alt={item.name}
+  style={{
+    left: String(item.anchor_x * 100) + "%",
+    top: String(item.anchor_y * 100) + "%",
+    width: String(item.scale * 100) + "%",
+    zIndex: item.layer_order,
+    transform: "translate(-50%, -50%) rotate(" + item.rotation_degrees + "deg)",
+  }}
+/>
+~~~
+
+The stage uses **aspect-ratio: 1 / 2**, **position: relative**, and **overflow: hidden**. Garment images use **height: auto**, **pointer-events: none**, and **object-fit: contain**.
+
+- [ ] **Step 4: Implement the tray and controls**
+
+Use **useReducer(mannequinReducer, EMPTY_MANNEQUIN)**. Category chips filter the tray without changing the current selection. Item buttons expose **aria-pressed**. Controls call **undo**, **clear**, **onSave(selectedItems(state))**, and **onWear(selectedItems(state))**.
+
+Phone layout:
+
+- mannequin occupies the main viewport;
+- horizontal touch-scroll tray below it;
+- sticky bottom navigation for Wardrobe, Dress, Outfits, History;
+- minimum 44 by 44 pixel controls.
+
+Desktop layout at 900 pixels and wider:
+
+- wardrobe/tray left;
+- mannequin center;
+- current selected-item summary right.
+
+- [ ] **Step 5: Integrate the application navigation**
+
+Keep the current section in App state with values **wardrobe**, **dress**, **outfits**, and **history**. Do not add a routing dependency. Pass the same loaded item collection to Wardrobe and Dress so switching sections does not refetch or lose the in-memory composition.
+
+- [ ] **Step 6: Verify responsiveness and commit**
+
+Run:
+
+~~~bash
+npm test -- src/domain/mannequin.test.js src/features/dress/DressingRoom.test.jsx
+npm run build
+~~~
+
+Expected: all tests PASS and the build exits 0.
+
+~~~bash
+git add public/mannequin.svg src/App.jsx src/styles.css src/features/dress
+git commit -m "feat: add responsive mannequin dressing room"
+~~~
+
+## Task 7: Add transactional outfits and immutable wear events
+
+**Files:**
+- Create: **supabase/migrations/202607170002_outfits_and_wear.sql**
+- Create: **supabase/tests/database/outfits_and_wear.test.sql**
+
+- [ ] **Step 1: Write failing database behavior tests**
+
+The pgTAP test creates two users and representative items, then verifies:
+
+- an owner can select only their outfits and wear events;
+- another authenticated user sees zero rows;
+- **save_outfit** rejects one item;
+- **save_outfit** rejects a dress together with top or bottom;
+- **save_outfit** creates exactly one row per selected garment;
+- **record_wear** snapshots every selected garment;
+- updating an outfit does not change previous **wear_event_items**;
+- direct update/delete on **wear_event_items** is denied;
+- archiving a garment preserves the wear snapshot and marks its outfit **needs_attention**;
+- the last-worn view returns the newest event date.
+
+Run: **npm run test:db**
+
+Expected: FAIL because the tables and functions do not exist.
+
+- [ ] **Step 2: Create the relational tables**
+
+The migration creates:
+
+~~~sql
+create table public.outfits (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references public.profiles(id) on delete cascade,
+  name text not null check (char_length(trim(name)) between 1 and 120),
+  thumbnail_path text,
+  needs_attention boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (owner_id, id)
+);
+
+create table public.outfit_items (
+  owner_id uuid not null,
+  outfit_id uuid not null,
+  wardrobe_item_id uuid not null,
+  slot text not null,
+  layer_order integer not null,
+  primary key (outfit_id, wardrobe_item_id),
+  unique (outfit_id, slot),
+  foreign key (owner_id, outfit_id)
+    references public.outfits(owner_id, id) on delete cascade,
+  foreign key (owner_id, wardrobe_item_id)
+    references public.wardrobe_items(owner_id, id)
+);
+
+create table public.wear_events (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references public.profiles(id) on delete cascade,
+  worn_at timestamptz not null,
+  outfit_id uuid,
+  notes text,
+  created_at timestamptz not null default now(),
+  unique (owner_id, id),
+  foreign key (owner_id, outfit_id)
+    references public.outfits(owner_id, id)
+);
+
+create table public.wear_event_items (
+  owner_id uuid not null,
+  wear_event_id uuid not null,
+  wardrobe_item_id uuid not null,
+  primary key (wear_event_id, wardrobe_item_id),
+  foreign key (owner_id, wear_event_id)
+    references public.wear_events(owner_id, id) on delete cascade,
+  foreign key (owner_id, wardrobe_item_id)
+    references public.wardrobe_items(owner_id, id)
+);
+~~~
+
+Enable RLS on all four tables. Give authenticated users SELECT policies using **auth.uid() = owner_id**. Do not create direct INSERT, UPDATE, or DELETE policies for outfit association or wear tables.
+
+- [ ] **Step 3: Add save_outfit**
+
+Create the transactional function:
+
+~~~sql
+create or replace function public.save_outfit(
+  p_outfit_id uuid,
+  p_name text,
+  p_item_ids uuid[],
+  p_thumbnail_path text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_id uuid := coalesce(p_outfit_id, gen_random_uuid());
+  v_count integer;
+  v_distinct integer;
+  v_slot_count integer;
+  v_has_dress boolean;
+  v_has_separates boolean;
+begin
+  if v_owner is null then
+    raise exception using errcode = '42501', message = 'Authentication required.';
+  end if;
+  if coalesce(char_length(trim(p_name)), 0) = 0 then
+    raise exception using errcode = '23514', message = 'Outfit name is required.';
+  end if;
+  if coalesce(cardinality(p_item_ids), 0) < 2 then
+    raise exception using errcode = '23514', message = 'Choose at least two items.';
+  end if;
+
+  select count(distinct requested_id)
+  into v_distinct
+  from unnest(p_item_ids) as requested(requested_id);
+
+  if v_distinct <> cardinality(p_item_ids) then
+    raise exception using errcode = '23514', message = 'An outfit cannot contain duplicate items.';
+  end if;
+
+  select
+    count(*),
+    count(distinct slot),
+    coalesce(bool_or(slot = 'dress'), false),
+    coalesce(bool_or(slot in ('top', 'bottom')), false)
+  into v_count, v_slot_count, v_has_dress, v_has_separates
+  from public.wardrobe_items
+  where owner_id = v_owner
+    and status = 'active'
+    and id = any(p_item_ids);
+
+  if v_count <> cardinality(p_item_ids) then
+    raise exception using errcode = '42501', message = 'One or more items are unavailable.';
+  end if;
+  if v_slot_count <> v_count then
+    raise exception using errcode = '23514', message = 'Choose only one item per slot.';
+  end if;
+  if v_has_dress and v_has_separates then
+    raise exception using errcode = '23514', message = 'A dress cannot be combined with a top or bottom.';
+  end if;
+
+  if p_outfit_id is null then
+    insert into public.outfits (id, owner_id, name, thumbnail_path)
+    values (v_id, v_owner, trim(p_name), p_thumbnail_path);
+  else
+    update public.outfits
+    set name = trim(p_name),
+        thumbnail_path = p_thumbnail_path,
+        needs_attention = false,
+        updated_at = now()
+    where id = v_id and owner_id = v_owner;
+    if not found then
+      raise exception using errcode = '42501', message = 'Outfit not found.';
+    end if;
+    delete from public.outfit_items
+    where outfit_id = v_id and owner_id = v_owner;
+  end if;
+
+  insert into public.outfit_items (
+    owner_id, outfit_id, wardrobe_item_id, slot, layer_order
+  )
+  select v_owner, v_id, id, slot, layer_order
+  from public.wardrobe_items
+  where owner_id = v_owner and id = any(p_item_ids);
+
+  return v_id;
+end;
+$$;
+
+revoke all on function public.save_outfit(uuid, text, uuid[], text) from public;
+grant execute on function public.save_outfit(uuid, text, uuid[], text) to authenticated;
+~~~
+
+- [ ] **Step 4: Add record_wear, archive propagation, and last-worn view**
+
+Create the wear and archive functions:
+
+~~~sql
+create or replace function public.record_wear(
+  p_item_ids uuid[],
+  p_worn_at timestamptz,
+  p_outfit_id uuid,
+  p_notes text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_event_id uuid := gen_random_uuid();
+  v_count integer;
+  v_distinct integer;
+begin
+  if v_owner is null then
+    raise exception using errcode = '42501', message = 'Authentication required.';
+  end if;
+  if p_worn_at is null or coalesce(cardinality(p_item_ids), 0) = 0 then
+    raise exception using errcode = '23514', message = 'A date and at least one item are required.';
+  end if;
+
+  select count(distinct requested_id)
+  into v_distinct
+  from unnest(p_item_ids) as requested(requested_id);
+  if v_distinct <> cardinality(p_item_ids) then
+    raise exception using errcode = '23514', message = 'A wear event cannot contain duplicate items.';
+  end if;
+
+  select count(*)
+  into v_count
+  from public.wardrobe_items
+  where owner_id = v_owner
+    and status = 'active'
+    and id = any(p_item_ids);
+  if v_count <> cardinality(p_item_ids) then
+    raise exception using errcode = '42501', message = 'One or more items are unavailable.';
+  end if;
+
+  if p_outfit_id is not null and not exists (
+    select 1 from public.outfits
+    where id = p_outfit_id and owner_id = v_owner
+  ) then
+    raise exception using errcode = '42501', message = 'Outfit not found.';
+  end if;
+
+  insert into public.wear_events (
+    id, owner_id, worn_at, outfit_id, notes
+  )
+  values (
+    v_event_id, v_owner, p_worn_at, p_outfit_id, nullif(trim(p_notes), '')
+  );
+
+  insert into public.wear_event_items (
+    owner_id, wear_event_id, wardrobe_item_id
+  )
+  select v_owner, v_event_id, id
+  from public.wardrobe_items
+  where owner_id = v_owner and id = any(p_item_ids);
+
+  return v_event_id;
+end;
+$$;
+
+create or replace function public.archive_wardrobe_item(p_item_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_owner uuid := auth.uid();
+begin
+  if v_owner is null then
+    raise exception using errcode = '42501', message = 'Authentication required.';
+  end if;
+
+  update public.wardrobe_items
+  set status = 'archived', archived_at = now(), updated_at = now()
+  where id = p_item_id and owner_id = v_owner and status = 'active';
+  if not found then
+    raise exception using errcode = '42501', message = 'Wardrobe item not found.';
+  end if;
+
+  update public.outfits as outfit
+  set needs_attention = true, updated_at = now()
+  where outfit.owner_id = v_owner
+    and exists (
+      select 1 from public.outfit_items as item
+      where item.owner_id = v_owner
+        and item.outfit_id = outfit.id
+        and item.wardrobe_item_id = p_item_id
+    );
+end;
+$$;
+
+revoke all on function public.record_wear(uuid[], timestamptz, uuid, text) from public;
+revoke all on function public.archive_wardrobe_item(uuid) from public;
+grant execute on function public.record_wear(uuid[], timestamptz, uuid, text) to authenticated;
+grant execute on function public.archive_wardrobe_item(uuid) to authenticated;
+~~~
+
+Create:
+
+~~~sql
+create view public.wardrobe_item_last_worn
+with (security_invoker = true)
+as
+select
+  wei.owner_id,
+  wei.wardrobe_item_id,
+  max(we.worn_at) as last_worn_at
+from public.wear_event_items wei
+join public.wear_events we
+  on we.owner_id = wei.owner_id
+ and we.id = wei.wear_event_id
+group by wei.owner_id, wei.wardrobe_item_id;
+~~~
+
+Grant SELECT on the view to authenticated.
+
+- [ ] **Step 5: Reset, test, and commit**
+
+Run:
+
+~~~bash
+npx supabase db reset
+npm run test:db
+~~~
+
+Expected: foundation and outfit/wear database tests PASS.
+
+~~~bash
+git add supabase
+git commit -m "feat: add outfits and wear history schema"
+~~~
+
+## Task 8: Build saved outfit combinations and thumbnails
+
+**Files:**
+- Create: **src/domain/outfits.js**
+- Create: **src/domain/outfits.test.js**
+- Extend: **src/data/wardrobeRepository.js**
+- Extend: **src/data/wardrobeRepository.test.js**
+- Create: **src/features/outfits/renderOutfitThumbnail.js**
+- Create: **src/features/outfits/SaveOutfitDialog.jsx**
+- Create: **src/features/outfits/OutfitsView.jsx**
+- Create: **src/features/outfits/OutfitsView.test.jsx**
+- Create: **src/features/outfits/outfits.css**
+- Modify: **src/App.jsx**
+
+- [ ] **Step 1: Write the failing outfit-domain tests**
+
+Test:
+
+~~~js
+import { combinationKey, validateOutfit } from "./outfits.js";
+
+expect(combinationKey([{ id: "b" }, { id: "a" }])).toBe("a|b");
+expect(validateOutfit([{ id: "a", slot: "top" }])).toEqual({
+  valid: false,
+  message: "Choose at least two items.",
+});
+expect(validateOutfit([
+  { id: "a", slot: "top" },
+  { id: "b", slot: "bottom" },
+])).toEqual({ valid: true, message: "" });
+~~~
+
+Also test duplicate item IDs, duplicate slots, and dress/top conflict.
+
+Run: **npm test -- src/domain/outfits.test.js**
+
+Expected: FAIL because the module does not exist.
+
+- [ ] **Step 2: Implement pure outfit rules**
+
+Export **combinationKey(items)** using sorted distinct IDs and **validateOutfit(items)** returning **{ valid, message }**. Use the same messages as the tests. This validation improves feedback; the database remains authoritative.
+
+- [ ] **Step 3: Add repository methods**
+
+Extend the repository API:
+
+~~~js
+{
+  listOutfits(),
+  saveOutfit({ id, name, items, thumbnailBlob }),
+}
+~~~
+
+For **saveOutfit**:
+
+1. generate **id** with **crypto.randomUUID()** for a new outfit;
+2. get the authenticated user;
+3. upload the WebP thumbnail to **owner_id/outfits/outfit_id/thumbnail.webp** with upsert;
+4. call **save_outfit** with ordered item IDs and that private path;
+5. if the RPC fails after upload, return a recoverable error containing the path for reconciliation;
+6. refetch the saved outfit with its item rows and a signed thumbnail URL.
+
+- [ ] **Step 4: Implement deterministic thumbnail rendering**
+
+Create **renderOutfitThumbnail(items, mannequinUrl)**. It creates a 600 by 1200 canvas, draws the mannequin, then loads and draws garments in **layer_order** using the same anchor/scale/rotation coordinate rules as **MannequinCanvas**. Return:
+
+~~~js
+await new Promise((resolve, reject) => {
+  canvas.toBlob(
+    (blob) => blob ? resolve(blob) : reject(new Error("Could not create outfit thumbnail.")),
+    "image/webp",
+    0.86,
+  );
+});
+~~~
+
+Set image **crossOrigin = anonymous** before assigning signed URLs.
+
+- [ ] **Step 5: Write and implement the outfit UI test**
+
+The component test verifies:
+
+- Save requires two items and a non-empty name;
+- an exact existing combination shows **This combination is already saved as NAME.**;
+- Update reuses the outfit ID;
+- Save as new variation uses a new ID;
+- renaming or updating an outfit regenerates and replaces its thumbnail;
+- loading an outfit calls **onLoad(items)**;
+- **needs_attention** displays the archived garment and missing slot.
+
+Implement **SaveOutfitDialog** and **OutfitsView** against the repository. Preserve variations that differ by one item. Do not silently create an exact duplicate.
+
+- [ ] **Step 6: Integrate, verify, and commit**
+
+Connect Dress **Save outfit** to the dialog. Connect **Outfits** navigation to **OutfitsView** and loading to the mannequin reducer's **load** action.
+
+Run:
+
+~~~bash
+npm test -- src/domain/outfits.test.js src/data/wardrobeRepository.test.js src/features/outfits
+npm run build
+~~~
+
+Expected: all focused tests PASS and build exits 0.
+
+~~~bash
+git add src
+git commit -m "feat: save and edit outfit combinations"
+~~~
+
+## Task 9: Add wear recording, last-worn values, and history
+
+**Files:**
+- Extend: **src/data/wardrobeRepository.js**
+- Extend: **src/data/wardrobeRepository.test.js**
+- Create: **src/features/history/WearDialog.jsx**
+- Create: **src/features/history/HistoryView.jsx**
+- Create: **src/features/history/HistoryView.test.jsx**
+- Create: **src/features/history/history.css**
+- Modify: **src/features/wardrobe/ItemEditorDialog.jsx**
+- Modify: **src/features/dress/DressingRoom.jsx**
+- Modify: **src/features/outfits/OutfitsView.jsx**
+- Modify: **src/App.jsx**
+
+- [ ] **Step 1: Write failing repository history tests**
+
+Cover **recordWear**, **listWearHistory**, and **listItemsWithLastWorn**. Assert that recordWear sends:
+
+~~~js
+{
+  p_item_ids: ["item-a", "item-b"],
+  p_worn_at: "2026-07-17T08:00:00.000Z",
+  p_outfit_id: "outfit-a",
+  p_notes: null,
+}
+~~~
+
+Assert errors preserve the item IDs and chosen date for retry.
+
+- [ ] **Step 2: Implement history repository methods**
+
+Add:
+
+~~~js
+{
+  listWearHistory(),
+  listItemsWithLastWorn(),
+  recordWear({ itemIds, wornAt, outfitId, notes }),
+}
+~~~
+
+History queries order events by **worn_at desc** and join snapshot items, including archived records. Last-worn queries join **wardrobe_item_last_worn** without writing the derived value to **wardrobe_items**.
+
+- [ ] **Step 3: Write the failing component tests**
+
+Verify:
+
+- **Wear outfit** defaults to the current local date and records every selected ID;
+- the date can be backfilled;
+- **Mark worn** from a garment records one ID;
+- a failed request leaves the dialog open with its date and selection;
+- History displays newest first and includes archived garment names;
+- outfit updates after a wear do not alter the displayed snapshot.
+
+Run: **npm test -- src/features/history**
+
+Expected: FAIL because the components do not exist.
+
+- [ ] **Step 4: Implement the wear and history UI**
+
+**WearDialog** accepts **items**, optional **outfitId**, and **onRecord**. Convert the date input to a local-noon ISO timestamp to avoid crossing the selected calendar day during timezone conversion:
+
+~~~js
+const wornAt = new Date(dateValue + "T12:00:00").toISOString();
+~~~
+
+Show a visible saving state, preserve input on failure, and close only after success. **HistoryView** renders events with their immutable item rows and optional outfit context.
+
+- [ ] **Step 5: Add archive attention and retry behavior**
+
+Route archive through **archive_wardrobe_item** rather than a direct update. On success refresh wardrobe items and outfits. If persistence fails after an optimistic UI action, restore the prior UI state, show **Changes were not saved. Try again.**, and keep the current mannequin selection.
+
+- [ ] **Step 6: Verify and commit**
+
+Run:
+
+~~~bash
+npm test -- src/data src/features/history src/features/wardrobe src/features/dress src/features/outfits
+npm run build
+~~~
+
+Expected: all tests PASS and build exits 0.
+
+~~~bash
+git add src
+git commit -m "feat: record immutable wear history"
+~~~
+
+## Task 10: Replace likeness-based importing with deterministic cutout bundles
+
+**Files:**
+- Rewrite: **.agents/skills/import-clothes/SKILL.md**
+- Rewrite: **.agents/skills/import-clothes/scripts/import-to-wardrobe.mjs**
+- Create: **scripts/prepare-import-bundle.mjs**
+- Create: **tests/import/prepare-import-bundle.test.mjs**
+- Delete: **.agents/skills/generate-outfits/**
+- Modify: **README.md**
+
+- [ ] **Step 1: Write failing bundle tests**
+
+Use temporary directories and Sharp-generated fixtures. Test:
+
+- accepted RGBA PNG becomes one bundle item;
+- non-accepted manifest records are skipped;
+- missing alpha, invalid category, invalid color, invalid placement, and path traversal fail;
+- stable ID is derived from cutout bytes and remains identical on rerun;
+- output is **manifest.json** plus **assets/item_id/cutout.png**;
+- optional reviewed detail derivatives are copied only when explicitly referenced;
+- output contains no modeled image, model reference, source photo, or OpenAI key.
+
+Run: **npm test -- tests/import/prepare-import-bundle.test.mjs**
+
+Expected: FAIL because the bundle script does not exist.
+
+- [ ] **Step 2: Define the final bundle manifest**
+
+Use version 1:
+
+~~~json
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "stable-uuid",
+      "file": "assets/stable-uuid/cutout.png",
+      "detailFiles": ["assets/stable-uuid/details/back.webp"],
+      "name": "Navy cardigan",
+      "category": "jacket",
+      "slot": "outerwear",
+      "colors": ["#172033", "#f2efe6"],
+      "tags": ["knit", "fair-isle", "zip"],
+      "placement": {
+        "anchorX": 0.5,
+        "anchorY": 0.38,
+        "scale": 0.66,
+        "rotationDegrees": 0,
+        "layerOrder": 40
+      },
+      "status": "accepted"
+    }
+  ]
+}
+~~~
+
+- [ ] **Step 3: Implement the bundle preparer**
+
+Export **prepareImportBundle({ itemsDir, manifestFile, outputDir, dryRun })** from **scripts/prepare-import-bundle.mjs**. Validate all records before writing. Use SHA-256 cutout bytes to derive RFC 4122 UUIDs, copy only accepted cutouts, write through a temporary output directory, then atomically rename it into place. If the final directory exists, compare stable IDs and update only changed accepted metadata/assets.
+
+Keep the .agents script as a thin CLI wrapper around this exported function so one implementation owns validation.
+
+- [ ] **Step 4: Rewrite the import skill**
+
+The skill must:
+
+- require purpose-shot photos from a dedicated local folder;
+- allow optional back/detail sources to improve extraction while keeping every source local;
+- use the built-in image generation capability for evidence-bound cutouts;
+- never request a face/body/model reference;
+- create no modeled photos;
+- keep sources and temporary crops outside the bundle;
+- use the approved categories and canonical placement defaults;
+- hold uncertain garments locally;
+- run the deterministic bundle tool;
+- finish by directing the user to the authenticated Admin import screen.
+
+Delete the outfit-generation skill because it explicitly preserves a real person's identity and is outside V1.
+
+- [ ] **Step 5: Verify and commit**
+
+Run:
+
+~~~bash
+npm test -- tests/import/prepare-import-bundle.test.mjs
+rg -n "model-reference|modeledImage|OPENAI_API_KEY|preserve.*identity" .agents scripts README.md
+~~~
+
+Expected: bundle tests PASS and the search returns no active V1 instruction requiring a person reference or API key. Historical design documentation may still mention excluded upstream behavior.
+
+~~~bash
+git add .agents scripts tests/import README.md
+git commit -m "feat: prepare private cutout import bundles"
+~~~
+
+## Task 11: Build authenticated import alignment and reconciliation
+
+**Files:**
+- Create: **src/features/admin/importBundle.js**
+- Create: **src/features/admin/importBundle.test.js**
+- Create: **src/features/admin/AlignmentEditor.jsx**
+- Create: **src/features/admin/ImportAdminView.jsx**
+- Create: **src/features/admin/ImportAdminView.test.jsx**
+- Create: **src/features/admin/admin.css**
+- Extend: **src/data/wardrobeRepository.js**
+- Extend: **src/data/wardrobeRepository.test.js**
+- Modify: **src/App.jsx**
+
+- [ ] **Step 1: Write failing bundle parser tests**
+
+Given a FileList-like array, verify the parser:
+
+- requires one **manifest.json** with version 1;
+- matches every accepted item to its exact asset path;
+- matches optional referenced detail derivatives and rejects unreferenced detail files;
+- rejects extra raw JPEG/HEIC/TIFF files;
+- rejects missing, duplicate, or unreferenced cutouts;
+- exposes a review draft without uploading.
+
+Run: **npm test -- src/features/admin/importBundle.test.js**
+
+Expected: FAIL because the parser does not exist.
+
+- [ ] **Step 2: Implement local parsing and alignment**
+
+Create object URLs for accepted cutouts and revoke them on cleanup. **AlignmentEditor** renders the same canonical mannequin coordinate system and controlled inputs:
+
+~~~js
+{
+  anchorX: { min: 0, max: 1, step: 0.01 },
+  anchorY: { min: 0, max: 1, step: 0.01 },
+  scale: { min: 0.05, max: 2, step: 0.01 },
+  rotationDegrees: { min: -180, max: 180, step: 1 },
+  layerOrder: { min: 0, max: 100, step: 1 },
+}
+~~~
+
+The preview updates immediately, but no network request occurs until **Approve and upload**.
+
+- [ ] **Step 3: Add idempotent repository upload**
+
+Add:
+
+~~~js
+{
+  importWardrobeItem({ manifestItem, cutoutFile, detailFiles, placement }),
+  reconcileWardrobeAssets(),
+}
+~~~
+
+**importWardrobeItem**:
+
+1. obtains the authenticated owner;
+2. uploads to **owner_id/items/item_id/cutout.png** with upsert;
+3. uploads reviewed details to **owner_id/items/item_id/details/asset_name**;
+4. upserts **wardrobe_items** using the stable manifest ID, owner ID, cutout path, and detail paths;
+5. returns signed cutout/detail URLs;
+6. reports whether database rows, cutout, details, or all stages succeeded.
+
+**reconcileWardrobeAssets** compares owner-prefixed Storage objects with database paths and returns:
+
+~~~js
+{
+  orphanedStoragePaths: [],
+  missingStorageItemIds: [],
+}
+~~~
+
+Deletion of orphaned objects requires a second explicit confirmation in the UI.
+
+- [ ] **Step 4: Write and implement the admin flow test**
+
+Verify:
+
+- selecting a bundle creates review cards but no uploads;
+- adjustments persist while moving among cards;
+- approval uploads exactly one reviewed item;
+- rerunning the same ID displays **Already imported** instead of duplicating;
+- a failed upload remains retryable;
+- cleanup lists exact paths and requires confirmation;
+- raw source formats are refused.
+
+Expose Import under a small Settings/Admin action, not the primary bottom navigation.
+
+- [ ] **Step 5: Verify and commit**
+
+Run:
+
+~~~bash
+npm test -- src/features/admin src/data/wardrobeRepository.test.js
+npm run build
+~~~
+
+Expected: tests PASS and build exits 0.
+
+~~~bash
+git add src/features/admin src/data src/App.jsx
+git commit -m "feat: review and align wardrobe imports"
+~~~
+
+## Task 12: Finish PWA, accessibility, end-to-end, CI, and deployment
+
+**Files:**
+- Modify: **public/manifest.webmanifest**
+- Modify: **public/sw.js**
+- Create: **src/components/ConnectionBanner.jsx**
+- Create: **src/components/ConnectionBanner.test.jsx**
+- Create: **playwright.config.mjs**
+- Create: **tests/e2e/helpers/supabase.js**
+- Create: **tests/e2e/wardrobe.spec.js**
+- Modify: **.github/workflows/ci.yml**
+- Create: **docs/deployment.md**
+- Modify: **README.md**
+- Modify: **CONTRIBUTING.md**
+
+- [ ] **Step 1: Update installable-app metadata and cache boundaries**
+
+Use **Personal Wardrobe** as the manifest name, **Wardrobe** as short name, and describe it as a private outfit planner. Increment the service-worker cache names. Cache only the application shell and same-origin generated build assets; do not cache Supabase Auth responses, database requests, signed URLs, or mutation requests.
+
+Create **ConnectionBanner** using **navigator.onLine** plus online/offline window events. While offline, render **You're offline. Viewing still works, but changes require a connection.** with **role=status**, and disable save, archive, import, and wear actions. Do not queue or replay mutations. Its test toggles both events and verifies the banner and disabled mutation state.
+
+Use this interface:
+
+~~~jsx
+import { useEffect, useState } from "react";
+
+export function useOnlineStatus() {
+  const [online, setOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+  return online;
+}
+
+export function ConnectionBanner({ online }) {
+  if (online) return null;
+  return (
+    <p className="connection-banner" role="status">
+      You're offline. Viewing still works, but changes require a connection.
+    </p>
+  );
+}
+~~~
+
+- [ ] **Step 2: Add Playwright configuration and local auth helper**
+
+Configure phone and desktop projects:
+
+~~~js
+projects: [
+  { name: "phone", use: { viewport: { width: 390, height: 844 } } },
+  { name: "desktop", use: { viewport: { width: 1440, height: 1000 } } },
+]
+~~~
+
+The helper uses **SUPABASE_URL** and **SUPABASE_SECRET_KEY** only in the Node test process to create a unique confirmed test user, generate a magic-link action URL, and delete the user during teardown. No secret is exposed through a VITE-prefixed variable or browser bundle.
+
+- [ ] **Step 3: Write the complete browser acceptance flow**
+
+For both projects:
+
+1. enter through the generated private magic link;
+2. confirm Wardrobe, Dress, Outfits, and History navigation;
+3. seed six cutout fixtures through the authenticated repository;
+4. dress top plus bottom and switch to dress;
+5. Undo, add shoes, save an outfit, and load it again;
+6. save a one-item-different variation;
+7. record the outfit as worn on a chosen date;
+8. edit the saved outfit and confirm old history still lists the original IDs;
+9. mark one garment worn independently;
+10. archive one garment and confirm history remains while the outfit needs attention;
+11. sign out;
+12. assert another generated user cannot select the first user's rows or signed assets.
+
+- [ ] **Step 4: Expand CI**
+
+Use separate jobs:
+
+- **unit-build**: checkout, Node 22, npm ci, npm run check.
+- **database**: checkout, Supabase CLI setup action, npx supabase start, npm run test:db.
+- **e2e**: checkout, Node 22, npm ci, install Chromium, start Supabase, start Vite with local public values, run Playwright.
+
+Always stop local Supabase in CI cleanup. Upload Playwright traces only on failure; never upload database environment output.
+
+- [ ] **Step 5: Document private production setup**
+
+**docs/deployment.md** must cover:
+
+1. create a Supabase project;
+2. apply migrations with **npx supabase db push**;
+3. disable public signup;
+4. set Site URL and allowed redirect URLs to the Vercel domains;
+5. send the wife an invitation from Authentication > Users > Send invitation;
+6. create Vercel project from the repository;
+7. set **VITE_SUPABASE_URL** and **VITE_SUPABASE_PUBLISHABLE_KEY**;
+8. deploy with the Vite preset;
+9. run two-account RLS and private-asset checks;
+10. verify phone install, desktop layout, sign-out, and expired-link behavior.
+
+Document that the publishable key is intentionally public and protected by RLS, while a Supabase secret key must never be added to Vercel for this static V1.
+
+- [ ] **Step 6: Run the full verification**
+
+Run:
+
+~~~bash
+npm run check
+npm run test:db
+npm run test:e2e
+git diff --check
+~~~
+
+Expected: unit/component tests PASS, production build exits 0, all database assertions PASS, both Playwright projects PASS, and Git reports no whitespace errors.
+
+- [ ] **Step 7: Commit the production-ready slice**
+
+~~~bash
+git add public playwright.config.mjs tests/e2e .github/workflows/ci.yml docs/deployment.md README.md CONTRIBUTING.md
+git commit -m "test: verify private wardrobe end to end"
+~~~
+
+## Task 13: Run the ten-garment pilot before bulk import
+
+**Files:**
+- Create: **docs/import-pilot.md**
+- Local ignored input: **data/source-photos/pilot/**
+- Local ignored output: **data/import-bundles/pilot/**
+
+- [ ] **Step 1: Record the pilot set**
+
+The owner places ten purpose-shot front images in **data/source-photos/pilot/**: at least two tops, two bottoms, one dress, one jacket or coat, one pair of shoes, one accessory, and two difficult fabrics or silhouettes. Record filenames, category coverage, lighting setup, and any optional detail photos in **docs/import-pilot.md** without copying the photos into documentation.
+
+- [ ] **Step 2: Generate and inspect cutouts**
+
+Run the rewritten import skill against **data/source-photos/pilot/**. Hold uncertain items. Inspect every cutout against its source for silhouette, color, construction, transparency, and missing body/background fragments.
+
+- [ ] **Step 3: Prepare the bundle twice**
+
+Run:
+
+~~~bash
+node scripts/prepare-import-bundle.mjs \
+  --items data/import-work/pilot/items \
+  --manifest data/import-work/pilot/manifest.json \
+  --output data/import-bundles/pilot
+~~~
+
+Run the same command again. Expected: the second run reports the same stable item IDs and creates no duplicate assets.
+
+- [ ] **Step 4: Align and import**
+
+Open Admin, select **data/import-bundles/pilot/**, inspect all ten items on the canonical mannequin, correct placement, and approve each. Retry one deliberately interrupted upload to prove resume behavior, then run reconciliation and require empty orphan/missing lists.
+
+- [ ] **Step 5: Complete the acceptance checklist**
+
+On a real phone and desktop, verify:
+
+- all pilot items are private and switch instantly;
+- top/bottom/dress/outerwear rules behave correctly;
+- a two-item outfit saves, updates, and saves as a variation;
+- outfit wear and individual wear produce correct last-worn dates;
+- archiving preserves history and flags an outfit;
+- the second test account cannot access data or assets;
+- raw source photos do not exist in Supabase Storage.
+
+Record pass/fail and cutout/alignment corrections in **docs/import-pilot.md**.
+
+- [ ] **Step 6: Commit only the pilot report**
+
+~~~bash
+git add docs/import-pilot.md
+git commit -m "docs: verify wardrobe import pilot"
+~~~
+
+Do not commit **data/source-photos**, **data/import-work**, or **data/import-bundles**.
+
+## Final completion gate
+
+Before declaring V1 complete:
+
+1. run **npm run check**, **npm run test:db**, **npm run test:e2e**, and **git diff --check** fresh;
+2. confirm the ten-garment pilot report has no unresolved failed checks;
+3. inspect the browser bundle and Vercel environment for secret/service-role keys;
+4. verify Supabase signup is disabled and the wife's invitation works;
+5. verify a second account cannot read rows or private assets;
+6. verify the deployed phone and desktop layouts manually;
+7. confirm the worktree is clean and every task has its focused commit.
+
+## Current platform references
+
+- Supabase Row Level Security: https://supabase.com/docs/guides/database/postgres/row-level-security
+- Supabase Storage access control: https://supabase.com/docs/guides/storage/security/access-control
+- Supabase database testing: https://supabase.com/docs/guides/local-development/testing/overview
+- Supabase invited users: https://supabase.com/docs/guides/auth/users
+- Vite static deployment on Vercel: https://vite.dev/guide/static-deploy
