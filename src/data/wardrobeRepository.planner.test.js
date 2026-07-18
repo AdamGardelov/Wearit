@@ -16,14 +16,14 @@ function createQuery(result, single) {
 
 function plannerClient({
   slotsResult = { data: [], error: null },
-  slotSingle,
+  rpcResult = { data: null, error: null },
   outfitsResult = { data: [], error: null },
   lastWornResult = { data: [], error: null },
   signedResult = { data: [], error: null },
   ownerId = "owner-1",
   getUser,
 } = {}) {
-  const slotsQuery = createQuery(slotsResult, slotSingle);
+  const slotsQuery = createQuery(slotsResult);
   const outfitsQuery = createQuery(outfitsResult);
   const lastWornQuery = createQuery(lastWornResult);
   const createSignedUrls = vi.fn().mockResolvedValue(signedResult);
@@ -32,13 +32,14 @@ function plannerClient({
     if (table === "outfit_last_worn") return lastWornQuery;
     return outfitsQuery;
   });
+  const rpc = vi.fn().mockResolvedValue(rpcResult);
   const auth = {
     getUser: getUser
       ?? vi.fn().mockResolvedValue({ data: { user: { id: ownerId } }, error: null }),
   };
   return {
-    client: { from, auth, storage: { from: vi.fn(() => ({ createSignedUrls })) } },
-    from, slotsQuery, outfitsQuery, lastWornQuery, createSignedUrls, auth,
+    client: { from, auth, rpc, storage: { from: vi.fn(() => ({ createSignedUrls })) } },
+    from, slotsQuery, outfitsQuery, lastWornQuery, createSignedUrls, auth, rpc,
   };
 }
 
@@ -133,37 +134,28 @@ describe("weekly planner repository", () => {
     await expect(createWardrobeRepository(client).listWeeklyPlan()).rejects.toThrow("slots down");
   });
 
-  it("upserts one slot with the owner/weekday conflict key and returns the row", async () => {
-    const { client, slotsQuery, auth } = plannerClient({
-      slotSingle: { data: { weekday: 1, outfit_id: "o-1" }, error: null },
-    });
+  it("sets a slot through the security-definer RPC", async () => {
+    const { client, rpc } = plannerClient();
 
-    const row = await createWardrobeRepository(client).setWeeklyPlanSlot({ weekday: 1, outfitId: "o-1" });
+    await createWardrobeRepository(client).setWeeklyPlanSlot({ weekday: 1, outfitId: "o-1" });
 
-    expect(auth.getUser).toHaveBeenCalledTimes(1);
-    expect(slotsQuery.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ owner_id: "owner-1", weekday: 1, outfit_id: "o-1" }),
-      { onConflict: "owner_id,weekday" },
-    );
-    expect(slotsQuery.select).toHaveBeenCalledWith("weekday, outfit_id");
-    expect(slotsQuery.single).toHaveBeenCalledTimes(1);
-    expect(row).toEqual({ weekday: 1, outfit_id: "o-1" });
+    expect(rpc).toHaveBeenCalledWith("set_weekly_plan_slot", { p_weekday: 1, p_outfit_id: "o-1" });
   });
 
   it.each([0, 6, 7, 2.5, null])("rejects weekday %s before any I/O when setting a slot", async (weekday) => {
-    const { client, from, auth } = plannerClient();
+    const { client, rpc, from } = plannerClient();
 
     await expect(createWardrobeRepository(client).setWeeklyPlanSlot({ weekday, outfitId: "o-1" }))
       .rejects.toThrow("Weekday must be an integer from 1 to 5.");
+    expect(rpc).not.toHaveBeenCalled();
     expect(from).not.toHaveBeenCalled();
-    expect(auth.getUser).not.toHaveBeenCalled();
   });
 
-  it("propagates a database error from the upsert", async () => {
-    const { client } = plannerClient({ slotSingle: { data: null, error: new Error("upsert failed") } });
+  it("propagates a database error from the RPC", async () => {
+    const { client } = plannerClient({ rpcResult: { data: null, error: new Error("plan write failed") } });
 
     await expect(createWardrobeRepository(client).setWeeklyPlanSlot({ weekday: 1, outfitId: "o-1" }))
-      .rejects.toThrow("upsert failed");
+      .rejects.toThrow("plan write failed");
   });
 
   it("clears one weekday scoped to the owner", async () => {

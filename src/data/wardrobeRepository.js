@@ -532,19 +532,14 @@ export function createWardrobeRepository(client) {
     });
   }
 
+  // Writes go through a security-definer RPC (like every other write in the app). A direct
+  // upsert would need UPDATE on owner_id/weekday, which the planner keeps immutable.
   async function setWeeklyPlanSlot({ weekday, outfitId }) {
     requireWeekday(weekday);
-    const ownerId = await authenticatedOwnerId();
-    return dataOrThrow(await client
-      .from("weekly_plan_slots")
-      .upsert({
-        owner_id: ownerId,
-        weekday,
-        outfit_id: outfitId,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "owner_id,weekday" })
-      .select("weekday, outfit_id")
-      .single());
+    return dataOrThrow(await client.rpc("set_weekly_plan_slot", {
+      p_weekday: weekday,
+      p_outfit_id: outfitId,
+    }));
   }
 
   async function clearWeeklyPlanSlot(weekday) {
