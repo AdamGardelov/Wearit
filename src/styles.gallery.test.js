@@ -45,3 +45,21 @@ describe("gallery back-image stylesheet contract", () => {
     );
   });
 });
+
+describe("import launcher stylesheet contract", () => {
+  it("hides the import launcher by default", () => {
+    const base = blockAfter(".admin-launch {");
+    expect(base).toBeTruthy();
+    expect(base.replace(/\s+/g, " ")).toMatch(/display:\s*none/);
+  });
+
+  it("shows the import launcher only from the 900px breakpoint", () => {
+    const desktopBlock = blockAfter("@media (min-width: 900px)");
+    expect(desktopBlock).toBeTruthy();
+    expect(desktopBlock.replace(/\s+/g, " ")).toMatch(/\.admin-launch\s*\{\s*display:\s*block/);
+
+    // Nothing outside the desktop media query reveals the launcher.
+    const withoutDesktop = css.replace(desktopBlock, "").replace(/\s+/g, " ");
+    expect(withoutDesktop).not.toMatch(/\.admin-launch\s*\{\s*display:\s*block/);
+  });
+});

@@ -1081,6 +1081,8 @@ button { font: inherit; }
 }
 
 .admin-launch {
+  /* Import is a desktop-only workflow: hidden below the breakpoint, shown from 900px up. */
+  display: none;
   position: fixed;
   top: max(12px, env(safe-area-inset-top));
   right: max(12px, env(safe-area-inset-right));
@@ -1111,4 +1113,6 @@ button { font: inherit; }
   }
 
   .placeholder-section { padding: 110px 8vw 140px; }
+
+  .admin-launch { display: block; }
 }
