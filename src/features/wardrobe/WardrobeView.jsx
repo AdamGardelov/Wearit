@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CATEGORY_BY_ID, CATEGORIES } from "../../domain/slots.js";
-import { availableColorFamilies, itemColorFamilies } from "../../domain/colors.js";
-import { emptyLabelFilter, matchesLabelFilter } from "../../domain/labels.js";
-import { LabelFilter } from "../labels/LabelFilter.jsx";
+import { availableColorFamilies } from "../../domain/colors.js";
+import {
+  ITEM_FILTER_GROUPS,
+  emptyAdvancedFilter,
+  matchesAdvancedFilter,
+} from "../../domain/filters.js";
+import { UnifiedFilter } from "../filters/UnifiedFilter.jsx";
 import { OptimizedImage } from "../../OptimizedImage.jsx";
 import { ItemEditorDialog } from "./ItemEditorDialog.jsx";
 
@@ -35,9 +39,10 @@ export function WardrobeView({
   repository,
   active = true,
   onMarkWorn,
+  colors = null,
   labels = [],
-  labelFilter = emptyLabelFilter(),
-  onLabelFilterChange = () => {},
+  advancedFilter = emptyAdvancedFilter(),
+  onAdvancedFilterChange = () => {},
   labelsLoading = false,
   labelsError = "",
   onCreateTheme,
@@ -50,7 +55,6 @@ export function WardrobeView({
   const returnFocusTargetRef = useRef(null);
   const [items, setItems] = useState([]);
   const [activeCategory, setActiveCategory] = useState("all");
-  const [activeColor, setActiveColor] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -89,33 +93,28 @@ export function WardrobeView({
     () => CATEGORIES.filter((category) => category.id === "all" || availableCategoryIds.has(category.id)),
     [availableCategoryIds],
   );
-  const colorFamilies = useMemo(() => availableColorFamilies(items), [items]);
-  const showColorFilter = colorFamilies.length >= 2;
-  const itemFamilies = useMemo(
-    () => new Map(items.map((item) => [item.id, itemColorFamilies(item)])),
-    [items],
+  // Fall back to local colours only when App does not supply the shared families (e.g. the
+  // view rendered standalone in tests). Colours always come from the complete item list.
+  const availableColors = useMemo(
+    () => colors ?? availableColorFamilies(items),
+    [colors, items],
   );
 
-  // Drop a filter that no longer has any garments behind it.
+  // Drop a category that no longer has any garments behind it. Category availability stays
+  // derived from complete items, so an advanced-filter selection can never hide a category.
   useEffect(() => {
     if (activeCategory !== "all" && !availableCategoryIds.has(activeCategory)) {
       setActiveCategory("all");
     }
   }, [availableCategoryIds, activeCategory]);
-  useEffect(() => {
-    if (activeColor && !colorFamilies.some((family) => family.id === activeColor)) {
-      setActiveColor(null);
-    }
-  }, [colorFamilies, activeColor]);
 
   const selectedItem = items.find((item) => item.id === selectedId) || null;
   const visibleItems = useMemo(
     () => items.filter((item) => (
       (activeCategory === "all" || item.category === activeCategory)
-      && (!activeColor || Boolean(itemFamilies.get(item.id)?.has(activeColor)))
-      && matchesLabelFilter(item, labelFilter)
+      && matchesAdvancedFilter(item, advancedFilter, ITEM_FILTER_GROUPS)
     )),
-    [activeCategory, activeColor, itemFamilies, items, labelFilter],
+    [activeCategory, advancedFilter, items],
   );
 
   const openItem = (itemId) => {
@@ -140,10 +139,6 @@ export function WardrobeView({
   const chooseCategory = (categoryId) => {
     setActiveCategory(categoryId);
     setSelectedId(null);
-  };
-
-  const chooseColor = (familyId) => {
-    setActiveColor((current) => (current === familyId ? null : familyId));
   };
 
   const saveItem = async (item) => {
@@ -217,32 +212,17 @@ export function WardrobeView({
               </button>
             ))}
           </nav>
-          {showColorFilter && (
-            <div className="color-filter" role="group" aria-label="Filtrera på färg">
-              {colorFamilies.map((family) => (
-                <button
-                  key={family.id}
-                  type="button"
-                  className={`color-chip${activeColor === family.id ? " active" : ""}`}
-                  onClick={() => chooseColor(family.id)}
-                  aria-pressed={activeColor === family.id}
-                  aria-label={`Filtrera på färg ${family.label}`}
-                  title={family.label}
-                >
-                  <span className="color-dot" style={{ backgroundColor: family.swatch }} aria-hidden="true" />
-                  <span>{family.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <LabelFilter
+          <UnifiedFilter
+            groups={ITEM_FILTER_GROUPS}
+            colors={availableColors}
             labels={labels}
-            value={labelFilter}
-            onChange={onLabelFilterChange}
+            value={advancedFilter}
+            onChange={onAdvancedFilterChange}
             loading={labelsLoading}
             error={labelsError}
             visibleCount={visibleItems.length}
             totalCount={items.length}
+            resultNoun="plagg"
             context={context}
           />
         </header>

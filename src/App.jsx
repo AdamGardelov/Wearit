@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { emptyLabelFilter, sanitizeLabelFilter } from "./domain/labels.js";
+import { availableColorFamilies } from "./domain/colors.js";
+import { emptyAdvancedFilter, sanitizeAdvancedFilter } from "./domain/filters.js";
 import { createWardrobeRepository } from "./data/wardrobeRepository.js";
 import { ImportAdminView } from "./features/admin/ImportAdminView.jsx";
 import { DressingRoom } from "./features/dress/DressingRoom.jsx";
@@ -16,6 +17,11 @@ const SECTIONS = [
   { id: "outfits", label: "Outfits" },
   { id: "history", label: "History" },
 ];
+
+// Stable empty fallback so `items` keeps a constant identity while the snapshot belongs to a
+// previous repository. `colors` is memoized on `items`, so a fresh [] each render would make
+// the colour-sanitize effect re-run every render and loop during a repository swap.
+const EMPTY_ITEMS = [];
 
 export function App({ repository: injectedRepository }) {
   const [section, setSection] = useState("wardrobe");
@@ -43,14 +49,14 @@ export function App({ repository: injectedRepository }) {
     loading: true,
     error: "",
   }));
-  const [labelFilter, setLabelFilter] = useState(emptyLabelFilter);
+  const [advancedFilter, setAdvancedFilter] = useState(emptyAdvancedFilter);
 
   // Load the owner's labels once per repository. A repository double without
   // listLabels degrades to an empty, successfully loaded list; the app shell stays
   // visible on failure so an error is never mistaken for an empty wardrobe.
   useEffect(() => {
     let active = true;
-    setLabelFilter(emptyLabelFilter());
+    setAdvancedFilter(emptyAdvancedFilter());
     if (typeof baseRepository.listLabels !== "function") {
       setLabelsState({ repository: baseRepository, labels: [], loading: false, error: "" });
       return () => { active = false; };
@@ -101,7 +107,8 @@ export function App({ repository: injectedRepository }) {
     setLabelsState((current) => (current.repository === baseRepository
       ? { ...current, labels: current.labels.filter((label) => label.id !== labelId) }
       : current));
-    setLabelFilter((current) => sanitizeLabelFilter(current, remaining));
+    // Preserve Colour; only sanitize the season/theme selections against the labels.
+    setAdvancedFilter((current) => sanitizeAdvancedFilter(current, { labels: remaining }));
   }, [baseRepository]);
 
   const repository = useMemo(() => {
@@ -185,7 +192,15 @@ export function App({ repository: injectedRepository }) {
       },
     };
   }, [baseRepository]);
-  const items = itemSnapshot.repository === baseRepository ? itemSnapshot.items : [];
+  const items = itemSnapshot.repository === baseRepository ? itemSnapshot.items : EMPTY_ITEMS;
+
+  // Colour families come from the complete owner snapshot, never a filtered view, so a
+  // narrowing selection can never hide a colour that still exists in the wardrobe.
+  const colors = useMemo(() => availableColorFamilies(items), [items]);
+
+  useEffect(() => {
+    setAdvancedFilter((current) => sanitizeAdvancedFilter(current, { colors }));
+  }, [colors]);
 
   const loadOutfit = (savedItems, outfit) => {
     const liveItemsById = new Map(items.map((item) => [item.id, item]));
@@ -213,10 +228,31 @@ export function App({ repository: injectedRepository }) {
     setActionStatus(`Laddade ${outfit.name}.`);
   };
 
+  // Wardrobe's unified filter reads the shared advanced state directly. Theme mutation
+  // callbacks stay separate; they belong to the item editor, not to the filter control.
+  const advancedFilterProps = {
+    colors,
+    labels,
+    advancedFilter,
+    onAdvancedFilterChange: setAdvancedFilter,
+    labelsLoading,
+    labelsError,
+  };
+
+  // Transitional bridge: Dress and Outfits still render the old LabelFilter until Tasks 4
+  // and 5 migrate them. Season/Theme selections share the same fields as advancedFilter, so
+  // these props keep those views in sync while Colour is preserved untouched. Removed in Task 6.
   const labelProps = {
     labels,
-    labelFilter,
-    onLabelFilterChange: setLabelFilter,
+    labelFilter: {
+      selectedSeasonIds: advancedFilter.selectedSeasonIds,
+      selectedThemeIds: advancedFilter.selectedThemeIds,
+    },
+    onLabelFilterChange: (next) => setAdvancedFilter((current) => ({
+      ...current,
+      selectedSeasonIds: next.selectedSeasonIds ?? [],
+      selectedThemeIds: next.selectedThemeIds ?? [],
+    })),
     labelsLoading,
     labelsError,
     onCreateTheme: createTheme,
@@ -249,7 +285,10 @@ export function App({ repository: injectedRepository }) {
           active={section === "wardrobe"}
           onMarkWorn={(selection) => requestWear(selection)}
           context="Garderob"
-          {...labelProps}
+          {...advancedFilterProps}
+          onCreateTheme={createTheme}
+          onRenameTheme={renameTheme}
+          onDeleteTheme={deleteTheme}
         />
       </section>
       <section className="app-section" hidden={section !== "dress"}>

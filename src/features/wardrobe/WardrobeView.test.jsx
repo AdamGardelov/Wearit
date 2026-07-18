@@ -1,8 +1,9 @@
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WardrobeView } from "./WardrobeView.jsx";
+import { emptyAdvancedFilter } from "../../domain/filters.js";
 
 afterEach(cleanup);
 
@@ -46,6 +47,25 @@ const redBottom = {
   slot: "bottom",
   colors: ["#c0392b"],
 };
+const redSummerTop = { ...shirt, id: "red-summer", name: "Red summer top", colors: ["#c0392b"], labelIds: ["s-summer"] };
+const greenSummerTop = { ...shirt, id: "green-summer", name: "Green summer top", colors: ["#4a8c3f"], labelIds: ["s-summer"] };
+
+const summerLabel = { id: "s-summer", kind: "season", seasonKey: "summer", name: "Summer", locked: true };
+const rainyLabel = { id: "t-rainy", kind: "theme", seasonKey: null, name: "Rainy day", locked: false };
+const labels = [summerLabel, rainyLabel];
+
+// The shared advanced filter is owned by App; this wrapper mirrors that ownership so
+// unit tests can drive the UnifiedFilter through WardrobeView's controlled props.
+function ControlledWardrobe({ initialFilter = emptyAdvancedFilter(), ...props }) {
+  const [advancedFilter, setAdvancedFilter] = useState(initialFilter);
+  return (
+    <WardrobeView
+      {...props}
+      advancedFilter={advancedFilter}
+      onAdvancedFilterChange={setAdvancedFilter}
+    />
+  );
+}
 
 function deferred() {
   let resolve;
@@ -401,38 +421,94 @@ describe("WardrobeView", () => {
     expect(screen.queryByRole("button", { name: "Skor" })).not.toBeInTheDocument();
   });
 
-  it("shows the colour filter only when at least two families exist", async () => {
-    const single = createRepository({ listItems: vi.fn().mockResolvedValue([shirt]) });
-    const view = render(<WardrobeView repository={single} />);
-    await screen.findByRole("button", { name: "Visa Blue shirt" });
-    expect(screen.queryByRole("group", { name: "Filtrera på färg" })).not.toBeInTheDocument();
-    view.unmount();
-
-    const multi = createRepository({ listItems: vi.fn().mockResolvedValue([greenTop, redTop]) });
-    render(<WardrobeView repository={multi} />);
+  it("renders a single unified Filter trigger and no separate colour group", async () => {
+    const repository = createRepository({
+      listItems: vi.fn().mockResolvedValue([greenTop, redTop]),
+    });
+    render(<ControlledWardrobe repository={repository} />);
     await screen.findByRole("button", { name: "Visa Green top" });
-    expect(screen.getByRole("group", { name: "Filtrera på färg" })).toBeInTheDocument();
+
+    expect(screen.getByRole("button", { name: "Filter" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Filtrera på färg" })).not.toBeInTheDocument();
   });
 
-  it("filters by colour family and combines with the category filter", async () => {
+  it("omits the colour group when fewer than two families exist", async () => {
+    const user = userEvent.setup();
+    const single = createRepository({ listItems: vi.fn().mockResolvedValue([shirt]) });
+    render(<ControlledWardrobe repository={single} />);
+    await screen.findByRole("button", { name: "Visa Blue shirt" });
+
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    expect(screen.queryByText("Färg")).not.toBeInTheDocument();
+  });
+
+  it("keeps two colours selected and applies OR between them", async () => {
+    const user = userEvent.setup();
+    const repository = createRepository({
+      listItems: vi.fn().mockResolvedValue([greenTop, redTop, shirt]),
+    });
+    render(<ControlledWardrobe repository={repository} />);
+    await screen.findByRole("button", { name: "Visa Green top" });
+
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("checkbox", { name: "Grön" }));
+    await user.click(screen.getByRole("checkbox", { name: "Röd" }));
+
+    expect(screen.getByRole("checkbox", { name: "Grön" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Röd" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Visa Green top" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visa Red top" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Blue shirt" })).not.toBeInTheDocument();
+  });
+
+  it("combines colour and season selections with AND", async () => {
+    const user = userEvent.setup();
+    const repository = createRepository({
+      listItems: vi.fn().mockResolvedValue([redTop, redSummerTop, greenSummerTop]),
+    });
+    render(<ControlledWardrobe repository={repository} labels={labels} />);
+    await screen.findByRole("button", { name: "Visa Red summer top" });
+
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("checkbox", { name: "Röd" }));
+    await user.click(screen.getByRole("checkbox", { name: "Sommar" }));
+
+    expect(screen.getByRole("button", { name: "Visa Red summer top" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Red top" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Green summer top" })).not.toBeInTheDocument();
+  });
+
+  it("ANDs the advanced colour filter with the local category", async () => {
     const user = userEvent.setup();
     const repository = createRepository({
       listItems: vi.fn().mockResolvedValue([greenTop, redTop, redBottom]),
     });
-    render(<WardrobeView repository={repository} />);
+    render(<ControlledWardrobe repository={repository} />);
     await screen.findByRole("button", { name: "Visa Green top" });
 
-    await user.click(screen.getByRole("button", { name: "Filtrera på färg Röd" }));
-    expect(screen.getByRole("button", { name: "Visa Red top" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Visa Red bottom" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Visa Green top" })).not.toBeInTheDocument();
-
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("checkbox", { name: "Röd" }));
     await user.click(screen.getByRole("button", { name: "Underdelar" }));
+
     expect(screen.getByRole("button", { name: "Visa Red bottom" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Visa Red top" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Green top" })).not.toBeInTheDocument();
+  });
 
-    // Toggling the colour off keeps the category filter and restores its items.
-    await user.click(screen.getByRole("button", { name: "Filtrera på färg Röd" }));
-    expect(screen.getByRole("button", { name: "Visa Red bottom" })).toBeInTheDocument();
+  it("keeps category chips derived from complete items while colour narrows results", async () => {
+    const user = userEvent.setup();
+    const repository = createRepository({
+      listItems: vi.fn().mockResolvedValue([greenTop, redBottom]),
+    });
+    render(<ControlledWardrobe repository={repository} />);
+    await screen.findByRole("button", { name: "Visa Green top" });
+
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("checkbox", { name: "Grön" }));
+
+    expect(screen.getByRole("button", { name: "Visa Green top" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Red bottom" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Överdelar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Underdelar" })).toBeInTheDocument();
   });
 });
