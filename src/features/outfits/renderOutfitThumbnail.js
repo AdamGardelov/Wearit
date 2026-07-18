@@ -38,6 +38,11 @@ export async function renderOutfitThumbnail(items, mannequinUrl) {
     context.save();
     context.translate(item.anchor_x * WIDTH, item.anchor_y * HEIGHT);
     context.rotate(item.rotation_degrees * Math.PI / 180);
+    // A soft baked shadow gives each garment edge definition against the pale mannequin, so
+    // white and light pieces stay legible. Scoped by save/restore to the garment layers only.
+    context.shadowColor = "rgba(40, 36, 30, 0.28)";
+    context.shadowBlur = 22;
+    context.shadowOffsetY = 10;
     context.drawImage(image, -width / 2, -height / 2, width, height);
     context.restore();
   }

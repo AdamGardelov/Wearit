@@ -169,6 +169,9 @@ button { font: inherit; }
   height: 100%;
   object-fit: contain;
   transform: scale(.94);
+  /* Soft contact shadow that follows the garment silhouette, so light/white pieces separate
+     from the background without a card frame. */
+  filter: drop-shadow(0 14px 18px rgba(40, 36, 30, .18));
   transition: transform 220ms cubic-bezier(.2, .7, .2, 1);
   -webkit-user-drag: none;
 }

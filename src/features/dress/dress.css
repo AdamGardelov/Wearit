@@ -27,7 +27,8 @@
   margin: 0 auto;
   overflow: hidden;
   border: 1px solid rgba(110, 48, 46, .13);
-  background: radial-gradient(circle at 50% 40%, rgba(255, 255, 255, .86), transparent 56%), #eee8de;
+  /* Cool neutral studio backdrop: enough contrast for white garments without hiding dark ones. */
+  background: radial-gradient(circle at 50% 32%, #edeae4 0%, #d3cfc7 82%);
   box-shadow: 0 14px 40px rgba(61, 49, 39, .09);
 }
 
@@ -44,6 +45,8 @@
   height: auto;
   object-fit: contain;
   pointer-events: none;
+  /* Edge definition so a white garment reads against the pale mannequin. */
+  filter: drop-shadow(0 6px 10px rgba(40, 36, 30, .22));
   -webkit-user-drag: none;
 }
 
