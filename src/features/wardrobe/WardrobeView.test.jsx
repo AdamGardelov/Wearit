@@ -36,6 +36,17 @@ const jacket = {
   cutoutUrl: "data:image/png;base64,amFja2V0",
 };
 
+const greenTop = { ...shirt, id: "green-top", name: "Green top", colors: ["#4a8c3f"] };
+const redTop = { ...shirt, id: "red-top", name: "Red top", colors: ["#c0392b"] };
+const redBottom = {
+  ...shirt,
+  id: "red-bottom",
+  name: "Red bottom",
+  category: "bottom",
+  slot: "bottom",
+  colors: ["#c0392b"],
+};
+
 function deferred() {
   let resolve;
   let reject;
@@ -339,19 +350,21 @@ describe("WardrobeView", () => {
     });
   });
 
-  it("moves focus to the active category after archiving the only visible item", async () => {
+  it("falls back to All after archiving the only item in a now-empty category", async () => {
     const user = userEvent.setup();
     const repository = createRepository({
       listItems: vi.fn().mockResolvedValue([shirt]),
     });
     render(<WardrobeView repository={repository} />);
-    const topsFilter = screen.getByRole("button", { name: "Överdelar" });
-    await user.click(topsFilter);
-    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
+    await screen.findByRole("button", { name: "Visa Blue shirt" });
+    await user.click(screen.getByRole("button", { name: "Överdelar" }));
+    await user.click(screen.getByRole("button", { name: "Visa Blue shirt" }));
 
     await user.click(screen.getByRole("button", { name: "Arkivera" }));
 
-    await waitFor(() => expect(topsFilter).toHaveFocus());
+    // The now-empty "Överdelar" chip disappears, so focus lands on "Alla".
+    await waitFor(() => expect(screen.getByRole("button", { name: "Alla" })).toHaveFocus());
+    expect(screen.queryByRole("button", { name: "Överdelar" })).not.toBeInTheDocument();
   });
 
   it("ignores a stale initial load after the repository changes", async () => {
@@ -371,5 +384,54 @@ describe("WardrobeView", () => {
 
     expect(screen.queryByRole("button", { name: "Visa Blue shirt" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Visa Brown jacket" })).toBeInTheDocument();
+  });
+
+  it("hides category chips that hold no garments", async () => {
+    const repository = createRepository({
+      listItems: vi.fn().mockResolvedValue([shirt, jacket]),
+    });
+    render(<WardrobeView repository={repository} />);
+    await screen.findByRole("button", { name: "Visa Blue shirt" });
+
+    expect(screen.getByRole("button", { name: "Alla" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Överdelar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Jackor" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Klänningar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Skor" })).not.toBeInTheDocument();
+  });
+
+  it("shows the colour filter only when at least two families exist", async () => {
+    const single = createRepository({ listItems: vi.fn().mockResolvedValue([shirt]) });
+    const view = render(<WardrobeView repository={single} />);
+    await screen.findByRole("button", { name: "Visa Blue shirt" });
+    expect(screen.queryByRole("group", { name: "Filtrera på färg" })).not.toBeInTheDocument();
+    view.unmount();
+
+    const multi = createRepository({ listItems: vi.fn().mockResolvedValue([greenTop, redTop]) });
+    render(<WardrobeView repository={multi} />);
+    await screen.findByRole("button", { name: "Visa Green top" });
+    expect(screen.getByRole("group", { name: "Filtrera på färg" })).toBeInTheDocument();
+  });
+
+  it("filters by colour family and combines with the category filter", async () => {
+    const user = userEvent.setup();
+    const repository = createRepository({
+      listItems: vi.fn().mockResolvedValue([greenTop, redTop, redBottom]),
+    });
+    render(<WardrobeView repository={repository} />);
+    await screen.findByRole("button", { name: "Visa Green top" });
+
+    await user.click(screen.getByRole("button", { name: "Filtrera på färg Röd" }));
+    expect(screen.getByRole("button", { name: "Visa Red top" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visa Red bottom" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Green top" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Underdelar" }));
+    expect(screen.getByRole("button", { name: "Visa Red bottom" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Red top" })).not.toBeInTheDocument();
+
+    // Toggling the colour off keeps the category filter and restores its items.
+    await user.click(screen.getByRole("button", { name: "Filtrera på färg Röd" }));
+    expect(screen.getByRole("button", { name: "Visa Red bottom" })).toBeInTheDocument();
   });
 });

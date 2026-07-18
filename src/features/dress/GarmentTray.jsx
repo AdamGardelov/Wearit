@@ -7,24 +7,36 @@ function garmentName(item) {
 
 export function GarmentTray({ items, selectedIds, onSelect }) {
   const [activeCategory, setActiveCategory] = useState("all");
-  const visibleItems = useMemo(
-    () => activeCategory === "all"
-      ? items
-      : items.filter((item) => item.category === activeCategory),
-    [activeCategory, items],
+  const availableCategoryIds = useMemo(
+    () => new Set(items.map((item) => item.category)),
+    [items],
   );
-  const activeLabel = CATEGORY_BY_ID[activeCategory]?.label || "Plagg";
+  // Only show categories that hold garments; "all" is always available.
+  const visibleCategories = useMemo(
+    () => CATEGORIES.filter((category) => category.id === "all" || availableCategoryIds.has(category.id)),
+    [availableCategoryIds],
+  );
+  const effectiveCategory = activeCategory === "all" || availableCategoryIds.has(activeCategory)
+    ? activeCategory
+    : "all";
+  const visibleItems = useMemo(
+    () => effectiveCategory === "all"
+      ? items
+      : items.filter((item) => item.category === effectiveCategory),
+    [effectiveCategory, items],
+  );
+  const activeLabel = CATEGORY_BY_ID[effectiveCategory]?.label || "Plagg";
 
   return (
     <section className="garment-tray" aria-label="Plagglåda">
       <div className="dress-category-chips" aria-label="Filtrera plagg efter kategori">
-        {CATEGORIES.map((category) => (
+        {visibleCategories.map((category) => (
           <button
             key={category.id}
             type="button"
-            className={activeCategory === category.id ? "active" : ""}
+            className={effectiveCategory === category.id ? "active" : ""}
             onClick={() => setActiveCategory(category.id)}
-            aria-pressed={activeCategory === category.id}
+            aria-pressed={effectiveCategory === category.id}
           >
             {category.label}
           </button>

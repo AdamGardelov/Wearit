@@ -171,13 +171,13 @@ describe("DressingRoom", () => {
     expect(screen.getByRole("img", { name: "Black trousers" })).toBeInTheDocument();
   });
 
-  it("shows a useful empty state for a category without items", async () => {
-    const user = userEvent.setup();
+  it("hides category chips that have no garments", async () => {
     render(<DressingRoom items={[top]} />);
 
-    await user.click(screen.getByRole("button", { name: "Skor" }));
-
-    expect(screen.getByText("Inga skor i din garderob än.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Alla" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Överdelar" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Skor" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Klänningar" })).not.toBeInTheDocument();
   });
 });
 

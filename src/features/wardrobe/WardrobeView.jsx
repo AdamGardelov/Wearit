@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CATEGORY_BY_ID, CATEGORIES } from "../../domain/slots.js";
+import { availableColorFamilies, itemColorFamilies } from "../../domain/colors.js";
 import { OptimizedImage } from "../../OptimizedImage.jsx";
 import { ItemEditorDialog } from "./ItemEditorDialog.jsx";
 
@@ -34,6 +35,7 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
   const returnFocusTargetRef = useRef(null);
   const [items, setItems] = useState([]);
   const [activeCategory, setActiveCategory] = useState("all");
+  const [activeColor, setActiveColor] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -63,12 +65,42 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
     if (!active) setSelectedId(null);
   }, [active]);
 
+  const availableCategoryIds = useMemo(
+    () => new Set(items.map((item) => item.category)),
+    [items],
+  );
+  // Only offer categories that actually hold garments; "all" is always present.
+  const visibleCategories = useMemo(
+    () => CATEGORIES.filter((category) => category.id === "all" || availableCategoryIds.has(category.id)),
+    [availableCategoryIds],
+  );
+  const colorFamilies = useMemo(() => availableColorFamilies(items), [items]);
+  const showColorFilter = colorFamilies.length >= 2;
+  const itemFamilies = useMemo(
+    () => new Map(items.map((item) => [item.id, itemColorFamilies(item)])),
+    [items],
+  );
+
+  // Drop a filter that no longer has any garments behind it.
+  useEffect(() => {
+    if (activeCategory !== "all" && !availableCategoryIds.has(activeCategory)) {
+      setActiveCategory("all");
+    }
+  }, [availableCategoryIds, activeCategory]);
+  useEffect(() => {
+    if (activeColor && !colorFamilies.some((family) => family.id === activeColor)) {
+      setActiveColor(null);
+    }
+  }, [colorFamilies, activeColor]);
+
   const selectedItem = items.find((item) => item.id === selectedId) || null;
   const visibleItems = useMemo(
-    () => activeCategory === "all"
-      ? items
-      : items.filter((item) => item.category === activeCategory),
-    [activeCategory, items],
+    () => items.filter((item) => {
+      if (activeCategory !== "all" && item.category !== activeCategory) return false;
+      if (activeColor && !itemFamilies.get(item.id)?.has(activeColor)) return false;
+      return true;
+    }),
+    [activeCategory, activeColor, itemFamilies, items],
   );
 
   const openItem = (itemId) => {
@@ -95,6 +127,10 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
     setSelectedId(null);
   };
 
+  const chooseColor = (familyId) => {
+    setActiveColor((current) => (current === familyId ? null : familyId));
+  };
+
   const saveItem = async (item) => {
     const requestRepository = repository;
     const savedItem = await repository.updateItem(item);
@@ -113,14 +149,19 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
     const requestRepository = repository;
     await repository.archiveItem(itemId);
     if (repositoryRef.current !== requestRepository) return;
+    const remaining = items.filter((item) => item.id !== itemId);
+    const activeCategoryStillPresent = activeCategory === "all"
+      || remaining.some((item) => item.category === activeCategory);
     const selectedIndex = visibleItems.findIndex((item) => item.id === itemId);
     const fallbackItem = visibleItems[selectedIndex + 1] ?? visibleItems[selectedIndex - 1];
+    const focusCategory = activeCategoryStillPresent ? activeCategory : "all";
     returnFocusTargetRef.current = (
       (fallbackItem && galleryButtonRefs.current.get(fallbackItem.id))
-      || categoryButtonRefs.current.get(activeCategory)
+      || categoryButtonRefs.current.get(focusCategory)
       || returnFocusTargetRef.current
     );
-    setItems((current) => current.filter((item) => item.id !== itemId));
+    if (!activeCategoryStillPresent) setActiveCategory("all");
+    setItems(remaining);
     setSelectedId(null);
   };
 
@@ -145,7 +186,7 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
             </p>
           </div>
           <nav className="category-nav" aria-label="Filtrera garderob efter typ">
-            {CATEGORIES.map((category) => (
+            {visibleCategories.map((category) => (
               <button
                 key={category.id}
                 ref={(node) => {
@@ -161,6 +202,24 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
               </button>
             ))}
           </nav>
+          {showColorFilter && (
+            <div className="color-filter" role="group" aria-label="Filtrera på färg">
+              {colorFamilies.map((family) => (
+                <button
+                  key={family.id}
+                  type="button"
+                  className={`color-chip${activeColor === family.id ? " active" : ""}`}
+                  onClick={() => chooseColor(family.id)}
+                  aria-pressed={activeColor === family.id}
+                  aria-label={`Filtrera på färg ${family.label}`}
+                  title={family.label}
+                >
+                  <span className="color-dot" style={{ backgroundColor: family.swatch }} aria-hidden="true" />
+                  <span>{family.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </header>
 
         {error && <p className="status error" role="alert">{error}</p>}
@@ -169,7 +228,7 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
           <p className="status empty">Din garderob är tom.</p>
         )}
         {!error && !loading && !!items.length && !visibleItems.length && (
-          <p className="status empty">Inga {activeLabel.toLowerCase()} i din garderob.</p>
+          <p className="status empty">Inga plagg matchar filtret.</p>
         )}
 
         {!!visibleItems.length && (
