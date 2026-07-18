@@ -125,7 +125,7 @@ export function OutfitsView({
                     onClick={() => { setDeleteError(""); setConfirmDeleteId(outfit.id); }}
                     aria-label={`Ta bort ${outfit.name}`}
                   >
-                    <Trash size={16} weight="regular" aria-hidden="true" />
+                    <Trash size={15} weight="regular" aria-hidden="true" />
                   </button>
                 )}
                 <div className="outfit-thumbnail">
