@@ -60,21 +60,24 @@ export function OutfitsView({
     <main className="outfits-view" aria-busy={loading}>
       <header className="outfits-header">
         <p>Outfits</p>
-        <h1>Sparade kombinationer</h1>
-        <span>{outfits.length} {outfits.length === 1 ? "look" : "looker"}</span>
-        <UnifiedFilter
-          groups={OUTFIT_FILTER_GROUPS}
-          colors={colors}
-          labels={labels}
-          value={advancedFilter}
-          onChange={onAdvancedFilterChange}
-          loading={labelsLoading}
-          error={labelsError}
-          visibleCount={visibleOutfits.length}
-          totalCount={outfits.length}
-          resultNoun="outfits"
-          context={context}
-        />
+        <h1>Sparade outfits</h1>
+        <div className="outfits-toolbar">
+          <span className="outfits-count">{outfits.length} {outfits.length === 1 ? "look" : "looker"}</span>
+          <UnifiedFilter
+            groups={OUTFIT_FILTER_GROUPS}
+            colors={colors}
+            labels={labels}
+            value={advancedFilter}
+            onChange={onAdvancedFilterChange}
+            loading={labelsLoading}
+            error={labelsError}
+            visibleCount={visibleOutfits.length}
+            totalCount={outfits.length}
+            resultNoun="outfits"
+            context={context}
+            align="end"
+          />
+        </div>
       </header>
 
       {error && <p className="outfits-status error" role="alert">{error}</p>}
