@@ -155,4 +155,32 @@ describe("saved outfit repository", () => {
 
     expect(result).toMatchObject({ id: "outfit-new", committed: true, labelIds: ["label-summer"] });
   });
+
+  it("deletes an outfit through the RPC and cleans up its thumbnail asset", async () => {
+    const { client, rpc, remove } = outfitClient({
+      rpcResult: { data: "owner-1/outfits/outfit-1/thumbnail-x.webp", error: null },
+    });
+
+    const result = await createWardrobeRepository(client).deleteOutfit("outfit-1");
+
+    expect(rpc).toHaveBeenCalledWith("delete_outfit", { p_outfit_id: "outfit-1" });
+    expect(remove).toHaveBeenCalledWith(["owner-1/outfits/outfit-1/thumbnail-x.webp"]);
+    expect(result).toEqual({ id: "outfit-1" });
+  });
+
+  it("skips asset cleanup when the deleted outfit had no thumbnail", async () => {
+    const { client, remove } = outfitClient({ rpcResult: { data: null, error: null } });
+
+    const result = await createWardrobeRepository(client).deleteOutfit("outfit-2");
+
+    expect(remove).not.toHaveBeenCalled();
+    expect(result).toEqual({ id: "outfit-2" });
+  });
+
+  it("surfaces a delete_outfit RPC failure", async () => {
+    const { client } = outfitClient({ rpcResult: { data: null, error: new Error("delete blocked") } });
+
+    await expect(createWardrobeRepository(client).deleteOutfit("outfit-1"))
+      .rejects.toThrow("delete blocked");
+  });
 });

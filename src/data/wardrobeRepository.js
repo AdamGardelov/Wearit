@@ -391,6 +391,20 @@ export function createWardrobeRepository(client) {
     }
   }
 
+  async function deleteOutfit(outfitId) {
+    const result = await client.rpc("delete_outfit", { p_outfit_id: outfitId });
+    if (result.error) throw result.error;
+    // The RPC returns the outfit's thumbnail path (or null); best-effort remove the asset.
+    const thumbnailPath = result.data ?? null;
+    const cleanupError = thumbnailPath ? await removeAssets([thumbnailPath]) : null;
+    return {
+      id: outfitId,
+      ...(cleanupError
+        ? { cleanupWarning: "The outfit was removed, but its thumbnail could not be cleaned up." }
+        : {}),
+    };
+  }
+
   async function recordWear({ itemIds, wornAt, outfitId = null, notes = null }) {
     const retryContext = {
       itemIds: [...itemIds],
@@ -741,6 +755,7 @@ export function createWardrobeRepository(client) {
     restoreItem,
     listOutfits,
     saveOutfit,
+    deleteOutfit,
     listLabels,
     createTheme,
     renameTheme,

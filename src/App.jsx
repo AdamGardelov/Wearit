@@ -303,6 +303,7 @@ export function App({ repository: injectedRepository }) {
             refreshKey={outfitsRefreshKey}
             onLoad={loadOutfit}
             onWear={(selection, outfit) => requestWear(selection, outfit)}
+            onDeleted={(outfitId) => setLoadedOutfit((current) => (current?.id === outfitId ? null : current))}
             context="Outfits"
             {...advancedFilterProps}
           />

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Trash } from "@phosphor-icons/react";
 import { SLOT_LABELS } from "../../domain/slots.js";
 import {
   OUTFIT_FILTER_GROUPS,
@@ -18,6 +19,7 @@ export function OutfitsView({
   refreshKey = 0,
   onLoad,
   onWear,
+  onDeleted,
   colors = [],
   labels = [],
   advancedFilter = emptyAdvancedFilter(),
@@ -29,6 +31,26 @@ export function OutfitsView({
   const [outfits, setOutfits] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [deleteError, setDeleteError] = useState("");
+
+  const canDelete = typeof repository.deleteOutfit === "function";
+
+  const handleDelete = async (outfit) => {
+    setDeletingId(outfit.id);
+    setDeleteError("");
+    try {
+      await repository.deleteOutfit(outfit.id);
+      setOutfits((current) => current.filter((entry) => entry.id !== outfit.id));
+      setConfirmDeleteId(null);
+      onDeleted?.(outfit.id);
+    } catch (deleteFailure) {
+      setDeleteError(deleteFailure.message || "Kunde inte ta bort outfiten.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   // Saved outfits filter by their own saved labels, never by recomputing item labels or
   // colours. OUTFIT_FILTER_GROUPS restricts matching to Season and Theme, so a retained
@@ -96,6 +118,16 @@ export function OutfitsView({
             const unavailable = outfit.needs_attention || archived.length > 0;
             return (
               <article className={`outfit-card${unavailable ? " needs-attention" : ""}`} key={outfit.id}>
+                {canDelete && confirmDeleteId !== outfit.id && (
+                  <button
+                    type="button"
+                    className="outfit-delete-trigger"
+                    onClick={() => { setDeleteError(""); setConfirmDeleteId(outfit.id); }}
+                    aria-label={`Ta bort ${outfit.name}`}
+                  >
+                    <Trash size={16} weight="regular" aria-hidden="true" />
+                  </button>
+                )}
                 <div className="outfit-thumbnail">
                   {outfit.thumbnailUrl ? (
                     <img src={outfit.thumbnailUrl} alt={outfit.name} />
@@ -115,27 +147,52 @@ export function OutfitsView({
                       </div>
                     );
                   })}
-                  <div className="outfit-card-actions">
-                    <button
-                      type="button"
-                      onClick={() => onLoad(outfit.items, outfit)}
-                      disabled={unavailable}
-                      aria-label={`Ladda ${outfit.name}`}
-                    >
-                      Ladda outfit
-                    </button>
-                    {onWear && (
+                  {confirmDeleteId === outfit.id ? (
+                    <div className="outfit-delete-confirm" role="group" aria-label={`Ta bort ${outfit.name}`}>
+                      <p>Ta bort den här outfiten?</p>
+                      {deleteError && <p className="outfit-error" role="alert">{deleteError}</p>}
+                      <div className="outfit-delete-confirm-actions">
+                        <button
+                          type="button"
+                          className="outfit-delete-confirm-yes"
+                          onClick={() => handleDelete(outfit)}
+                          disabled={deletingId === outfit.id}
+                          aria-label={`Bekräfta borttagning av ${outfit.name}`}
+                        >
+                          {deletingId === outfit.id ? "Tar bort…" : "Ta bort"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setConfirmDeleteId(null); setDeleteError(""); }}
+                          disabled={deletingId === outfit.id}
+                        >
+                          Avbryt
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="outfit-card-actions">
                       <button
                         type="button"
-                        className="outfit-wear-action"
-                        onClick={() => onWear(outfit.items, outfit)}
+                        onClick={() => onLoad(outfit.items, outfit)}
                         disabled={unavailable}
-                        aria-label={`Bär ${outfit.name}`}
+                        aria-label={`Ladda ${outfit.name}`}
                       >
-                        Bär outfit
+                        Ladda outfit
                       </button>
-                    )}
-                  </div>
+                      {onWear && (
+                        <button
+                          type="button"
+                          className="outfit-wear-action"
+                          onClick={() => onWear(outfit.items, outfit)}
+                          disabled={unavailable}
+                          aria-label={`Bär ${outfit.name}`}
+                        >
+                          Bär outfit
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </article>
             );

@@ -338,4 +338,56 @@ describe("OutfitsView", () => {
     // ...and no "X av Y" summary appears because no applicable group is active.
     expect(screen.queryByText("2 av 2")).not.toBeInTheDocument();
   });
+
+  it("deletes an outfit after confirmation and removes it from the grid", async () => {
+    const user = userEvent.setup();
+    const casual = { ...office, id: "outfit-2", name: "Casual day", thumbnailUrl: "/casual.webp" };
+    const deleteOutfit = vi.fn().mockResolvedValue({ id: "outfit-1" });
+    const repository = { listOutfits: vi.fn().mockResolvedValue([office, casual]), deleteOutfit };
+    render(<OutfitsView active repository={repository} onLoad={vi.fn()} />);
+    await screen.findByRole("img", { name: "Office day" });
+
+    await user.click(screen.getByRole("button", { name: "Ta bort Office day" }));
+    await user.click(screen.getByRole("button", { name: "Bekräfta borttagning av Office day" }));
+
+    await waitFor(() => expect(deleteOutfit).toHaveBeenCalledWith("outfit-1"));
+    await waitFor(() => expect(screen.queryByRole("img", { name: "Office day" })).not.toBeInTheDocument());
+    expect(screen.getByRole("img", { name: "Casual day" })).toBeInTheDocument();
+  });
+
+  it("cancels an outfit deletion without calling the repository", async () => {
+    const user = userEvent.setup();
+    const deleteOutfit = vi.fn();
+    const repository = { listOutfits: vi.fn().mockResolvedValue([office]), deleteOutfit };
+    render(<OutfitsView active repository={repository} onLoad={vi.fn()} />);
+    await screen.findByRole("img", { name: "Office day" });
+
+    await user.click(screen.getByRole("button", { name: "Ta bort Office day" }));
+    await user.click(screen.getByRole("button", { name: "Avbryt" }));
+
+    expect(deleteOutfit).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Ladda Office day" })).toBeInTheDocument();
+  });
+
+  it("keeps the outfit and reports an error when deletion fails", async () => {
+    const user = userEvent.setup();
+    const deleteOutfit = vi.fn().mockRejectedValue(new Error("Kunde inte ta bort."));
+    const repository = { listOutfits: vi.fn().mockResolvedValue([office]), deleteOutfit };
+    render(<OutfitsView active repository={repository} onLoad={vi.fn()} />);
+    await screen.findByRole("img", { name: "Office day" });
+
+    await user.click(screen.getByRole("button", { name: "Ta bort Office day" }));
+    await user.click(screen.getByRole("button", { name: "Bekräfta borttagning av Office day" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Kunde inte ta bort.");
+    expect(screen.getByRole("img", { name: "Office day" })).toBeInTheDocument();
+  });
+
+  it("offers no delete control when the repository cannot delete outfits", async () => {
+    const repository = { listOutfits: vi.fn().mockResolvedValue([office]) };
+    render(<OutfitsView active repository={repository} onLoad={vi.fn()} />);
+    await screen.findByRole("img", { name: "Office day" });
+
+    expect(screen.queryByRole("button", { name: "Ta bort Office day" })).not.toBeInTheDocument();
+  });
 });

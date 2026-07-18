@@ -13,7 +13,7 @@
 .outfits-status { max-width: 1180px; margin: 60px auto; color: var(--muted); }
 .outfits-status.error, .outfit-error { color: var(--accent); }
 .outfits-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; max-width: 1180px; margin: 0 auto; }
-.outfit-card { min-width: 0; border-top: 1px solid var(--line); padding-top: 10px; }
+.outfit-card { position: relative; min-width: 0; border-top: 1px solid var(--line); padding-top: 10px; }
 .outfit-thumbnail { aspect-ratio: 1 / 2; display: grid; place-items: center; overflow: hidden; background: #eee8de; color: var(--muted); font-size: 11px; }
 .outfit-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
 .outfit-card-copy { padding-top: 12px; }
@@ -23,6 +23,37 @@
 .outfit-card button { width: 100%; min-height: 44px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper); cursor: pointer; }
 .outfit-card .outfit-wear-action { background: transparent; color: var(--ink); }
 .outfit-card button:disabled { border-color: var(--line); background: transparent; color: var(--muted); cursor: not-allowed; }
+
+/* Corner trash affordance: hidden until card hover/focus on pointer devices, always shown on
+   touch devices where there is no hover. */
+.outfit-delete-trigger {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--muted);
+  cursor: pointer;
+}
+.outfit-delete-trigger:hover { border-color: var(--accent); color: var(--accent); }
+.outfit-delete-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (hover: hover) {
+  .outfit-delete-trigger { opacity: 0; transition: opacity 140ms ease; }
+  .outfit-card:hover .outfit-delete-trigger,
+  .outfit-delete-trigger:focus-visible { opacity: 1; }
+}
+
+.outfit-delete-confirm { display: grid; gap: 10px; }
+.outfit-delete-confirm > p { margin: 0; font-size: 13px; }
+.outfit-delete-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.outfit-card .outfit-delete-confirm-yes { border-color: var(--accent); background: var(--accent); color: var(--paper); }
 .outfit-attention { display: grid; gap: 3px; margin: 0 0 12px; border-left: 2px solid var(--accent); padding-left: 8px; color: var(--accent); font-size: 10px; line-height: 1.35; }
 .outfit-attention strong { font-weight: 650; text-transform: capitalize; }
 
