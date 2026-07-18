@@ -17,6 +17,18 @@ function itemLabel(item) {
 }
 
 function GalleryItem({ item, selected, onOpen, buttonRef }) {
+  // A failed back asset is the only local state: it falls back to a front-only card without
+  // touching the front image. The back view is derived by semantic view, not array position.
+  const [backFailed, setBackFailed] = useState(false);
+  const frontUrl = item.primaryImageUrl ?? item.cutoutUrl;
+  const backUrl = item.images?.find((image) => image.view === "back")?.url ?? null;
+  const showBack = Boolean(backUrl && !backFailed);
+  const imageProps = {
+    alt: "",
+    sizes: "(max-width: 520px) calc(50vw - 16px), (max-width: 860px) calc(33vw - 18px), 180px",
+    breakpoints: [120, 180, 240, 320, 480],
+  };
+
   return (
     <button
       ref={buttonRef}
@@ -27,12 +39,23 @@ function GalleryItem({ item, selected, onOpen, buttonRef }) {
       aria-pressed={selected}
       data-testid={`wardrobe-item-${item.id}`}
     >
-      <OptimizedImage
-        src={item.primaryImageUrl ?? item.cutoutUrl}
-        alt=""
-        sizes="(max-width: 520px) calc(50vw - 16px), (max-width: 860px) calc(33vw - 18px), 180px"
-        breakpoints={[120, 180, 240, 320, 480]}
-      />
+      <span className={`gallery-item-media${showBack ? " has-back" : ""}`}>
+        <OptimizedImage
+          {...imageProps}
+          className="gallery-image gallery-image-front"
+          data-view="front"
+          src={frontUrl}
+        />
+        {showBack && (
+          <OptimizedImage
+            {...imageProps}
+            className="gallery-image gallery-image-back"
+            data-view="back"
+            src={backUrl}
+            onError={() => setBackFailed(true)}
+          />
+        )}
+      </span>
     </button>
   );
 }

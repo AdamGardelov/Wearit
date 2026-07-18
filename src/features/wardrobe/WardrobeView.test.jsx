@@ -1,5 +1,5 @@
 import { StrictMode, useState } from "react";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WardrobeView } from "./WardrobeView.jsx";
@@ -578,6 +578,57 @@ describe("WardrobeView", () => {
       expect(cardOrder()).toEqual(["Visa Recent worn", "Visa Never worn", "Visa Old worn"]);
       expect(screen.queryByText("Aldrig använd")).not.toBeInTheDocument();
       expect(screen.getByRole("alert")).toHaveTextContent("Kunde inte ladda senast använd. Försök igen.");
+    });
+  });
+
+  describe("gallery back image", () => {
+    const twoSided = {
+      ...shirt,
+      primaryImageUrl: "https://assets.test/front.webp",
+      images: [
+        { id: "front", view: "front", isPrimary: true, url: "https://assets.test/front.webp" },
+        { id: "back", view: "back", isPrimary: false, url: "https://assets.test/back.webp" },
+      ],
+    };
+
+    it("stacks a front and derived back image for a two-sided garment", async () => {
+      render(<WardrobeView repository={createRepository({
+        listItems: vi.fn().mockResolvedValue([twoSided]),
+      })} />);
+      const card = await screen.findByRole("button", { name: "Visa Blue shirt" });
+
+      expect(card.querySelector(".gallery-item-media")).toHaveClass("has-back");
+      expect(card.querySelector('[data-view="front"]')).toHaveAttribute("src", twoSided.primaryImageUrl);
+      expect(card.querySelector('[data-view="back"]')).toHaveAttribute("src", twoSided.images[1].url);
+    });
+
+    it("drops a failed back asset and keeps the front intact", async () => {
+      render(<WardrobeView repository={createRepository({
+        listItems: vi.fn().mockResolvedValue([twoSided]),
+      })} />);
+      const card = await screen.findByRole("button", { name: "Visa Blue shirt" });
+
+      fireEvent.error(card.querySelector('[data-view="back"]'));
+
+      expect(card.querySelector('[data-view="back"]')).not.toBeInTheDocument();
+      expect(card.querySelector('[data-view="front"]')).toBeInTheDocument();
+      expect(card.querySelector(".gallery-item-media")).not.toHaveClass("has-back");
+    });
+
+    it("renders a front-only garment with no back layer", async () => {
+      const frontOnly = {
+        ...shirt,
+        primaryImageUrl: "https://assets.test/front.webp",
+        images: [{ id: "front", view: "front", isPrimary: true, url: "https://assets.test/front.webp" }],
+      };
+      render(<WardrobeView repository={createRepository({
+        listItems: vi.fn().mockResolvedValue([frontOnly]),
+      })} />);
+      const card = await screen.findByRole("button", { name: "Visa Blue shirt" });
+
+      expect(card.querySelectorAll(".gallery-image")).toHaveLength(1);
+      expect(card.querySelector(".gallery-item-media")).not.toHaveClass("has-back");
+      expect(card.querySelector('[data-view="back"]')).not.toBeInTheDocument();
     });
   });
 });
