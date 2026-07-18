@@ -26,22 +26,32 @@
 
 /* Small corner trash affordance: hidden until card hover/focus on pointer devices, always
    shown on touch devices where there is no hover. */
-.outfit-delete-trigger {
+.outfit-card .outfit-delete-trigger {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 2px;
+  right: 2px;
   z-index: 1;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
   border: 0;
   border-radius: 999px;
-  background: rgba(244, 240, 232, .85);
+  padding: 0;
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
 }
-.outfit-delete-trigger:hover { background: var(--paper); color: var(--accent); }
+.outfit-delete-trigger svg {
+  box-sizing: content-box;
+  border-radius: 999px;
+  padding: 8px;
+  background: rgba(244, 240, 232, .88);
+  transition: background 140ms ease, color 140ms ease;
+}
+.outfit-card .outfit-delete-trigger:hover { background: transparent; color: var(--accent); }
+.outfit-delete-trigger:hover svg { background: var(--paper); }
 .outfit-delete-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 @media (hover: hover) {
