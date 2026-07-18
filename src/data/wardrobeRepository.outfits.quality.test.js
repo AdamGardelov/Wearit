@@ -74,7 +74,7 @@ describe("outfit thumbnail transaction boundaries", () => {
       contentType: "image/webp",
       upsert: false,
     });
-    expect(rpc).toHaveBeenCalledWith("save_outfit", expect.objectContaining({
+    expect(rpc).toHaveBeenCalledWith("save_outfit_with_labels", expect.objectContaining({
       p_outfit_id: OUTFIT_ID,
       p_thumbnail_path: NEW_PATH,
     }));

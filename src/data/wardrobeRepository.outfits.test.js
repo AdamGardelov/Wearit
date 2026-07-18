@@ -51,7 +51,7 @@ describe("saved outfit repository", () => {
     });
     const result = await createWardrobeRepository(client).listOutfits();
     expect(client.from).toHaveBeenCalledWith("outfits");
-    expect(query.select).toHaveBeenCalledWith("*, outfit_items(*, wardrobe_item:wardrobe_items(*))");
+    expect(query.select).toHaveBeenCalledWith("*, outfit_items(*, wardrobe_item:wardrobe_items(*)), outfit_labels(label_id)");
     expect(query.order).toHaveBeenCalledWith("updated_at", { ascending: false });
     expect(createSignedUrls).toHaveBeenCalledWith([savedRows[0].thumbnail_path], 3600);
     expect(result[0]).toMatchObject({
@@ -76,13 +76,15 @@ describe("saved outfit repository", () => {
     });
     const result = await createWardrobeRepository(client).saveOutfit({
       name: " Weekend ", items: [{ id: "top-1" }, { id: "bottom-1" }], thumbnailBlob,
+      labelIds: ["label-summer"],
     });
     expect(client.auth.getUser).toHaveBeenCalledTimes(1);
     expect(upload).toHaveBeenCalledWith("owner-1/outfits/outfit-new/thumbnail-thumbnail-version.webp", thumbnailBlob, { contentType: "image/webp", upsert: false });
-    expect(rpc).toHaveBeenCalledWith("save_outfit", {
+    expect(rpc).toHaveBeenCalledWith("save_outfit_with_labels", {
       p_outfit_id: "outfit-new", p_name: "Weekend", p_item_ids: ["top-1", "bottom-1"],
       p_layer_orders: [10, 20],
       p_thumbnail_path: "owner-1/outfits/outfit-new/thumbnail-thumbnail-version.webp",
+      p_label_ids: ["label-summer"],
     });
     expect(query.eq).toHaveBeenCalledWith("id", "outfit-new");
     expect(query.single).toHaveBeenCalledTimes(1);
@@ -98,7 +100,7 @@ describe("saved outfit repository", () => {
       id: "outfit-1", name: "Renamed", items: [{ id: "top-1" }, { id: "bottom-1" }], thumbnailBlob,
     });
     expect(upload).toHaveBeenCalledWith("owner-1/outfits/outfit-1/thumbnail-thumbnail-version.webp", thumbnailBlob, { contentType: "image/webp", upsert: false });
-    expect(rpc).toHaveBeenCalledWith("save_outfit", expect.objectContaining({ p_outfit_id: "outfit-1" }));
+    expect(rpc).toHaveBeenCalledWith("save_outfit_with_labels", expect.objectContaining({ p_outfit_id: "outfit-1", p_label_ids: [] }));
   });
 
   it("rolls back the new thumbnail when the RPC fails", async () => {
@@ -122,5 +124,35 @@ describe("saved outfit repository", () => {
       id: "outfit-1", name: "Office day", items: [{ id: "top-1" }, { id: "bottom-1" }], thumbnailBlob: new Blob(),
     })).rejects.toBe(uploadError);
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("exposes outfit labelIds and strips the nested assignment rows", async () => {
+    const rows = [{ ...savedRows[0], outfit_labels: [{ label_id: "l1" }, { label_id: "l2" }] }];
+    const { client } = outfitClient({
+      queryResult: { data: rows, error: null },
+      signedResult: { data: [{ path: savedRows[0].thumbnail_path, signedUrl: "https://assets.test/o.webp" }], error: null },
+    });
+
+    const [outfit] = await createWardrobeRepository(client).listOutfits();
+
+    expect(outfit.labelIds).toEqual(["l1", "l2"]);
+    expect(outfit).not.toHaveProperty("outfit_labels");
+  });
+
+  it("returns a committed fallback that retains labels when the refetch fails", async () => {
+    vi.stubGlobal("crypto", { randomUUID: vi.fn()
+      .mockReturnValueOnce("outfit-new")
+      .mockReturnValueOnce("thumbnail-version") });
+    const { client } = outfitClient({
+      queryResult: { data: null, error: new Error("refetch failed") },
+      rpcResult: { data: "outfit-new", error: null },
+    });
+
+    const result = await createWardrobeRepository(client).saveOutfit({
+      name: "Weekend", items: [{ id: "top-1" }, { id: "bottom-1" }],
+      thumbnailBlob: new Blob(), labelIds: ["label-summer"],
+    });
+
+    expect(result).toMatchObject({ id: "outfit-new", committed: true, labelIds: ["label-summer"] });
   });
 });

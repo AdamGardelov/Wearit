@@ -1,12 +1,27 @@
 import { slotForCategory } from "../domain/slots.js";
 
-const OUTFIT_SELECT = "*, outfit_items(*, wardrobe_item:wardrobe_items(*))";
+const OUTFIT_SELECT = "*, outfit_items(*, wardrobe_item:wardrobe_items(*)), outfit_labels(label_id)";
 const WEAR_HISTORY_SELECT =
   "*, outfit:outfits(id, name), wear_event_items(*, wardrobe_item:wardrobe_items(id, name, status))";
+const LABEL_SELECT = "id, kind, season_key, name, locked";
 
 function dataOrThrow(result) {
   if (result.error) throw result.error;
   return result.data;
+}
+
+function assignmentIds(rows = []) {
+  return rows.map((row) => row.label_id);
+}
+
+function mapLabel(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    seasonKey: row.season_key,
+    name: row.name,
+    locked: row.locked,
+  };
 }
 
 // Normalize a composition's effective layers into unique, in-range integers aligned
@@ -86,13 +101,17 @@ export function createWardrobeRepository(client) {
       signedAssets.map((asset) => [asset.path, asset.signedUrl]),
     );
 
-    return outfits.map((outfit) => ({
-      ...outfit,
-      thumbnailUrl: outfit.thumbnail_path
-        ? signedUrlByPath.get(outfit.thumbnail_path) ?? null
-        : null,
-      items: orderedOutfitItems(outfit.outfit_items),
-    }));
+    return outfits.map((outfit) => {
+      const { outfit_labels, ...rest } = outfit;
+      return {
+        ...rest,
+        thumbnailUrl: rest.thumbnail_path
+          ? signedUrlByPath.get(rest.thumbnail_path) ?? null
+          : null,
+        items: orderedOutfitItems(rest.outfit_items),
+        labelIds: assignmentIds(outfit_labels),
+      };
+    });
   }
 
   async function fetchItemImages(itemIds) {
@@ -131,7 +150,7 @@ export function createWardrobeRepository(client) {
   async function listItems({ includeArchived = false } = {}) {
     let query = client
       .from("wardrobe_items")
-      .select("*")
+      .select("*, wardrobe_item_labels(label_id)")
       .order("created_at", { ascending: false });
 
     if (!includeArchived) query = query.eq("status", "active");
@@ -152,6 +171,7 @@ export function createWardrobeRepository(client) {
     );
 
     return items.map((item) => {
+      const { wardrobe_item_labels, ...itemFields } = item;
       const cutoutUrl = signedUrlByPath.get(item.cutout_path) ?? null;
       const images = (imagesByItem.get(item.id) || []).map((image) => ({
         id: image.id,
@@ -162,10 +182,11 @@ export function createWardrobeRepository(client) {
       }));
       const primary = images.find((image) => image.isPrimary) ?? images[0] ?? null;
       return {
-        ...item,
+        ...itemFields,
         cutoutUrl,
         images,
         primaryImageUrl: primary?.url ?? cutoutUrl,
+        labelIds: assignmentIds(wardrobe_item_labels),
       };
     });
   }
@@ -174,29 +195,77 @@ export function createWardrobeRepository(client) {
     const slot = slotForCategory(item.category);
     if (!slot) throw new Error(`Category ${item.category} has no wardrobe slot.`);
 
-    const payload = {
-      name: item.name,
-      category: item.category,
+    const labelIds = item.labelIds ?? [];
+    dataOrThrow(await client.rpc("update_wardrobe_item_with_labels", {
+      p_item_id: item.id,
+      p_name: item.name,
+      p_category: item.category,
+      p_slot: slot,
+      p_brand: item.brand,
+      p_size: item.size,
+      p_notes: item.notes,
+      p_colors: item.colors,
+      p_tags: item.tags,
+      p_anchor_x: item.anchor_x,
+      p_anchor_y: item.anchor_y,
+      p_scale: item.scale,
+      p_rotation_degrees: item.rotation_degrees,
+      p_layer_order: item.layer_order,
+      p_label_ids: labelIds,
+    }));
+    // Return the original item with normalized editable fields so App can update its
+    // cache without re-signing assets. The RPC replaced the assignment set to labelIds.
+    return {
+      ...item,
       slot,
-      brand: item.brand,
-      size: item.size,
-      notes: item.notes,
-      colors: item.colors,
-      tags: item.tags,
-      anchor_x: item.anchor_x,
-      anchor_y: item.anchor_y,
-      scale: item.scale,
-      rotation_degrees: item.rotation_degrees,
-      layer_order: item.layer_order,
-      updated_at: new Date().toISOString(),
+      labelIds,
     };
+  }
+
+  async function listLabels() {
+    const labels = dataOrThrow(
+      await client
+        .from("wardrobe_labels")
+        .select(LABEL_SELECT)
+        .order("kind", { ascending: true })
+        .order("season_key", { ascending: true, nullsFirst: false })
+        .order("name", { ascending: true }),
+    ) || [];
+    return labels.map(mapLabel);
+  }
+
+  async function createTheme(name) {
+    const ownerId = await authenticatedOwnerId();
+    return mapLabel(dataOrThrow(
+      await client
+        .from("wardrobe_labels")
+        .insert({ owner_id: ownerId, kind: "theme", season_key: null, locked: false, name: name.trim() })
+        .select(LABEL_SELECT)
+        .single(),
+    ));
+  }
+
+  async function renameTheme(labelId, name) {
+    return mapLabel(dataOrThrow(
+      await client
+        .from("wardrobe_labels")
+        .update({ name: name.trim(), updated_at: new Date().toISOString() })
+        .eq("id", labelId)
+        .eq("kind", "theme")
+        .eq("locked", false)
+        .select(LABEL_SELECT)
+        .single(),
+    ));
+  }
+
+  async function deleteTheme(labelId) {
     return dataOrThrow(
       await client
-        .from("wardrobe_items")
-        .update(payload)
-        .eq("id", item.id)
-        .select()
-        .single(),
+        .from("wardrobe_labels")
+        .delete()
+        .eq("id", labelId)
+        .eq("kind", "theme")
+        .eq("locked", false),
     );
   }
 
@@ -243,7 +312,7 @@ export function createWardrobeRepository(client) {
     }
   }
 
-  async function saveOutfit({ id, name, items, thumbnailBlob }) {
+  async function saveOutfit({ id, name, items, thumbnailBlob, labelIds = [] }) {
     const authResult = await client.auth.getUser();
     if (authResult.error) throw authResult.error;
     const ownerId = authResult.data?.user?.id;
@@ -269,12 +338,13 @@ export function createWardrobeRepository(client) {
       { contentType: "image/webp", upsert: false },
     ));
 
-    const rpcResult = await client.rpc("save_outfit", {
+    const rpcResult = await client.rpc("save_outfit_with_labels", {
       p_outfit_id: outfitId,
       p_name: name.trim(),
       p_item_ids: items.map((item) => item.id),
       p_layer_orders: compositionLayerOrders(items),
       p_thumbnail_path: thumbnailPath,
+      p_label_ids: labelIds,
     });
     if (rpcResult.error) {
       const rollbackCleanupError = await removeAssets([thumbnailPath]);
@@ -310,6 +380,7 @@ export function createWardrobeRepository(client) {
         id: outfitId,
         name: name.trim(),
         items,
+        labelIds,
         thumbnail_path: thumbnailPath,
         thumbnailUrl: null,
         needs_attention: false,
@@ -670,6 +741,10 @@ export function createWardrobeRepository(client) {
     restoreItem,
     listOutfits,
     saveOutfit,
+    listLabels,
+    createTheme,
+    renameTheme,
+    deleteTheme,
     listWearHistory,
     listItemsWithLastWorn,
     recordWear,

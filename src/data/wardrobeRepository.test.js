@@ -490,7 +490,7 @@ describe("createWardrobeRepository", () => {
 
     expect(result).toEqual([]);
     expect(client.from).toHaveBeenCalledWith("wardrobe_items");
-    expect(query.select).toHaveBeenCalledWith("*");
+    expect(query.select).toHaveBeenCalledWith("*, wardrobe_item_labels(label_id)");
     expect(query.eq).toHaveBeenCalledWith("status", "active");
     expect(createSignedUrls).not.toHaveBeenCalled();
   });
@@ -593,12 +593,8 @@ describe("createWardrobeRepository", () => {
     expect(item.cutoutUrl).toBe("https://assets.test/legacy");
   });
 
-  it("updates only editable metadata and placement fields", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(NOW);
-    const saved = { id: "item-1", name: "Saved jacket", category: "jacket", slot: "outerwear" };
-    const query = createQuery({ data: saved, error: null });
-    const { client } = createClient(query);
+  it("updates editable metadata and the full label set through the atomic RPC", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "item-1", error: null });
     const item = {
       id: "item-1",
       owner_id: "other-owner",
@@ -617,28 +613,33 @@ describe("createWardrobeRepository", () => {
       scale: 0.75,
       rotation_degrees: -2,
       layer_order: 42,
+      labelIds: ["label-summer", "label-rainy"],
     };
 
-    const result = await createWardrobeRepository(client).updateItem(item);
+    const result = await createWardrobeRepository({ rpc }).updateItem(item);
 
-    expect(query.update).toHaveBeenCalledWith({
-      name: "Saved jacket",
-      category: "jacket",
-      slot: "outerwear",
-      brand: "Acme",
-      size: "M",
-      notes: "Dry clean",
-      colors: ["#112233", "#445566"],
-      tags: ["wool"],
-      anchor_x: 0.4,
-      anchor_y: 0.6,
-      scale: 0.75,
-      rotation_degrees: -2,
-      layer_order: 42,
-      updated_at: NOW,
+    expect(rpc).toHaveBeenCalledWith("update_wardrobe_item_with_labels", {
+      p_item_id: "item-1",
+      p_name: "Saved jacket",
+      p_category: "jacket",
+      p_slot: "outerwear",
+      p_brand: "Acme",
+      p_size: "M",
+      p_notes: "Dry clean",
+      p_colors: ["#112233", "#445566"],
+      p_tags: ["wool"],
+      p_anchor_x: 0.4,
+      p_anchor_y: 0.6,
+      p_scale: 0.75,
+      p_rotation_degrees: -2,
+      p_layer_order: 42,
+      p_label_ids: ["label-summer", "label-rainy"],
     });
-    expect(query.eq).toHaveBeenCalledWith("id", "item-1");
-    expect(result).toEqual(saved);
+    expect(result).toMatchObject({
+      id: "item-1",
+      slot: "outerwear",
+      labelIds: ["label-summer", "label-rainy"],
+    });
   });
 
   it("archives through the transactional RPC", async () => {
@@ -746,5 +747,101 @@ describe("createWardrobeRepository", () => {
       { id: "first", cutoutUrl: "https://assets.test/shared" },
       { id: "second", cutoutUrl: "https://assets.test/shared" },
     ]);
+  });
+
+  it("maps an item's nested assignment rows to labelIds and strips the rows", async () => {
+    const items = [{
+      id: "item-a",
+      cutout_path: "cutouts/a.png",
+      wardrobe_item_labels: [{ label_id: "l1" }, { label_id: "l2" }],
+    }];
+    const query = createQuery({ data: items, error: null });
+    const { client } = createClient(query, {
+      data: [{ path: "cutouts/a.png", signedUrl: "https://assets.test/a" }],
+      error: null,
+    });
+
+    const [item] = await createWardrobeRepository(client).listItems();
+
+    expect(item.labelIds).toEqual(["l1", "l2"]);
+    expect(item).not.toHaveProperty("wardrobe_item_labels");
+  });
+
+  it("lists labels mapping snake_case columns to camelCase", async () => {
+    const rows = [
+      { id: "s1", kind: "season", season_key: "summer", name: "Summer", locked: true },
+      { id: "t1", kind: "theme", season_key: null, name: "Rainy day", locked: false },
+    ];
+    const query = createQuery({ data: rows, error: null });
+    const client = { from: vi.fn(() => query) };
+
+    const result = await createWardrobeRepository(client).listLabels();
+
+    expect(client.from).toHaveBeenCalledWith("wardrobe_labels");
+    expect(query.select).toHaveBeenCalledWith("id, kind, season_key, name, locked");
+    expect(result).toEqual([
+      { id: "s1", kind: "season", seasonKey: "summer", name: "Summer", locked: true },
+      { id: "t1", kind: "theme", seasonKey: null, name: "Rainy day", locked: false },
+    ]);
+  });
+
+  it("creates a theme with a trimmed name for the authenticated owner", async () => {
+    const query = {
+      insert: vi.fn(() => query),
+      select: vi.fn(() => query),
+      single: vi.fn().mockResolvedValue({
+        data: { id: "t1", kind: "theme", season_key: null, name: "Rainy day", locked: false },
+        error: null,
+      }),
+    };
+    const client = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "owner-1" } }, error: null }) },
+      from: vi.fn(() => query),
+    };
+
+    const result = await createWardrobeRepository(client).createTheme("  Rainy day  ");
+
+    expect(client.from).toHaveBeenCalledWith("wardrobe_labels");
+    expect(query.insert).toHaveBeenCalledWith({
+      owner_id: "owner-1", kind: "theme", season_key: null, locked: false, name: "Rainy day",
+    });
+    expect(result).toEqual({ id: "t1", kind: "theme", seasonKey: null, name: "Rainy day", locked: false });
+  });
+
+  it("renames a theme scoped to unlocked owned themes and trims the name", async () => {
+    const query = {
+      update: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      select: vi.fn(() => query),
+      single: vi.fn().mockResolvedValue({
+        data: { id: "t1", kind: "theme", season_key: null, name: "Storm", locked: false },
+        error: null,
+      }),
+    };
+    const client = { from: vi.fn(() => query) };
+
+    const result = await createWardrobeRepository(client).renameTheme("t1", "  Storm  ");
+
+    expect(query.update).toHaveBeenCalledWith(expect.objectContaining({ name: "Storm" }));
+    expect(query.eq).toHaveBeenCalledWith("id", "t1");
+    expect(query.eq).toHaveBeenCalledWith("kind", "theme");
+    expect(query.eq).toHaveBeenCalledWith("locked", false);
+    expect(result).toEqual({ id: "t1", kind: "theme", seasonKey: null, name: "Storm", locked: false });
+  });
+
+  it("deletes a theme scoped to unlocked owned themes", async () => {
+    const query = {
+      delete: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      then: (resolve, reject) => Promise.resolve({ data: null, error: null }).then(resolve, reject),
+    };
+    const client = { from: vi.fn(() => query) };
+
+    await createWardrobeRepository(client).deleteTheme("t1");
+
+    expect(query.delete).toHaveBeenCalledTimes(1);
+    expect(query.eq).toHaveBeenCalledWith("id", "t1");
+    expect(query.eq).toHaveBeenCalledWith("kind", "theme");
+    expect(query.eq).toHaveBeenCalledWith("locked", false);
   });
 });
