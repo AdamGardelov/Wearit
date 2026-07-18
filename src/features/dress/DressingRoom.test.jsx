@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../App.jsx";
+import { emptyLabelFilter } from "../../domain/labels.js";
 import { DressingRoom } from "./DressingRoom.jsx";
 
 afterEach(cleanup);
@@ -229,5 +231,75 @@ describe("App dressing-room integration", () => {
     expect(screen.getByText("Sparade outfits är inte tillgängliga än.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "History" }));
     expect(screen.getByText("Historiken är inte tillgänglig än.")).toBeInTheDocument();
+  });
+});
+
+const summer = { id: "s-summer", kind: "season", seasonKey: "summer", name: "Summer", locked: true };
+const winter = { id: "s-winter", kind: "season", seasonKey: "winter", name: "Winter", locked: true };
+const summerTop = { ...top, id: "summer-top", name: "Summer top", labelIds: ["s-summer"] };
+const winterBottom = { ...bottom, id: "winter-bottom", name: "Winter bottom", labelIds: ["s-winter"] };
+const trayFixtures = [summerTop, winterBottom];
+
+describe("DressingRoom label filter", () => {
+  it("filters only the tray, never the mannequin composition", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+
+    function Harness() {
+      const [labelFilter, setLabelFilter] = useState(emptyLabelFilter());
+      return (
+        <DressingRoom
+          items={trayFixtures}
+          labels={[summer, winter]}
+          labelFilter={labelFilter}
+          onLabelFilterChange={setLabelFilter}
+          onSave={onSave}
+        />
+      );
+    }
+    render(<Harness />);
+
+    await user.click(itemButton("Summer top"));
+    await user.click(itemButton("Winter bottom"));
+    expect(screen.getByRole("img", { name: "Summer top" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Winter bottom" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("checkbox", { name: "Sommar" }));
+
+    // The Winter bottom leaves the tray...
+    expect(screen.queryByRole("button", { name: "Välj Winter bottom" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Välj Summer top" })).toBeInTheDocument();
+    // ...but both garments remain on the mannequin and in the Save selection.
+    expect(screen.getByRole("img", { name: "Summer top" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Winter bottom" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Spara outfit" }));
+    expect(onSave).toHaveBeenCalledWith([summerTop, winterBottom]);
+
+    // Clearing the filter returns the tray item.
+    await user.click(screen.getByRole("button", { name: "Ta bort Sommar" }));
+    expect(screen.getByRole("button", { name: "Välj Winter bottom" })).toBeInTheDocument();
+  });
+
+  it("carries a filter selected in Wardrobe over to Dress", async () => {
+    const user = userEvent.setup();
+    const repository = {
+      listItems: vi.fn().mockResolvedValue(trayFixtures.map((item) => ({ ...item }))),
+      listOutfits: vi.fn().mockResolvedValue([]),
+      listWearHistory: vi.fn().mockResolvedValue([]),
+      listLabels: vi.fn().mockResolvedValue([summer, winter]),
+      updateItem: vi.fn(),
+      archiveItem: vi.fn(),
+      restoreItem: vi.fn(),
+    };
+    render(<App repository={repository} />);
+    await screen.findByRole("button", { name: "Visa Summer top" });
+
+    await user.click(screen.getByRole("button", { name: "Filter – Garderob" }));
+    await user.click(screen.getByRole("checkbox", { name: "Sommar" }));
+
+    await user.click(screen.getByRole("button", { name: "Dress" }));
+    await user.click(screen.getByRole("button", { name: "Filter – Styla" }));
+    expect(screen.getByRole("checkbox", { name: "Sommar" })).toBeChecked();
   });
 });

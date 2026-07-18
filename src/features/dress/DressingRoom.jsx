@@ -5,6 +5,8 @@ import {
   mannequinReducer,
   selectedItems,
 } from "../../domain/mannequin.js";
+import { emptyLabelFilter, matchesLabelFilter } from "../../domain/labels.js";
+import { LabelFilter } from "../labels/LabelFilter.jsx";
 import { GarmentTray } from "./GarmentTray.jsx";
 import { MannequinCanvas } from "./MannequinCanvas.jsx";
 
@@ -12,7 +14,19 @@ function garmentName(item) {
   return item.name || "Namnlöst plagg";
 }
 
-export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, onSave, onWear }) {
+export function DressingRoom({
+  items,
+  loadRequest = null,
+  onLoadedOutfitChange,
+  onSave,
+  onWear,
+  labels = [],
+  labelFilter = emptyLabelFilter(),
+  onLabelFilterChange = () => {},
+  labelsLoading = false,
+  labelsError = "",
+  context = "",
+}) {
   const [state, dispatch] = useReducer(mannequinReducer, EMPTY_MANNEQUIN);
   const loadedRequestKeyRef = useRef(null);
   const loadBoundariesRef = useRef([]);
@@ -46,6 +60,14 @@ export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, 
   const selectedIds = new Set(selection.map((item) => item.id));
   // Layers are presented frontmost-first; selection is ordered back-to-front.
   const layerRows = [...selection].reverse();
+
+  // The label filter narrows only the tray display. Reconciliation, loaded-outfit
+  // provenance, and the mannequin selection stay bound to the full `items` list, so
+  // filtering can never remove a garment that is already on the mannequin.
+  const trayItems = useMemo(
+    () => items.filter((item) => matchesLabelFilter(item, labelFilter)),
+    [items, labelFilter],
+  );
 
   const undo = () => {
     const boundary = loadBoundariesRef.current.at(-1);
@@ -146,9 +168,21 @@ export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, 
       </aside>
 
       <GarmentTray
-        items={items}
+        items={trayItems}
         selectedIds={selectedIds}
         onSelect={(item) => dispatch({ type: "select", item })}
+        filter={(
+          <LabelFilter
+            labels={labels}
+            value={labelFilter}
+            onChange={onLabelFilterChange}
+            loading={labelsLoading}
+            error={labelsError}
+            visibleCount={trayItems.length}
+            totalCount={items.length}
+            context={context}
+          />
+        )}
       />
     </main>
   );

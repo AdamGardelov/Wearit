@@ -5,7 +5,7 @@ function garmentName(item) {
   return item.name || CATEGORY_BY_ID[item.category]?.label || "Garderobsplagg";
 }
 
-export function GarmentTray({ items, selectedIds, onSelect }) {
+export function GarmentTray({ items, selectedIds, onSelect, filter = null }) {
   const [activeCategory, setActiveCategory] = useState("all");
   const availableCategoryIds = useMemo(
     () => new Set(items.map((item) => item.category)),
@@ -29,6 +29,7 @@ export function GarmentTray({ items, selectedIds, onSelect }) {
 
   return (
     <section className="garment-tray" aria-label="Plagglåda">
+      {filter && <div className="dress-tray-filter">{filter}</div>}
       <div className="dress-category-chips" aria-label="Filtrera plagg efter kategori">
         {visibleCategories.map((category) => (
           <button
