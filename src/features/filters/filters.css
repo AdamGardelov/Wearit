@@ -8,6 +8,13 @@
   gap: 12px;
 }
 
+/* Right-aligned variant (Wardrobe toolbar): trigger and chips hug the right edge, and the
+   panel anchors to the right so a wide dropdown never overflows off-screen. */
+.unified-filter--end .unified-filter-bar,
+.unified-filter--end .unified-filter-chips {
+  justify-content: flex-end;
+}
+
 .unified-filter-trigger {
   display: inline-flex;
   align-items: center;
@@ -109,6 +116,15 @@
   padding: 16px;
   background: var(--paper);
   box-shadow: 0 18px 44px rgba(25, 24, 22, .14);
+}
+
+/* Anchor the right-aligned variant's dropdown to the trigger's right edge on wider screens;
+   the mobile bottom-sheet rules below intentionally override this. */
+@media (min-width: 641px) {
+  .unified-filter--end .unified-filter-panel {
+    left: auto;
+    right: 0;
+  }
 }
 
 .unified-filter-panel-header {

@@ -37,6 +37,7 @@ export function UnifiedFilter({
   totalCount,
   resultNoun = "plagg",
   context = "",
+  align = "start",
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -132,7 +133,11 @@ export function UnifiedFilter({
   }
 
   return (
-    <div className="unified-filter" ref={rootRef} onKeyDown={handleKeyDown}>
+    <div
+      className={`unified-filter${align === "end" ? " unified-filter--end" : ""}`}
+      ref={rootRef}
+      onKeyDown={handleKeyDown}
+    >
       <div className="unified-filter-bar">
         <button
           ref={triggerRef}

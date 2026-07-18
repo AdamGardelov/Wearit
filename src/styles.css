@@ -60,6 +60,17 @@ button { font: inherit; }
   text-transform: uppercase;
 }
 
+/* Category tabs on the left, the Filter trigger pinned to the right of the same row. */
+.wardrobe-toolbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 48px 0 0;
+}
+
+.wardrobe-toolbar .category-nav { margin: 0; flex: 0 1 auto; min-width: 0; }
+.wardrobe-toolbar .unified-filter { flex: 1 1 auto; min-width: 0; }
+
 .category-nav {
   width: max-content;
   max-width: 100%;

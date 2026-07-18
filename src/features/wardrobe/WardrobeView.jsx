@@ -195,36 +195,39 @@ export function WardrobeView({
               {items.length} plagg
             </p>
           </div>
-          <nav className="category-nav" aria-label="Filtrera garderob efter typ">
-            {visibleCategories.map((category) => (
-              <button
-                key={category.id}
-                ref={(node) => {
-                  if (node) categoryButtonRefs.current.set(category.id, node);
-                  else categoryButtonRefs.current.delete(category.id);
-                }}
-                type="button"
-                className={activeCategory === category.id ? "active" : ""}
-                onClick={() => chooseCategory(category.id)}
-                aria-pressed={activeCategory === category.id}
-              >
-                {category.label}
-              </button>
-            ))}
-          </nav>
-          <UnifiedFilter
-            groups={ITEM_FILTER_GROUPS}
-            colors={availableColors}
-            labels={labels}
-            value={advancedFilter}
-            onChange={onAdvancedFilterChange}
-            loading={labelsLoading}
-            error={labelsError}
-            visibleCount={visibleItems.length}
-            totalCount={items.length}
-            resultNoun="plagg"
-            context={context}
-          />
+          <div className="wardrobe-toolbar">
+            <nav className="category-nav" aria-label="Filtrera garderob efter typ">
+              {visibleCategories.map((category) => (
+                <button
+                  key={category.id}
+                  ref={(node) => {
+                    if (node) categoryButtonRefs.current.set(category.id, node);
+                    else categoryButtonRefs.current.delete(category.id);
+                  }}
+                  type="button"
+                  className={activeCategory === category.id ? "active" : ""}
+                  onClick={() => chooseCategory(category.id)}
+                  aria-pressed={activeCategory === category.id}
+                >
+                  {category.label}
+                </button>
+              ))}
+            </nav>
+            <UnifiedFilter
+              groups={ITEM_FILTER_GROUPS}
+              colors={availableColors}
+              labels={labels}
+              value={advancedFilter}
+              onChange={onAdvancedFilterChange}
+              loading={labelsLoading}
+              error={labelsError}
+              visibleCount={visibleItems.length}
+              totalCount={items.length}
+              resultNoun="plagg"
+              context={context}
+              align="end"
+            />
+          </div>
         </header>
 
         {error && <p className="status error" role="alert">{error}</p>}
