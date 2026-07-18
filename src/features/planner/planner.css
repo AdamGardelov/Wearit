@@ -1,0 +1,226 @@
+.week-planner {
+  min-height: 100dvh;
+  padding: 34px 16px 112px;
+}
+
+.week-planner-header { max-width: 1180px; margin: 0 auto 24px; }
+.week-planner-header > p {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.week-planner-header h1 {
+  margin: 0;
+  font-size: clamp(30px, 8vw, 56px);
+  font-weight: 430;
+  letter-spacing: -.045em;
+}
+.week-planner-lead { margin: 12px 0 0; max-width: 620px; color: var(--muted); font-size: 13px; }
+
+.week-planner-status {
+  max-width: 1180px;
+  margin: 28px auto 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.week-planner-status.error { color: var(--accent); }
+.week-planner-status.error button {
+  margin-top: 8px;
+  min-height: 44px;
+  border: 1px solid var(--ink);
+  padding: 0 16px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* Phone: five weekdays as a compact vertical list, every day visible without swiping. */
+.week-planner-days {
+  list-style: none;
+  max-width: 1180px;
+  margin: 24px auto 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.weekday-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  padding: 14px 16px;
+  background: var(--paper);
+}
+
+.weekday-card.is-today { border-color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
+.weekday-card.needs-attention { border-color: var(--accent); }
+
+.weekday-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.weekday-head h2 { margin: 0; font-size: 15px; font-weight: 560; letter-spacing: .01em; }
+.weekday-today {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.weekday-choose {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 12px;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.weekday-choose:hover:not(:disabled),
+.weekday-choose:focus-visible { border-color: var(--ink); color: var(--ink); }
+
+.weekday-planned { margin-top: 12px; }
+.weekday-thumb {
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #eee8de;
+  color: var(--muted);
+  font-size: 11px;
+}
+.weekday-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.weekday-outfit-name { margin: 10px 0 0; font-size: 14px; font-weight: 560; }
+.weekday-attention { margin: 6px 0 0; color: var(--accent); font-size: 11px; font-weight: 560; }
+
+.weekday-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.weekday-actions button {
+  flex: 1 1 auto;
+  min-height: 44px;
+  border: 1px solid var(--ink);
+  padding: 0 12px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+.weekday-actions button:disabled { border-color: var(--line); color: var(--muted); cursor: not-allowed; }
+.weekday-actions .weekday-wear { flex-basis: 100%; background: var(--ink); color: var(--paper); }
+.weekday-actions .weekday-wear:disabled { background: transparent; }
+.weekday-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.week-planner-clear { max-width: 1180px; margin: 22px auto 0; }
+.week-planner-clear-trigger {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  padding: 0 18px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+.week-planner-clear-trigger:hover,
+.week-planner-clear-trigger:focus-visible { border-color: var(--accent); color: var(--accent); }
+.week-planner-clear-confirm { border: 1px solid var(--line); padding: 14px 16px; }
+.week-planner-clear-confirm p { margin: 0 0 12px; font-size: 13px; }
+.week-planner-clear-actions { display: flex; gap: 8px; }
+.week-planner-clear-actions button { min-height: 44px; padding: 0 18px; border: 1px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; }
+.week-planner-clear-actions .week-planner-clear-yes { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+
+/* Desktop: the same five days expand to one row of equal cards. */
+@media (min-width: 900px) {
+  .week-planner-days {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .weekday-actions { flex-direction: column; }
+  .weekday-actions button { flex: 0 0 auto; }
+}
+
+/* Outfit picker modal */
+.picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  background: rgba(25, 24, 22, .34);
+}
+
+.picker-dialog {
+  width: 100%;
+  max-width: 720px;
+  max-height: 92dvh;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  padding: 22px 22px max(28px, env(safe-area-inset-bottom));
+  background: var(--paper);
+}
+
+.picker-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.picker-header p { margin: 0 0 6px; color: var(--accent); font-size: 11px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+.picker-header h2 { margin: 0; font-size: 22px; font-weight: 460; letter-spacing: -.02em; }
+.picker-header button {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.picker-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 18px; }
+.picker-status { margin: 24px 0; color: var(--muted); font-size: 13px; }
+.picker-status.error { color: var(--accent); }
+
+.picker-grid {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 12px;
+}
+
+.picker-card { min-width: 0; }
+.picker-card.needs-attention { opacity: .85; }
+.picker-choose {
+  width: 100%;
+  border: 1px solid transparent;
+  padding: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.picker-choose:hover:not(:disabled),
+.picker-choose:focus-visible { border-color: var(--ink); }
+.picker-choose:disabled { cursor: not-allowed; }
+.picker-thumb {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1 / 1.4;
+  overflow: hidden;
+  background: #eee8de;
+  color: var(--muted);
+  font-size: 11px;
+}
+.picker-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.picker-name { display: block; margin-top: 8px; font-size: 14px; font-weight: 540; }
+.picker-attention { margin: 4px 8px 0; color: var(--accent); font-size: 11px; font-weight: 560; }
+
+@media (min-width: 900px) {
+  .picker-backdrop { align-items: center; padding: 24px; }
+  .picker-dialog { border-radius: 0; }
+  .picker-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weekday-choose, .weekday-actions button, .picker-choose { transition: none; }
+}
