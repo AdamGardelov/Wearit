@@ -9,7 +9,7 @@ function displayDate(value) {
   }).format(new Date(value));
 }
 
-export function HistoryView({ repository, active = true, refreshKey = 0 }) {
+export function HistoryView({ repository, active = true, refreshKey = 0, onOpenItem = null }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -62,12 +62,29 @@ export function HistoryView({ repository, active = true, refreshKey = 0 }) {
               <div className="history-copy">
                 <h2>{event.items.length} plagg</h2>
                 <ul>
-                  {event.items.map((item) => (
-                    <li key={item.id || item.wardrobe_item_id}>
-                      <span>{item.name || "Namnlöst plagg"}</span>
-                      {item.status === "archived" && <small>Arkiverat</small>}
-                    </li>
-                  ))}
+                  {event.items.map((item) => {
+                    const itemId = item.id || item.wardrobe_item_id;
+                    const name = item.name || "Namnlöst plagg";
+                    const archived = item.status === "archived";
+                    // Archived garments are no longer in the active wardrobe, so they stay
+                    // as plain text; everything else links back to its item.
+                    return (
+                      <li key={itemId}>
+                        {onOpenItem && !archived ? (
+                          <button
+                            type="button"
+                            className="history-item-link"
+                            onClick={() => onOpenItem(itemId)}
+                          >
+                            {name}
+                          </button>
+                        ) : (
+                          <span>{name}</span>
+                        )}
+                        {archived && <small>Arkiverat</small>}
+                      </li>
+                    );
+                  })}
                 </ul>
                 {event.notes && <p>{event.notes}</p>}
               </div>

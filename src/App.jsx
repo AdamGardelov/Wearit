@@ -32,6 +32,7 @@ export function App({ repository: injectedRepository }) {
   const [outfitsRefreshKey, setOutfitsRefreshKey] = useState(0);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [wearRequest, setWearRequest] = useState(null);
+  const [pendingItemId, setPendingItemId] = useState(null);
   const baseRepository = useMemo(
     () => injectedRepository ?? createWardrobeRepository(supabase),
     [injectedRepository],
@@ -110,6 +111,13 @@ export function App({ repository: injectedRepository }) {
     // Preserve Colour; only sanitize the season/theme selections against the labels.
     setAdvancedFilter((current) => sanitizeAdvancedFilter(current, { labels: remaining }));
   }, [baseRepository]);
+
+  // Follow a worn garment from History back to its item editor in the Wardrobe.
+  const openWardrobeItem = useCallback((itemId) => {
+    setSection("wardrobe");
+    setPendingItemId(itemId);
+  }, []);
+  const handlePendingItemOpened = useCallback(() => setPendingItemId(null), []);
 
   const repository = useMemo(() => {
     let activeItemsRequest = null;
@@ -268,6 +276,8 @@ export function App({ repository: injectedRepository }) {
           onCreateTheme={createTheme}
           onRenameTheme={renameTheme}
           onDeleteTheme={deleteTheme}
+          openItemId={pendingItemId}
+          onOpenItemHandled={handlePendingItemOpened}
         />
       </section>
       <section className="app-section" hidden={section !== "dress"}>
@@ -309,6 +319,7 @@ export function App({ repository: injectedRepository }) {
             repository={repository}
             active={section === "history"}
             refreshKey={historyRefreshKey}
+            onOpenItem={openWardrobeItem}
           />
         ) : (
           <div className="placeholder-section">

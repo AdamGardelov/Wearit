@@ -143,6 +143,47 @@ describe("HistoryView", () => {
     expect(within(entries[1]).getByText("Snapshot top")).toBeInTheDocument();
     expect(screen.queryByText("Updated top")).not.toBeInTheDocument();
   });
+
+  it("links active worn items to their item and leaves archived ones as text", async () => {
+    const user = userEvent.setup();
+    const onOpenItem = vi.fn();
+    const repository = appRepository({
+      listWearHistory: vi.fn().mockResolvedValue([
+        {
+          id: "w-1", worn_at: "2026-07-17T12:00:00.000Z", outfit: null,
+          items: [
+            { id: "item-a", name: "Blue top", status: "active" },
+            { id: "gone", name: "Old trousers", status: "archived" },
+          ],
+        },
+      ]),
+    });
+    render(<HistoryView active repository={repository} onOpenItem={onOpenItem} />);
+
+    const link = await screen.findByRole("button", { name: "Blue top" });
+    // The archived garment stays as plain text, not a link.
+    expect(screen.queryByRole("button", { name: "Old trousers" })).not.toBeInTheDocument();
+    expect(screen.getByText("Old trousers")).toBeInTheDocument();
+
+    await user.click(link);
+    expect(onOpenItem).toHaveBeenCalledWith("item-a");
+  });
+
+  it("opens a worn item's editor in the Wardrobe when its History link is clicked", async () => {
+    const user = userEvent.setup();
+    const repository = appRepository({
+      listWearHistory: vi.fn().mockResolvedValue([
+        { id: "w-1", worn_at: "2026-07-17T12:00:00.000Z", outfit: null, items: [{ id: "item-a", name: "Blue top", status: "active" }] },
+      ]),
+    });
+    render(<App repository={repository} />);
+    await screen.findByRole("button", { name: "Visa Blue top" });
+
+    await user.click(screen.getByRole("button", { name: "Historik" }));
+    await user.click(await screen.findByRole("button", { name: "Blue top" }));
+
+    expect(await screen.findByRole("dialog", { name: "Redigera Blue top" })).toBeInTheDocument();
+  });
 });
 
 describe("wear entry points", () => {

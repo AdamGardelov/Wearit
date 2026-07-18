@@ -48,6 +48,8 @@ export function WardrobeView({
   onCreateTheme,
   onRenameTheme,
   onDeleteTheme,
+  openItemId = null,
+  onOpenItemHandled = () => {},
   context = "",
 }) {
   const galleryButtonRefs = useRef(new Map());
@@ -83,6 +85,20 @@ export function WardrobeView({
   useEffect(() => {
     if (!active) setSelectedId(null);
   }, [active]);
+
+  // Open a specific item's editor on request (e.g. followed from the History view). Wait for
+  // the wardrobe to finish loading before giving up: an archived item is never in the active
+  // list, so the request is simply cleared once loading settles.
+  useEffect(() => {
+    if (!openItemId) return;
+    if (items.some((item) => item.id === openItemId)) {
+      returnFocusTargetRef.current = galleryButtonRefs.current.get(openItemId) ?? null;
+      setSelectedId(openItemId);
+      onOpenItemHandled();
+    } else if (!loading) {
+      onOpenItemHandled();
+    }
+  }, [openItemId, items, loading, onOpenItemHandled]);
 
   const availableCategoryIds = useMemo(
     () => new Set(items.map((item) => item.category)),
