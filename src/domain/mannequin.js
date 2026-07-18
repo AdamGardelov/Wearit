@@ -1,5 +1,6 @@
 export const EMPTY_MANNEQUIN = {
   selectedBySlot: {},
+  layerBySlot: {},
   history: [],
 };
 
@@ -12,6 +13,11 @@ const SLOT_ORDER = [
   "accessory",
 ];
 const SLOT_RANK = new Map(SLOT_ORDER.map((slot, index) => [slot, index]));
+
+// Effective layers are normalized to unique, evenly spaced integers. Five is the
+// most garments that can share the mannequin (a dress excludes top and bottom), so
+// the largest value stays well within the 0-100 layer_order bound.
+const LAYER_STEP = 10;
 
 function nextSelection(selectedBySlot, item) {
   const selection = { ...selectedBySlot };
@@ -63,12 +69,53 @@ function compareItems(left, right) {
   return slotDifference || compareIds(left, right);
 }
 
+function effectiveLayer(layerBySlot, slot, item) {
+  const explicit = layerBySlot?.[slot];
+  return Number.isFinite(explicit) ? explicit : item.layer_order;
+}
+
+// Selected garments ordered back-to-front with the composition's effective layer
+// applied. The reducer never mutates the wardrobe item's own default layer_order.
+function orderedSelection(state) {
+  const selectedBySlot = state.selectedBySlot ?? {};
+  const layerBySlot = state.layerBySlot ?? {};
+  return Object.entries(selectedBySlot)
+    .map(([slot, item]) => ({ slot, item, layer: effectiveLayer(layerBySlot, slot, item) }))
+    .sort((left, right) => compareItems(
+      { ...left.item, layer_order: left.layer },
+      { ...right.item, layer_order: right.layer },
+    ));
+}
+
+function snapshotOf(state) {
+  return {
+    selectedBySlot: state.selectedBySlot,
+    layerBySlot: state.layerBySlot ?? {},
+  };
+}
+
 function sameSnapshot(left, right) {
   const leftKeys = Object.keys(left);
   const rightKeys = Object.keys(right);
   return (
     leftKeys.length === rightKeys.length
     && leftKeys.every((slot) => left[slot] === right[slot])
+  );
+}
+
+function sameLayers(left = {}, right = {}) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return (
+    leftKeys.length === rightKeys.length
+    && leftKeys.every((slot) => left[slot] === right[slot])
+  );
+}
+
+function samePair(left, right) {
+  return (
+    sameSnapshot(left.selectedBySlot, right.selectedBySlot)
+    && sameLayers(left.layerBySlot, right.layerBySlot)
   );
 }
 
@@ -106,27 +153,69 @@ function sanitizeSnapshot(snapshot, liveItemsById) {
   return sanitized;
 }
 
+// Effective layers only survive for slots that remain occupied after reconciliation.
+// An edited item that migrated slots simply falls back to its default layer_order.
+function sanitizeLayers(layerBySlot = {}, sanitizedSelection) {
+  const sanitized = {};
+  for (const slot of Object.keys(sanitizedSelection)) {
+    if (Number.isFinite(layerBySlot[slot])) sanitized[slot] = layerBySlot[slot];
+  }
+  return sanitized;
+}
+
 function reconcileState(state, items) {
   const liveItemsById = new Map(items.filter(isItem).map((item) => [item.id, item]));
   const selectedBySlot = sanitizeSnapshot(state.selectedBySlot, liveItemsById);
+  const layerBySlot = sanitizeLayers(state.layerBySlot, selectedBySlot);
+  const current = { selectedBySlot, layerBySlot };
   const history = [];
 
   for (const snapshot of state.history) {
-    const sanitized = sanitizeSnapshot(snapshot, liveItemsById);
-    if (!history.length || !sameSnapshot(history.at(-1), sanitized)) {
-      history.push(sanitized);
+    const sanitizedSelection = sanitizeSnapshot(snapshot.selectedBySlot, liveItemsById);
+    const pair = {
+      selectedBySlot: sanitizedSelection,
+      layerBySlot: sanitizeLayers(snapshot.layerBySlot, sanitizedSelection),
+    };
+    if (!history.length || !samePair(history.at(-1), pair)) {
+      history.push(pair);
     }
   }
-  while (history.length && sameSnapshot(history.at(-1), selectedBySlot)) {
+  while (history.length && samePair(history.at(-1), current)) {
     history.pop();
   }
 
   const selectionUnchanged = sameSnapshot(state.selectedBySlot, selectedBySlot);
+  const layersUnchanged = sameLayers(state.layerBySlot, layerBySlot);
   const historyUnchanged = (
     history.length === state.history.length
-    && history.every((snapshot, index) => sameSnapshot(snapshot, state.history[index]))
+    && history.every((pair, index) => samePair(pair, state.history[index]))
   );
-  return selectionUnchanged && historyUnchanged ? state : { selectedBySlot, history };
+  return selectionUnchanged && layersUnchanged && historyUnchanged
+    ? state
+    : { selectedBySlot, layerBySlot, history };
+}
+
+// Preserve the effective layer for slots that remain selected. A slot that is newly
+// occupied keeps the wardrobe item's default (no entry); a replaced slot inherits the
+// outgoing garment's rank so same-slot swaps hold their stack position.
+function nextLayers(state, item, selectedBySlot) {
+  const previousLayers = state.layerBySlot ?? {};
+  const previousItem = state.selectedBySlot?.[item.slot];
+  const layers = {};
+
+  for (const slot of Object.keys(selectedBySlot)) {
+    if (slot === item.slot) continue;
+    if (Number.isFinite(previousLayers[slot])) layers[slot] = previousLayers[slot];
+  }
+
+  if (previousItem) {
+    const inherited = Number.isFinite(previousLayers[item.slot])
+      ? previousLayers[item.slot]
+      : previousItem.layer_order;
+    if (Number.isFinite(inherited)) layers[item.slot] = inherited;
+  }
+
+  return layers;
 }
 
 export function mannequinReducer(state, action) {
@@ -139,9 +228,37 @@ export function mannequinReducer(state, action) {
         return state;
       }
 
+      const selectedBySlot = nextSelection(state.selectedBySlot, action.item);
       return {
-        selectedBySlot: nextSelection(state.selectedBySlot, action.item),
-        history: [...state.history, state.selectedBySlot],
+        selectedBySlot,
+        layerBySlot: nextLayers(state, action.item, selectedBySlot),
+        history: [...state.history, snapshotOf(state)],
+      };
+    }
+
+    case "move-layer": {
+      const ordered = orderedSelection(state);
+      const index = ordered.findIndex((entry) => entry.item.id === action.itemId);
+      if (index === -1) return state;
+
+      const targetIndex = action.direction === "forward" ? index + 1 : index - 1;
+      if (targetIndex < 0 || targetIndex >= ordered.length) return state;
+
+      // Normalize to unique ranks, then swap the two adjacent slots.
+      const layerBySlot = {};
+      ordered.forEach((entry, position) => {
+        layerBySlot[entry.slot] = (position + 1) * LAYER_STEP;
+      });
+      const movedSlot = ordered[index].slot;
+      const neighborSlot = ordered[targetIndex].slot;
+      const movedLayer = layerBySlot[movedSlot];
+      layerBySlot[movedSlot] = layerBySlot[neighborSlot];
+      layerBySlot[neighborSlot] = movedLayer;
+
+      return {
+        selectedBySlot: state.selectedBySlot,
+        layerBySlot,
+        history: [...state.history, snapshotOf(state)],
       };
     }
 
@@ -152,7 +269,8 @@ export function mannequinReducer(state, action) {
 
       return {
         selectedBySlot: {},
-        history: [...state.history, state.selectedBySlot],
+        layerBySlot: {},
+        history: [...state.history, snapshotOf(state)],
       };
     }
 
@@ -162,16 +280,22 @@ export function mannequinReducer(state, action) {
       }
 
       const selectedBySlot = {};
+      const layerBySlot = {};
       for (const item of action.items) {
         if (!isItem(item) || selectedBySlot[item.slot]) {
           return state;
         }
         selectedBySlot[item.slot] = item;
+        const saved = Number.isFinite(item.saved_layer_order)
+          ? item.saved_layer_order
+          : item.layer_order;
+        if (Number.isFinite(saved)) layerBySlot[item.slot] = saved;
       }
 
       return {
         selectedBySlot,
-        history: [...state.history, state.selectedBySlot],
+        layerBySlot,
+        history: [...state.history, snapshotOf(state)],
       };
     }
 
@@ -187,8 +311,10 @@ export function mannequinReducer(state, action) {
         return state;
       }
 
+      const previous = state.history.at(-1);
       return {
-        selectedBySlot: state.history.at(-1),
+        selectedBySlot: previous.selectedBySlot,
+        layerBySlot: previous.layerBySlot ?? {},
         history: state.history.slice(0, -1),
       };
     }
@@ -199,5 +325,9 @@ export function mannequinReducer(state, action) {
 }
 
 export function selectedItems(state) {
-  return Object.values(state.selectedBySlot).sort(compareItems);
+  const layerBySlot = state.layerBySlot ?? {};
+  return orderedSelection(state).map(({ slot, item }) => {
+    const explicit = layerBySlot[slot];
+    return Number.isFinite(explicit) ? { ...item, layer_order: explicit } : item;
+  });
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef } from "react";
+import { ArrowLineDown, ArrowLineUp } from "@phosphor-icons/react";
 import {
   EMPTY_MANNEQUIN,
   mannequinReducer,
@@ -6,6 +7,10 @@ import {
 } from "../../domain/mannequin.js";
 import { GarmentTray } from "./GarmentTray.jsx";
 import { MannequinCanvas } from "./MannequinCanvas.jsx";
+
+function garmentName(item) {
+  return item.name || "Unnamed garment";
+}
 
 export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, onSave, onWear }) {
   const [state, dispatch] = useReducer(mannequinReducer, EMPTY_MANNEQUIN);
@@ -39,6 +44,8 @@ export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, 
 
   const selection = selectedItems(reconciledState);
   const selectedIds = new Set(selection.map((item) => item.id));
+  // Layers are presented frontmost-first; selection is ordered back-to-front.
+  const layerRows = [...selection].reverse();
 
   const undo = () => {
     const boundary = loadBoundariesRef.current.at(-1);
@@ -47,6 +54,10 @@ export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, 
       onLoadedOutfitChange?.(boundary.previousSourceOutfit);
     }
     dispatch({ type: "undo" });
+  };
+
+  const moveLayer = (item, direction) => {
+    dispatch({ type: "move-layer", itemId: item.id, direction });
   };
 
   return (
@@ -91,23 +102,54 @@ export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, 
         </div>
       </section>
 
-      <GarmentTray
-        items={items}
-        selectedIds={selectedIds}
-        onSelect={(item) => dispatch({ type: "select", item })}
-      />
-
-      <aside className="selected-summary" aria-label="Selected garments">
+      <aside className="selected-summary" aria-label="Layers">
         <p className="summary-kicker">Current look</p>
-        <h2>Selected pieces</h2>
-        {selection.length ? (
-          <ol>
-            {selection.map((item) => <li key={item.id}>{item.name || "Unnamed garment"}</li>)}
+        <h2>Layers</h2>
+        {layerRows.length ? (
+          <ol className="layer-list">
+            {layerRows.map((item, index) => {
+              const name = garmentName(item);
+              const isFront = index === 0;
+              const isBack = index === layerRows.length - 1;
+              return (
+                <li key={item.id} className="layer-row">
+                  <span className="layer-name">{name}</span>
+                  <div className="layer-actions">
+                    <button
+                      type="button"
+                      className="layer-move"
+                      onClick={() => moveLayer(item, "forward")}
+                      disabled={isFront}
+                      aria-label={`Move ${name} forward`}
+                      title="Move forward"
+                    >
+                      <ArrowLineUp size={18} weight="bold" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="layer-move"
+                      onClick={() => moveLayer(item, "backward")}
+                      disabled={isBack}
+                      aria-label={`Move ${name} backward`}
+                      title="Move backward"
+                    >
+                      <ArrowLineDown size={18} weight="bold" aria-hidden="true" />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
           </ol>
         ) : (
           <p className="summary-empty">Choose pieces from the tray to build an outfit.</p>
         )}
       </aside>
+
+      <GarmentTray
+        items={items}
+        selectedIds={selectedIds}
+        onSelect={(item) => dispatch({ type: "select", item })}
+      />
     </main>
   );
 }

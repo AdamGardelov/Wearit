@@ -34,7 +34,10 @@ describe("mannequin reconciliation", () => {
     const result = reconcile(state, [bottom, shoes]);
 
     expect(selectedItems(result)).toEqual([shoes, bottom]);
-    for (const snapshot of [result.selectedBySlot, ...result.history]) {
+    for (const snapshot of [
+      result.selectedBySlot,
+      ...result.history.map((entry) => entry.selectedBySlot),
+    ]) {
       expect(Object.values(snapshot)).not.toContainEqual(top);
       expectValidSnapshot(snapshot);
     }
@@ -60,7 +63,10 @@ describe("mannequin reconciliation", () => {
     let result = reconcile(withSeparates, [editedDress, bottom, accessory]);
 
     expect(result.selectedBySlot).toEqual({ dress: editedDress });
-    for (const snapshot of [result.selectedBySlot, ...result.history]) {
+    for (const snapshot of [
+      result.selectedBySlot,
+      ...result.history.map((entry) => entry.selectedBySlot),
+    ]) {
       expect(snapshot).not.toHaveProperty("top");
       expectValidSnapshot(snapshot);
       if (snapshot.dress) expect(snapshot.dress).toBe(editedDress);

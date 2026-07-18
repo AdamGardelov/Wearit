@@ -81,6 +81,7 @@ describe("saved outfit repository", () => {
     expect(upload).toHaveBeenCalledWith("owner-1/outfits/outfit-new/thumbnail-thumbnail-version.webp", thumbnailBlob, { contentType: "image/webp", upsert: false });
     expect(rpc).toHaveBeenCalledWith("save_outfit", {
       p_outfit_id: "outfit-new", p_name: "Weekend", p_item_ids: ["top-1", "bottom-1"],
+      p_layer_orders: [10, 20],
       p_thumbnail_path: "owner-1/outfits/outfit-new/thumbnail-thumbnail-version.webp",
     });
     expect(query.eq).toHaveBeenCalledWith("id", "outfit-new");

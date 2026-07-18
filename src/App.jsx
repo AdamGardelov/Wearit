@@ -123,7 +123,17 @@ export function App({ repository: injectedRepository }) {
   const loadOutfit = (savedItems, outfit) => {
     const liveItemsById = new Map(items.map((item) => [item.id, item]));
     const composition = savedItems
-      .map((item) => liveItemsById.get(item.id) ?? item)
+      .map((item) => {
+        const live = liveItemsById.get(item.id);
+        if (!live) return item;
+        // Carry the saved stack position onto the live item so the reducer
+        // reproduces the outfit's composed order instead of item defaults.
+        return {
+          ...live,
+          saved_slot: item.saved_slot ?? live.slot,
+          saved_layer_order: item.saved_layer_order,
+        };
+      })
       .filter((item) => item.status !== "archived");
     setLoadedOutfit(outfit);
     setLoadRequest((current) => ({

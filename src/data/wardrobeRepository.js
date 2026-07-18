@@ -9,6 +9,23 @@ function dataOrThrow(result) {
   return result.data;
 }
 
+// Normalize a composition's effective layers into unique, in-range integers aligned
+// with the item order the RPC expects. Relative order (back-to-front) is preserved so
+// loading an outfit reproduces the exact saved stack.
+function compositionLayerOrders(items) {
+  const ranked = items
+    .map((item, index) => ({
+      index,
+      layer: Number.isFinite(item.layer_order) ? item.layer_order : Number.POSITIVE_INFINITY,
+    }))
+    .sort((left, right) => left.layer - right.layer || left.index - right.index);
+  const layerOrders = new Array(items.length);
+  ranked.forEach((entry, rank) => {
+    layerOrders[entry.index] = (rank + 1) * 10;
+  });
+  return layerOrders;
+}
+
 function orderedOutfitItems(rows = []) {
   return rows
     .filter((row) => row.wardrobe_item)
@@ -190,6 +207,7 @@ export function createWardrobeRepository(client) {
       p_outfit_id: outfitId,
       p_name: name.trim(),
       p_item_ids: items.map((item) => item.id),
+      p_layer_orders: compositionLayerOrders(items),
       p_thumbnail_path: thumbnailPath,
     });
     if (rpcResult.error) {

@@ -95,7 +95,7 @@ describe("mannequinReducer", () => {
     });
 
     expect(result.selectedBySlot).toEqual({ top, bottom, outerwear });
-    expect(result.history.at(-1)).toEqual({ dress });
+    expect(result.history.at(-1).selectedBySlot).toEqual({ dress });
   });
 
   it("ignores a null load without changing the state", () => {
@@ -142,7 +142,7 @@ describe("mannequinReducer", () => {
     const result = mannequinReducer(state, { type: "load", items: [] });
 
     expect(result.selectedBySlot).toEqual({});
-    expect(result.history.at(-1)).toEqual({ top });
+    expect(result.history.at(-1).selectedBySlot).toEqual({ top });
   });
 
   it("rejects duplicate loaded slots atomically", () => {
@@ -160,6 +160,66 @@ describe("mannequinReducer", () => {
     expect(mannequinReducer(EMPTY_MANNEQUIN, { type: "clear" })).toBe(EMPTY_MANNEQUIN);
     expect(mannequinReducer(EMPTY_MANNEQUIN, { type: "undo" })).toBe(EMPTY_MANNEQUIN);
     expect(mannequinReducer(EMPTY_MANNEQUIN, { type: "unknown" })).toBe(EMPTY_MANNEQUIN);
+  });
+});
+
+describe("layer controls", () => {
+  it("moves a garment forward past its neighbor without touching defaults", () => {
+    let state = select(select(EMPTY_MANNEQUIN, top), bottom); // top=20, bottom=30
+    // back-to-front: top(20), bottom(30). Move top forward → in front of bottom.
+    state = mannequinReducer(state, { type: "move-layer", itemId: top.id, direction: "forward" });
+
+    const order = selectedItems(state).map((item) => item.id);
+    expect(order).toEqual([bottom.id, top.id]);
+    // Wardrobe item defaults are never mutated.
+    expect(top.layer_order).toBe(20);
+    expect(bottom.layer_order).toBe(30);
+  });
+
+  it("moves a garment backward and can be undone", () => {
+    let state = select(select(EMPTY_MANNEQUIN, shoes), top); // shoes=10, top=20
+    state = mannequinReducer(state, { type: "move-layer", itemId: top.id, direction: "backward" });
+    expect(selectedItems(state).map((item) => item.id)).toEqual([top.id, shoes.id]);
+
+    const undone = mannequinReducer(state, { type: "undo" });
+    expect(selectedItems(undone).map((item) => item.id)).toEqual([shoes.id, top.id]);
+  });
+
+  it("ignores a move at the front or back boundary", () => {
+    const state = select(select(EMPTY_MANNEQUIN, shoes), top); // shoes(10) back, top(20) front
+    expect(mannequinReducer(state, { type: "move-layer", itemId: top.id, direction: "forward" })).toBe(state);
+    expect(mannequinReducer(state, { type: "move-layer", itemId: shoes.id, direction: "backward" })).toBe(state);
+    expect(mannequinReducer(state, { type: "move-layer", itemId: "missing", direction: "forward" })).toBe(state);
+  });
+
+  it("keeps a slot's stack position when its garment is replaced", () => {
+    let state = select(select(EMPTY_MANNEQUIN, shoes), top); // shoes=10, top=20
+    // Push the top in front of nothing then move shoes forward so ranks diverge.
+    state = mannequinReducer(state, { type: "move-layer", itemId: shoes.id, direction: "forward" });
+    const before = selectedItems(state).map((item) => item.slot);
+
+    const replacementShoes = { id: "shoes-2", slot: "shoes", layer_order: 90 };
+    state = mannequinReducer(state, { type: "select", item: replacementShoes });
+
+    const after = selectedItems(state);
+    expect(after.map((item) => item.slot)).toEqual(before);
+    expect(after.find((item) => item.slot === "shoes").id).toBe("shoes-2");
+  });
+
+  it("reproduces a saved stack from saved_layer_order on load", () => {
+    const savedTop = { ...top, saved_layer_order: 80 };
+    const savedShoes = { ...shoes, saved_layer_order: 10 };
+    const savedBottom = { ...bottom, saved_layer_order: 40 };
+    const state = mannequinReducer(EMPTY_MANNEQUIN, {
+      type: "load",
+      items: [savedTop, savedShoes, savedBottom],
+    });
+
+    expect(selectedItems(state).map((item) => item.id)).toEqual([
+      savedShoes.id, // 10
+      savedBottom.id, // 40
+      savedTop.id, // 80
+    ]);
   });
 });
 
