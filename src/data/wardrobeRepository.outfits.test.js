@@ -13,20 +13,21 @@ function createQuery(result) {
   return query;
 }
 
-function outfitClient({ queryResult, signedResult, uploadResult, rpcResult } = {}) {
+function outfitClient({ queryResult, lastWornResult, signedResult, uploadResult, rpcResult } = {}) {
   const query = createQuery(queryResult ?? { data: null, error: null });
+  const lastWornQuery = createQuery(lastWornResult ?? { data: [], error: null });
   const createSignedUrls = vi.fn().mockResolvedValue(signedResult ?? { data: [], error: null });
   const upload = vi.fn().mockResolvedValue(uploadResult ?? { data: {}, error: null });
   const remove = vi.fn().mockResolvedValue({ data: {}, error: null });
   const rpc = vi.fn().mockResolvedValue(rpcResult ?? { data: null, error: null });
   return {
     client: {
-      from: vi.fn(() => query),
+      from: vi.fn((table) => (table === "outfit_last_worn" ? lastWornQuery : query)),
       auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "owner-1" } }, error: null }) },
       rpc,
       storage: { from: vi.fn(() => ({ createSignedUrls, upload, remove })) },
     },
-    query, createSignedUrls, upload, remove, rpc,
+    query, lastWornQuery, createSignedUrls, upload, remove, rpc,
   };
 }
 
@@ -44,22 +45,39 @@ const savedRows = [{
 afterEach(() => vi.unstubAllGlobals());
 
 describe("saved outfit repository", () => {
-  it("lists outfits with ordered item rows and private signed thumbnails", async () => {
-    const { client, query, createSignedUrls } = outfitClient({
+  it("lists outfits with ordered item rows, signed thumbnails, and last-worn dates", async () => {
+    const { client, query, lastWornQuery, createSignedUrls } = outfitClient({
       queryResult: { data: savedRows, error: null },
       signedResult: { data: [{ path: savedRows[0].thumbnail_path, signedUrl: "https://assets.test/outfit.webp" }], error: null },
+      lastWornResult: { data: [{ outfit_id: "outfit-1", last_worn_at: "2026-07-10T10:00:00Z" }], error: null },
     });
     const result = await createWardrobeRepository(client).listOutfits();
     expect(client.from).toHaveBeenCalledWith("outfits");
+    expect(client.from).toHaveBeenCalledWith("outfit_last_worn");
     expect(query.select).toHaveBeenCalledWith("*, outfit_items(*, wardrobe_item:wardrobe_items(*)), outfit_labels(label_id)");
     expect(query.order).toHaveBeenCalledWith("updated_at", { ascending: false });
+    expect(lastWornQuery.select).toHaveBeenCalledWith("outfit_id, last_worn_at");
     expect(createSignedUrls).toHaveBeenCalledWith([savedRows[0].thumbnail_path], 3600);
     expect(result[0]).toMatchObject({
       id: "outfit-1", thumbnailUrl: "https://assets.test/outfit.webp",
+      last_worn_at: "2026-07-10T10:00:00Z",
       items: [
         { id: "top-1", status: "active", saved_slot: "top" },
         { id: "bottom-1", status: "archived", saved_slot: "bottom" },
       ],
+    });
+  });
+
+  it("degrades to unavailable last-worn without emptying the outfit list", async () => {
+    const { client } = outfitClient({
+      queryResult: { data: savedRows, error: null },
+      signedResult: { data: [{ path: savedRows[0].thumbnail_path, signedUrl: "https://assets.test/outfit.webp" }], error: null },
+      lastWornResult: { data: null, error: new Error("view unavailable") },
+    });
+    const result = await createWardrobeRepository(client).listOutfits();
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: "outfit-1", last_worn_at: null, last_worn_unavailable: true,
     });
   });
 

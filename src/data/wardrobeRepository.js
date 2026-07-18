@@ -281,14 +281,37 @@ export function createWardrobeRepository(client) {
     );
   }
 
+  // Outfit last-worn is optional metadata. A failed lookup must not empty the Outfits list or
+  // the planner picker, so it degrades to "unavailable" and callers fall back to Standard order.
+  async function outfitLastWorn() {
+    try {
+      const rows = dataOrThrow(
+        await client.from("outfit_last_worn").select("outfit_id, last_worn_at"),
+      ) || [];
+      return {
+        byOutfit: new Map(rows.map((row) => [row.outfit_id, row.last_worn_at])),
+        unavailable: false,
+      };
+    } catch {
+      return { byOutfit: new Map(), unavailable: true };
+    }
+  }
+
   async function listOutfits() {
-    const outfits = dataOrThrow(
-      await client
-        .from("outfits")
-        .select(OUTFIT_SELECT)
-        .order("updated_at", { ascending: false }),
-    ) || [];
-    return signOutfits(outfits);
+    const [outfits, lastWorn] = await Promise.all([
+      dataOrThrow(
+        await client
+          .from("outfits")
+          .select(OUTFIT_SELECT)
+          .order("updated_at", { ascending: false }),
+      ) || [],
+      outfitLastWorn(),
+    ]);
+    return signOutfits(outfits.map((outfit) => ({
+      ...outfit,
+      last_worn_at: lastWorn.byOutfit.get(outfit.id) ?? null,
+      ...(lastWorn.unavailable ? { last_worn_unavailable: true } : {}),
+    })));
   }
 
   async function fetchOutfit(outfitId) {
@@ -454,22 +477,92 @@ export function createWardrobeRepository(client) {
     }));
   }
 
-  async function listItemsWithLastWorn() {
-    const [items, lastWornRows] = await Promise.all([
-      listItems(),
-      dataOrThrow(
+  // Item last-worn is optional metadata. A failed lookup must not empty Wardrobe, so it degrades
+  // to "unavailable" and the view falls back to Standard order.
+  async function itemLastWorn() {
+    try {
+      const rows = dataOrThrow(
         await client
           .from("wardrobe_item_last_worn")
           .select("wardrobe_item_id, last_worn_at"),
-      ) || [],
+      ) || [];
+      return {
+        byItem: new Map(rows.map((row) => [row.wardrobe_item_id, row.last_worn_at])),
+        unavailable: false,
+      };
+    } catch {
+      return { byItem: new Map(), unavailable: true };
+    }
+  }
+
+  async function listItemsWithLastWorn() {
+    const [items, lastWorn] = await Promise.all([
+      listItems(),
+      itemLastWorn(),
     ]);
-    const lastWornByItem = new Map(
-      lastWornRows.map((row) => [row.wardrobe_item_id, row.last_worn_at]),
-    );
     return items.map((item) => ({
       ...item,
-      last_worn_at: lastWornByItem.get(item.id) ?? null,
+      last_worn_at: lastWorn.byItem.get(item.id) ?? null,
+      ...(lastWorn.unavailable ? { last_worn_unavailable: true } : {}),
     }));
+  }
+
+  function requireWeekday(weekday) {
+    if (!Number.isInteger(weekday) || weekday < 1 || weekday > 5) {
+      throw new Error("Weekday must be an integer from 1 to 5.");
+    }
+  }
+
+  async function listWeeklyPlan() {
+    const [rows, outfits] = await Promise.all([
+      dataOrThrow(
+        await client
+          .from("weekly_plan_slots")
+          .select("weekday, outfit_id")
+          .order("weekday", { ascending: true }),
+      ) || [],
+      listOutfits(),
+    ]);
+    const rowByDay = new Map(rows.map((row) => [row.weekday, row]));
+    const outfitById = new Map(outfits.map((outfit) => [outfit.id, outfit]));
+    return [1, 2, 3, 4, 5].map((weekday) => {
+      const row = rowByDay.get(weekday);
+      const outfit = row ? outfitById.get(row.outfit_id) ?? null : null;
+      return { weekday, outfitId: outfit?.id ?? null, outfit };
+    });
+  }
+
+  async function setWeeklyPlanSlot({ weekday, outfitId }) {
+    requireWeekday(weekday);
+    const ownerId = await authenticatedOwnerId();
+    return dataOrThrow(await client
+      .from("weekly_plan_slots")
+      .upsert({
+        owner_id: ownerId,
+        weekday,
+        outfit_id: outfitId,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "owner_id,weekday" })
+      .select("weekday, outfit_id")
+      .single());
+  }
+
+  async function clearWeeklyPlanSlot(weekday) {
+    requireWeekday(weekday);
+    const ownerId = await authenticatedOwnerId();
+    return dataOrThrow(await client
+      .from("weekly_plan_slots")
+      .delete()
+      .eq("owner_id", ownerId)
+      .eq("weekday", weekday));
+  }
+
+  async function clearWeeklyPlan() {
+    const ownerId = await authenticatedOwnerId();
+    return dataOrThrow(await client
+      .from("weekly_plan_slots")
+      .delete()
+      .eq("owner_id", ownerId));
   }
 
   async function importWardrobeItem(request) {
@@ -763,6 +856,10 @@ export function createWardrobeRepository(client) {
     listWearHistory,
     listItemsWithLastWorn,
     recordWear,
+    listWeeklyPlan,
+    setWeeklyPlanSlot,
+    clearWeeklyPlanSlot,
+    clearWeeklyPlan,
     createSignedAssetUrls,
     importWardrobeItem,
     reconcileWardrobeAssets,

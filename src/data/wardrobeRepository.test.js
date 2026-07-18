@@ -482,6 +482,37 @@ describe("createWardrobeRepository", () => {
     })]);
   });
 
+  it("keeps items visible and flags last-worn unavailable when the view fails", async () => {
+    const itemQuery = createQuery({
+      data: [{ id: "item-a", cutout_path: "owner/item-a.png" }],
+      error: null,
+    });
+    const lastWornQuery = createQuery({ data: null, error: new Error("view unavailable") });
+    const imagesQuery = createImagesQuery();
+    const client = {
+      from: vi.fn((table) => {
+        if (table === "wardrobe_item_images") return imagesQuery;
+        return table === "wardrobe_items" ? itemQuery : lastWornQuery;
+      }),
+      storage: {
+        from: vi.fn(() => ({
+          createSignedUrls: vi.fn().mockResolvedValue({
+            data: [{ path: "owner/item-a.png", signedUrl: "https://assets.test/item-a" }],
+            error: null,
+          }),
+        })),
+      },
+    };
+
+    const result = await createWardrobeRepository(client).listItemsWithLastWorn();
+
+    expect(result).toEqual([expect.objectContaining({
+      id: "item-a",
+      last_worn_at: null,
+      last_worn_unavailable: true,
+    })]);
+  });
+
   it("lists only active items by default", async () => {
     const query = createQuery({ data: [], error: null });
     const { client, createSignedUrls } = createClient(query);
