@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+env:
+  VITE_SUPABASE_URL: https://wearit-ci.supabase.co
+  VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_test
+
 jobs:
   build:
     runs-on: ubuntu-latest
