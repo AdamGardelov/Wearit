@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { ArrowLineDown, ArrowLineUp } from "@phosphor-icons/react";
 import {
   EMPTY_MANNEQUIN,
   mannequinReducer,
   selectedItems,
 } from "../../domain/mannequin.js";
-import { emptyLabelFilter, matchesLabelFilter } from "../../domain/labels.js";
-import { LabelFilter } from "../labels/LabelFilter.jsx";
+import { availableColorFamilies } from "../../domain/colors.js";
+import {
+  ITEM_FILTER_GROUPS,
+  emptyAdvancedFilter,
+  matchesAdvancedFilter,
+} from "../../domain/filters.js";
+import { UnifiedFilter } from "../filters/UnifiedFilter.jsx";
 import { GarmentTray } from "./GarmentTray.jsx";
 import { MannequinCanvas } from "./MannequinCanvas.jsx";
 
@@ -20,9 +25,10 @@ export function DressingRoom({
   onLoadedOutfitChange,
   onSave,
   onWear,
+  colors = null,
   labels = [],
-  labelFilter = emptyLabelFilter(),
-  onLabelFilterChange = () => {},
+  advancedFilter = emptyAdvancedFilter(),
+  onAdvancedFilterChange = () => {},
   labelsLoading = false,
   labelsError = "",
   context = "",
@@ -61,12 +67,18 @@ export function DressingRoom({
   // Layers are presented frontmost-first; selection is ordered back-to-front.
   const layerRows = [...selection].reverse();
 
-  // The label filter narrows only the tray display. Reconciliation, loaded-outfit
+  // Fall back to local colours only when App does not supply the shared families.
+  const availableColors = useMemo(
+    () => colors ?? availableColorFamilies(items),
+    [colors, items],
+  );
+
+  // The advanced filter narrows only the tray display. Reconciliation, loaded-outfit
   // provenance, and the mannequin selection stay bound to the full `items` list, so
   // filtering can never remove a garment that is already on the mannequin.
-  const trayItems = useMemo(
-    () => items.filter((item) => matchesLabelFilter(item, labelFilter)),
-    [items, labelFilter],
+  const itemFilter = useCallback(
+    (item) => matchesAdvancedFilter(item, advancedFilter, ITEM_FILTER_GROUPS),
+    [advancedFilter],
   );
 
   const undo = () => {
@@ -168,18 +180,22 @@ export function DressingRoom({
       </aside>
 
       <GarmentTray
-        items={trayItems}
+        items={items}
         selectedIds={selectedIds}
         onSelect={(item) => dispatch({ type: "select", item })}
-        filter={(
-          <LabelFilter
+        itemFilter={itemFilter}
+        renderFilter={({ visibleCount, totalCount }) => (
+          <UnifiedFilter
+            groups={ITEM_FILTER_GROUPS}
+            colors={availableColors}
             labels={labels}
-            value={labelFilter}
-            onChange={onLabelFilterChange}
+            value={advancedFilter}
+            onChange={onAdvancedFilterChange}
             loading={labelsLoading}
             error={labelsError}
-            visibleCount={trayItems.length}
-            totalCount={items.length}
+            visibleCount={visibleCount}
+            totalCount={totalCount}
+            resultNoun="plagg"
             context={context}
           />
         )}

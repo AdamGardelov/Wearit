@@ -121,6 +121,10 @@
 }
 
 .dress-category-chips button.active { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+
+/* The unified filter sits between the category row and the strip; its panel/chips are
+   styled by filters.css, so this only spaces the trigger row. */
+.dress-tray-filter { margin-top: 12px; }
 .garment-strip { margin-top: 12px; padding: 2px; }
 
 .garment-option {

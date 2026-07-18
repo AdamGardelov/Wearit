@@ -239,9 +239,9 @@ export function App({ repository: injectedRepository }) {
     labelsError,
   };
 
-  // Transitional bridge: Dress and Outfits still render the old LabelFilter until Tasks 4
-  // and 5 migrate them. Season/Theme selections share the same fields as advancedFilter, so
-  // these props keep those views in sync while Colour is preserved untouched. Removed in Task 6.
+  // Transitional bridge: Outfits still renders the old LabelFilter until Task 5 migrates it.
+  // Season/Theme selections share the same fields as advancedFilter, so these props keep that
+  // view in sync while Colour is preserved untouched. Removed in Task 5/6.
   const labelProps = {
     labels,
     labelFilter: {
@@ -302,7 +302,7 @@ export function App({ repository: injectedRepository }) {
           }}
           onWear={(selection) => requestWear(selection, loadedOutfit)}
           context="Styla"
-          {...labelProps}
+          {...advancedFilterProps}
         />
         {actionStatus && <p className="app-action-status" role="status">{actionStatus}</p>}
       </section>

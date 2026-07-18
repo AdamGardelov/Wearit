@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../App.jsx";
-import { emptyLabelFilter } from "../../domain/labels.js";
+import { emptyAdvancedFilter } from "../../domain/filters.js";
 import { DressingRoom } from "./DressingRoom.jsx";
 
 afterEach(cleanup);
@@ -236,28 +236,28 @@ describe("App dressing-room integration", () => {
 
 const summer = { id: "s-summer", kind: "season", seasonKey: "summer", name: "Summer", locked: true };
 const winter = { id: "s-winter", kind: "season", seasonKey: "winter", name: "Winter", locked: true };
-const summerTop = { ...top, id: "summer-top", name: "Summer top", labelIds: ["s-summer"] };
-const winterBottom = { ...bottom, id: "winter-bottom", name: "Winter bottom", labelIds: ["s-winter"] };
+const summerTop = { ...top, id: "summer-top", name: "Summer top", colors: ["#4a8c3f"], labelIds: ["s-summer"] };
+const winterBottom = { ...bottom, id: "winter-bottom", name: "Winter bottom", colors: ["#2f5fb0"], labelIds: ["s-winter"] };
 const trayFixtures = [summerTop, winterBottom];
 
-describe("DressingRoom label filter", () => {
+function Harness({ onSave } = {}) {
+  const [advancedFilter, setAdvancedFilter] = useState(emptyAdvancedFilter());
+  return (
+    <DressingRoom
+      items={trayFixtures}
+      labels={[summer, winter]}
+      advancedFilter={advancedFilter}
+      onAdvancedFilterChange={setAdvancedFilter}
+      onSave={onSave}
+    />
+  );
+}
+
+describe("DressingRoom unified filter", () => {
   it("filters only the tray, never the mannequin composition", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
-
-    function Harness() {
-      const [labelFilter, setLabelFilter] = useState(emptyLabelFilter());
-      return (
-        <DressingRoom
-          items={trayFixtures}
-          labels={[summer, winter]}
-          labelFilter={labelFilter}
-          onLabelFilterChange={setLabelFilter}
-          onSave={onSave}
-        />
-      );
-    }
-    render(<Harness />);
+    render(<Harness onSave={onSave} />);
 
     await user.click(itemButton("Summer top"));
     await user.click(itemButton("Winter bottom"));
@@ -281,7 +281,25 @@ describe("DressingRoom label filter", () => {
     expect(screen.getByRole("button", { name: "Välj Winter bottom" })).toBeInTheDocument();
   });
 
-  it("carries a filter selected in Wardrobe over to Dress", async () => {
+  it("filters the tray by colour and adds no Undo step", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(itemButton("Summer top"));
+    expect(screen.getByRole("img", { name: "Summer top" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("checkbox", { name: "Grön" }));
+    // The blue winter bottom leaves the tray; the green summer top stays.
+    expect(screen.queryByRole("button", { name: "Välj Winter bottom" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Välj Summer top" })).toBeInTheDocument();
+
+    // A single Undo removes the only selected garment: the filter change consumed no history.
+    await user.click(screen.getByRole("button", { name: "Ångra" }));
+    expect(screen.queryByRole("img", { name: "Summer top" })).not.toBeInTheDocument();
+  });
+
+  it("carries the Wardrobe colour and season selection over to Dress", async () => {
     const user = userEvent.setup();
     const repository = {
       listItems: vi.fn().mockResolvedValue(trayFixtures.map((item) => ({ ...item }))),
@@ -296,10 +314,43 @@ describe("DressingRoom label filter", () => {
     await screen.findByRole("button", { name: "Visa Summer top" });
 
     await user.click(screen.getByRole("button", { name: "Filter – Garderob" }));
+    await user.click(screen.getByRole("checkbox", { name: "Grön" }));
     await user.click(screen.getByRole("checkbox", { name: "Sommar" }));
 
     await user.click(screen.getByRole("button", { name: "Dress" }));
     await user.click(screen.getByRole("button", { name: "Filter – Styla" }));
+    expect(screen.getByRole("checkbox", { name: "Grön" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Sommar" })).toBeChecked();
+    // The shared colour filter also narrows the Dress tray.
+    expect(screen.getByRole("button", { name: "Välj Summer top" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Välj Winter bottom" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Dress category state local to the dressing room", async () => {
+    const user = userEvent.setup();
+    const repository = {
+      listItems: vi.fn().mockResolvedValue(trayFixtures.map((item) => ({ ...item }))),
+      listOutfits: vi.fn().mockResolvedValue([]),
+      listWearHistory: vi.fn().mockResolvedValue([]),
+      listLabels: vi.fn().mockResolvedValue([summer, winter]),
+      updateItem: vi.fn(),
+      archiveItem: vi.fn(),
+      restoreItem: vi.fn(),
+    };
+    render(<App repository={repository} />);
+    await screen.findByRole("button", { name: "Visa Summer top" });
+
+    // Pick Överdelar in Wardrobe.
+    await user.click(screen.getByRole("button", { name: "Överdelar" }));
+    expect(screen.getByRole("button", { name: "Överdelar" })).toHaveAttribute("aria-pressed", "true");
+
+    // Pick Underdelar in Dress; it must not disturb the Wardrobe category.
+    await user.click(screen.getByRole("button", { name: "Dress" }));
+    await user.click(screen.getByRole("button", { name: "Underdelar" }));
+    expect(screen.getByRole("button", { name: "Underdelar" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: "Wardrobe" }));
+    expect(screen.getByRole("button", { name: "Överdelar" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Alla" })).toHaveAttribute("aria-pressed", "false");
   });
 });

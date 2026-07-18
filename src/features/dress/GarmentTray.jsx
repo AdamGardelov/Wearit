@@ -5,31 +5,43 @@ function garmentName(item) {
   return item.name || CATEGORY_BY_ID[item.category]?.label || "Garderobsplagg";
 }
 
-export function GarmentTray({ items, selectedIds, onSelect, filter = null }) {
+export function GarmentTray({
+  items,
+  selectedIds,
+  onSelect,
+  itemFilter = () => true,
+  renderFilter = null,
+}) {
   const [activeCategory, setActiveCategory] = useState("all");
+  // Category availability comes from the complete item list, so the advanced filter can
+  // never make a category chip disappear.
   const availableCategoryIds = useMemo(
     () => new Set(items.map((item) => item.category)),
     [items],
   );
-  // Only show categories that hold garments; "all" is always available.
   const visibleCategories = useMemo(
     () => CATEGORIES.filter((category) => category.id === "all" || availableCategoryIds.has(category.id)),
     [availableCategoryIds],
   );
+  // Fall back to All only when the selected category no longer exists in complete items.
   const effectiveCategory = activeCategory === "all" || availableCategoryIds.has(activeCategory)
     ? activeCategory
     : "all";
-  const visibleItems = useMemo(
+  const categoryItems = useMemo(
     () => effectiveCategory === "all"
       ? items
       : items.filter((item) => item.category === effectiveCategory),
     [effectiveCategory, items],
   );
+  // The advanced predicate narrows only the displayed strip; category state is untouched.
+  const visibleItems = useMemo(
+    () => categoryItems.filter((item) => itemFilter(item)),
+    [categoryItems, itemFilter],
+  );
   const activeLabel = CATEGORY_BY_ID[effectiveCategory]?.label || "Plagg";
 
   return (
     <section className="garment-tray" aria-label="Plagglåda">
-      {filter && <div className="dress-tray-filter">{filter}</div>}
       <div className="dress-category-chips" aria-label="Filtrera plagg efter kategori">
         {visibleCategories.map((category) => (
           <button
@@ -43,6 +55,12 @@ export function GarmentTray({ items, selectedIds, onSelect, filter = null }) {
           </button>
         ))}
       </div>
+
+      {renderFilter && (
+        <div className="dress-tray-filter">
+          {renderFilter({ visibleCount: visibleItems.length, totalCount: items.length })}
+        </div>
+      )}
 
       {visibleItems.length ? (
         <div className="garment-strip" aria-label={activeLabel}>
@@ -60,6 +78,8 @@ export function GarmentTray({ items, selectedIds, onSelect, filter = null }) {
             </button>
           ))}
         </div>
+      ) : categoryItems.length ? (
+        <p className="garment-empty">Inga plagg matchar filtret.</p>
       ) : (
         <p className="garment-empty">Inga {activeLabel.toLowerCase()} i din garderob än.</p>
       )}
