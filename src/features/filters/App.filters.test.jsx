@@ -124,6 +124,28 @@ describe("App unified filter integration", () => {
     expect(screen.queryByRole("button", { name: "Visa Red rain top" })).not.toBeInTheDocument();
   });
 
+  it("keeps the Colour filter for Wardrobe after visiting Outfits", async () => {
+    const user = userEvent.setup();
+    const outfit = { id: "o-1", name: "Green look", items: [greenSummerRain], thumbnailUrl: "/o.webp", labelIds: [SUMMER] };
+    render(<App repository={mockRepo({ listOutfits: vi.fn().mockResolvedValue([outfit]) })} />);
+    await screen.findByRole("button", { name: "Visa Green rain top" });
+
+    // Select Green in Wardrobe; the red rain top drops out.
+    await user.click(screen.getByRole("button", wardrobeFilter));
+    await user.click(screen.getByRole("checkbox", { name: "Grön" }));
+    expect(screen.queryByRole("button", { name: "Visa Red rain top" })).not.toBeInTheDocument();
+
+    // Outfits ignores Colour: it shows no Colour chip and lists the saved outfit.
+    await user.click(screen.getByRole("button", { name: "Outfits" }));
+    await screen.findByRole("img", { name: "Green look" });
+    expect(screen.queryByRole("button", { name: "Ta bort Grön" })).not.toBeInTheDocument();
+
+    // Returning to Wardrobe restores the Green chip and its filtering.
+    await user.click(screen.getByRole("button", { name: "Wardrobe" }));
+    expect(screen.getByRole("button", { name: "Ta bort Grön" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Red rain top" })).not.toBeInTheDocument();
+  });
+
   it("still filters by Colour when label loading fails", async () => {
     const user = userEvent.setup();
     render(<App repository={mockRepo({ listLabels: vi.fn().mockRejectedValue(new Error("Etiketter nere.")) })} />);

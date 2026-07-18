@@ -239,27 +239,6 @@ export function App({ repository: injectedRepository }) {
     labelsError,
   };
 
-  // Transitional bridge: Outfits still renders the old LabelFilter until Task 5 migrates it.
-  // Season/Theme selections share the same fields as advancedFilter, so these props keep that
-  // view in sync while Colour is preserved untouched. Removed in Task 5/6.
-  const labelProps = {
-    labels,
-    labelFilter: {
-      selectedSeasonIds: advancedFilter.selectedSeasonIds,
-      selectedThemeIds: advancedFilter.selectedThemeIds,
-    },
-    onLabelFilterChange: (next) => setAdvancedFilter((current) => ({
-      ...current,
-      selectedSeasonIds: next.selectedSeasonIds ?? [],
-      selectedThemeIds: next.selectedThemeIds ?? [],
-    })),
-    labelsLoading,
-    labelsError,
-    onCreateTheme: createTheme,
-    onRenameTheme: renameTheme,
-    onDeleteTheme: deleteTheme,
-  };
-
   const requestWear = (selection, sourceOutfit = null) => {
     const selectionIds = selection.map((item) => item.id).sort();
     const sourceIds = (sourceOutfit?.items || []).map((item) => item.id).sort();
@@ -315,7 +294,7 @@ export function App({ repository: injectedRepository }) {
             onLoad={loadOutfit}
             onWear={(selection, outfit) => requestWear(selection, outfit)}
             context="Outfits"
-            {...labelProps}
+            {...advancedFilterProps}
           />
         ) : (
           <div className="placeholder-section">

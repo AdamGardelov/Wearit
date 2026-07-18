@@ -7,6 +7,8 @@
 .outfits-header > p { margin: 0 0 8px; color: var(--accent); font-size: 11px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
 .outfits-header h1 { margin: 0; font-size: clamp(30px, 8vw, 56px); font-weight: 430; letter-spacing: -.045em; }
 .outfits-header span { display: block; margin-top: 12px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+/* Space the unified filter below the look count; its panel/chips come from filters.css. */
+.outfits-header .unified-filter { margin-top: 18px; }
 .outfits-status { max-width: 1180px; margin: 60px auto; color: var(--muted); }
 .outfits-status.error, .outfit-error { color: var(--accent); }
 .outfits-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; max-width: 1180px; margin: 0 auto; }

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { emptyLabelFilter } from "../../domain/labels.js";
+import { emptyAdvancedFilter } from "../../domain/filters.js";
 import { SaveOutfitDialog } from "./SaveOutfitDialog.jsx";
 import { OutfitsView } from "./OutfitsView.jsx";
 
@@ -232,6 +232,27 @@ describe("SaveOutfitDialog", () => {
   });
 });
 
+const outfitColors = [
+  { id: "green", label: "Grön", swatch: "#4a8c3f" },
+  { id: "blue", label: "Blå", swatch: "#2f5fb0" },
+];
+
+// App owns the shared advanced filter; this wrapper mirrors that ownership for the view.
+function OutfitsHarness({ repository, initialFilter = emptyAdvancedFilter() }) {
+  const [advancedFilter, setAdvancedFilter] = useState(initialFilter);
+  return (
+    <OutfitsView
+      active
+      repository={repository}
+      onLoad={vi.fn()}
+      colors={outfitColors}
+      labels={labels}
+      advancedFilter={advancedFilter}
+      onAdvancedFilterChange={setAdvancedFilter}
+    />
+  );
+}
+
 describe("OutfitsView", () => {
   it("loads a saved outfit onto the mannequin", async () => {
     const user = userEvent.setup();
@@ -266,21 +287,7 @@ describe("OutfitsView", () => {
     const summerLook = { ...office, id: "o-summer", name: "Summer look", thumbnailUrl: "/su.webp", labelIds: ["s-summer"] };
     const plainLook = { ...office, id: "o-plain", name: "Plain look", thumbnailUrl: "/pl.webp", labelIds: [] };
     const repository = { listOutfits: vi.fn().mockResolvedValue([summerLook, plainLook]) };
-
-    function Harness() {
-      const [labelFilter, setLabelFilter] = useState(emptyLabelFilter());
-      return (
-        <OutfitsView
-          active
-          repository={repository}
-          onLoad={vi.fn()}
-          labels={labels}
-          labelFilter={labelFilter}
-          onLabelFilterChange={setLabelFilter}
-        />
-      );
-    }
-    render(<Harness />);
+    render(<OutfitsHarness repository={repository} />);
 
     await screen.findByRole("img", { name: "Summer look" });
     expect(screen.getByRole("img", { name: "Plain look" })).toBeInTheDocument();
@@ -290,5 +297,45 @@ describe("OutfitsView", () => {
 
     expect(screen.getByRole("img", { name: "Summer look" })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "Plain look" })).not.toBeInTheDocument();
+  });
+
+  it("scopes the badge, chips, section, and matching to Season and Theme", async () => {
+    const user = userEvent.setup();
+    const rainLook = { ...office, id: "o-sr", name: "Rain look", thumbnailUrl: "/sr.webp", labelIds: ["s-summer", "t-rainy"] };
+    const sunnyLook = { ...office, id: "o-s", name: "Sunny look", thumbnailUrl: "/s.webp", labelIds: ["s-summer"] };
+    const repository = { listOutfits: vi.fn().mockResolvedValue([rainLook, sunnyLook]) };
+    const initialFilter = { selectedColorIds: ["green"], selectedSeasonIds: ["s-summer"], selectedThemeIds: ["t-rainy"] };
+    render(<OutfitsHarness repository={repository} initialFilter={initialFilter} />);
+
+    await screen.findByRole("img", { name: "Rain look" });
+
+    // The badge counts Season + Theme only (2), not the retained Colour (3).
+    expect(screen.getByRole("button", { name: "Filter" })).toHaveTextContent("2");
+    // No Colour chip is shown even though green stays in the shared state.
+    expect(screen.queryByRole("button", { name: "Ta bort Grön" })).not.toBeInTheDocument();
+    // Summer AND Rainy day matches only the rain look.
+    expect(screen.queryByRole("img", { name: "Sunny look" })).not.toBeInTheDocument();
+
+    // The panel omits the Colour section entirely.
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    expect(screen.queryByText("Färg")).not.toBeInTheDocument();
+
+    // Clear all clears Season/Theme but keeps the retained Colour, so all outfits return.
+    await user.click(screen.getByRole("button", { name: "Rensa alla" }));
+    expect(screen.getByRole("img", { name: "Rain look" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Sunny look" })).toBeInTheDocument();
+  });
+
+  it("ignores a Colour-only selection and shows no advanced summary", async () => {
+    const summerLook = { ...office, id: "o-summer", name: "Summer look", thumbnailUrl: "/su.webp", labelIds: ["s-summer"] };
+    const plainLook = { ...office, id: "o-plain", name: "Plain look", thumbnailUrl: "/pl.webp", labelIds: [] };
+    const repository = { listOutfits: vi.fn().mockResolvedValue([summerLook, plainLook]) };
+    render(<OutfitsHarness repository={repository} initialFilter={{ selectedColorIds: ["green"], selectedSeasonIds: [], selectedThemeIds: [] }} />);
+
+    await screen.findByRole("img", { name: "Summer look" });
+    // Colour is not an outfit group, so every outfit stays visible...
+    expect(screen.getByRole("img", { name: "Plain look" })).toBeInTheDocument();
+    // ...and no "X av Y" summary appears because no applicable group is active.
+    expect(screen.queryByText("2 av 2")).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { SLOT_LABELS } from "../../domain/slots.js";
-import { emptyLabelFilter, matchesLabelFilter } from "../../domain/labels.js";
-import { LabelFilter } from "../labels/LabelFilter.jsx";
+import {
+  OUTFIT_FILTER_GROUPS,
+  emptyAdvancedFilter,
+  matchesAdvancedFilter,
+} from "../../domain/filters.js";
+import { UnifiedFilter } from "../filters/UnifiedFilter.jsx";
 import "./outfits.css";
 
 function archivedItems(outfit) {
@@ -14,9 +18,10 @@ export function OutfitsView({
   refreshKey = 0,
   onLoad,
   onWear,
+  colors = [],
   labels = [],
-  labelFilter = emptyLabelFilter(),
-  onLabelFilterChange = () => {},
+  advancedFilter = emptyAdvancedFilter(),
+  onAdvancedFilterChange = () => {},
   labelsLoading = false,
   labelsError = "",
   context = "",
@@ -25,10 +30,12 @@ export function OutfitsView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Saved outfits filter by their own saved labels, never by recomputing item labels.
+  // Saved outfits filter by their own saved labels, never by recomputing item labels or
+  // colours. OUTFIT_FILTER_GROUPS restricts matching to Season and Theme, so a retained
+  // Colour selection is ignored here even though it stays in the shared state.
   const visibleOutfits = useMemo(
-    () => outfits.filter((outfit) => matchesLabelFilter(outfit, labelFilter)),
-    [outfits, labelFilter],
+    () => outfits.filter((outfit) => matchesAdvancedFilter(outfit, advancedFilter, OUTFIT_FILTER_GROUPS)),
+    [outfits, advancedFilter],
   );
 
   useEffect(() => {
@@ -55,14 +62,17 @@ export function OutfitsView({
         <p>Outfits</p>
         <h1>Sparade kombinationer</h1>
         <span>{outfits.length} {outfits.length === 1 ? "look" : "looker"}</span>
-        <LabelFilter
+        <UnifiedFilter
+          groups={OUTFIT_FILTER_GROUPS}
+          colors={colors}
           labels={labels}
-          value={labelFilter}
-          onChange={onLabelFilterChange}
+          value={advancedFilter}
+          onChange={onAdvancedFilterChange}
           loading={labelsLoading}
           error={labelsError}
           visibleCount={visibleOutfits.length}
           totalCount={outfits.length}
+          resultNoun="outfits"
           context={context}
         />
       </header>
