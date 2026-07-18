@@ -1,7 +1,17 @@
-import { useEffect, useRef, useState } from "react";
-import { Archive, CalendarCheck, Check, X } from "@phosphor-icons/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Archive, CalendarCheck, Check, MagnifyingGlassPlus, X } from "@phosphor-icons/react";
 import { CATEGORIES } from "../../domain/slots.js";
 import { OptimizedImage } from "../../OptimizedImage.jsx";
+import { ImageLightbox, viewLabel } from "./ImageLightbox.jsx";
+import "./wardrobe.css";
+
+function galleryImagesFor(item) {
+  const productImages = (item.images ?? []).filter((image) => image.url);
+  if (productImages.length) {
+    return productImages.map((image) => ({ id: image.id, view: image.view, url: image.url }));
+  }
+  return item.cutoutUrl ? [{ id: "cutout", view: null, url: item.cutoutUrl }] : [];
+}
 
 const FOCUSABLE_SELECTOR = [
   "button:not([disabled])",
@@ -104,6 +114,13 @@ export function ItemEditorDialog({
   const [palette, setPalette] = useState(() => item.colors || []);
   const [busyAction, setBusyAction] = useState(null);
   const [error, setError] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  const galleryImages = useMemo(() => galleryImagesFor(item), [item]);
+  const safeIndex = Math.min(activeIndex, Math.max(galleryImages.length - 1, 0));
+  const activeImage = galleryImages[safeIndex] ?? null;
+  const hasMultiple = galleryImages.length > 1;
 
   useEffect(() => {
     setDraft(initialDraft(item));
@@ -111,6 +128,8 @@ export function ItemEditorDialog({
     setTagsText((item.tags || []).join(", "));
     setPalette(item.colors || []);
     setError("");
+    setActiveIndex(0);
+    setLightboxOpen(false);
   }, [item]);
 
   useEffect(() => {
@@ -136,6 +155,19 @@ export function ItemEditorDialog({
         event.preventDefault();
         onClose();
       }
+      return;
+    }
+
+    if (
+      !lightboxOpen
+      && hasMultiple
+      && (event.key === "ArrowLeft" || event.key === "ArrowRight")
+    ) {
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      event.preventDefault();
+      const delta = event.key === "ArrowRight" ? 1 : -1;
+      setActiveIndex((current) => (current + delta + galleryImages.length) % galleryImages.length);
       return;
     }
 
@@ -233,16 +265,61 @@ export function ItemEditorDialog({
           <div className="viewer-heading">
             <h2>{draft.name || "Wardrobe item"}</h2>
           </div>
-          <div className="viewer-art">
-            <OptimizedImage
-              src={item.cutoutUrl}
-              alt={item.name || "Wardrobe item"}
-              sizes="(max-width: 520px) 70vw, 300px"
-              breakpoints={[160, 240, 320, 480, 640]}
-              priority
-              crossOrigin="anonymous"
-              onLoad={handleImageLoad}
-            />
+          <div className="item-gallery">
+            {activeImage ? (
+              <button
+                type="button"
+                className="gallery-active"
+                onClick={() => setLightboxOpen(true)}
+                aria-label={`Zoom ${item.name || "wardrobe item"}${
+                  activeImage.view ? `, ${viewLabel(activeImage.view)}` : ""
+                }`}
+              >
+                <OptimizedImage
+                  src={activeImage.url}
+                  alt={item.name || "Wardrobe item"}
+                  sizes="(max-width: 520px) 70vw, 300px"
+                  breakpoints={[160, 240, 320, 480, 640]}
+                  priority
+                  crossOrigin="anonymous"
+                  onLoad={handleImageLoad}
+                />
+                <span className="gallery-zoom-hint" aria-hidden="true">
+                  <MagnifyingGlassPlus size={16} weight="bold" />
+                </span>
+                {activeImage.view && (
+                  <span className="gallery-view">{viewLabel(activeImage.view)}</span>
+                )}
+                {hasMultiple && (
+                  <span className="gallery-counter" aria-hidden="true">
+                    {safeIndex + 1} / {galleryImages.length}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <div className="gallery-empty" aria-hidden="true">No image</div>
+            )}
+            {hasMultiple && (
+              <div className="gallery-thumbs" role="group" aria-label="Product images">
+                {galleryImages.map((image, index) => (
+                  <button
+                    key={image.id}
+                    type="button"
+                    className={`gallery-thumb${index === safeIndex ? " active" : ""}`}
+                    onClick={() => setActiveIndex(index)}
+                    aria-label={`Show ${viewLabel(image.view) || "product"} image ${index + 1}`}
+                    aria-pressed={index === safeIndex}
+                  >
+                    <OptimizedImage
+                      src={image.url}
+                      alt=""
+                      sizes="64px"
+                      breakpoints={[64, 96, 128]}
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <form className="viewer-details editing" onSubmit={save}>
@@ -371,6 +448,15 @@ export function ItemEditorDialog({
           </form>
         </aside>
       </div>
+      {lightboxOpen && activeImage && (
+        <ImageLightbox
+          images={galleryImages}
+          index={safeIndex}
+          name={item.name || "Wardrobe item"}
+          onIndexChange={setActiveIndex}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
     </div>
   );
 }

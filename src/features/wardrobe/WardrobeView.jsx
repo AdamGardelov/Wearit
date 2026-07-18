@@ -19,7 +19,7 @@ function GalleryItem({ item, selected, onOpen, buttonRef }) {
       data-testid={`wardrobe-item-${item.id}`}
     >
       <OptimizedImage
-        src={item.cutoutUrl}
+        src={item.primaryImageUrl ?? item.cutoutUrl}
         alt=""
         sizes="(max-width: 520px) calc(50vw - 16px), (max-width: 860px) calc(33vw - 18px), 180px"
         breakpoints={[120, 180, 240, 320, 480]}

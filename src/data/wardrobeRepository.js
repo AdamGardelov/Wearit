@@ -26,6 +26,19 @@ function compositionLayerOrders(items) {
   return layerOrders;
 }
 
+// Structured product images live in a table added after the original schema. A
+// database that predates the migration simply has no rows and every item falls
+// back to its mannequin cutout, so a missing relation is not a hard failure.
+function isMissingRelationError(error) {
+  if (!error) return false;
+  if (error.code === "42P01" || error.code === "PGRST205") return true;
+  const text = String(error.message || "").toLowerCase();
+  return (
+    text.includes("wardrobe_item_images")
+    && (text.includes("does not exist") || text.includes("could not find"))
+  );
+}
+
 function orderedOutfitItems(rows = []) {
   return rows
     .filter((row) => row.wardrobe_item)
@@ -82,6 +95,39 @@ export function createWardrobeRepository(client) {
     }));
   }
 
+  async function fetchItemImages(itemIds) {
+    const imagesByItem = new Map();
+    if (!itemIds.length) return imagesByItem;
+
+    let result;
+    try {
+      result = await client
+        .from("wardrobe_item_images")
+        .select("id, wardrobe_item_id, storage_path, view, sort_order, is_primary")
+        .in("wardrobe_item_id", itemIds);
+    } catch (error) {
+      if (isMissingRelationError(error)) return imagesByItem;
+      throw error;
+    }
+    if (result.error) {
+      if (isMissingRelationError(result.error)) return imagesByItem;
+      throw result.error;
+    }
+
+    for (const row of result.data || []) {
+      const rows = imagesByItem.get(row.wardrobe_item_id) || [];
+      rows.push(row);
+      imagesByItem.set(row.wardrobe_item_id, rows);
+    }
+    for (const rows of imagesByItem.values()) {
+      rows.sort((left, right) => (
+        (left.sort_order ?? 0) - (right.sort_order ?? 0)
+        || String(left.id).localeCompare(String(right.id))
+      ));
+    }
+    return imagesByItem;
+  }
+
   async function listItems({ includeArchived = false } = {}) {
     let query = client
       .from("wardrobe_items")
@@ -91,17 +137,37 @@ export function createWardrobeRepository(client) {
     if (!includeArchived) query = query.eq("status", "active");
 
     const items = dataOrThrow(await query) || [];
-    const signedAssets = await createSignedAssetUrls(
-      items.map((item) => item.cutout_path),
-    );
+    if (!items.length) return [];
+
+    const imagesByItem = await fetchItemImages(items.map((item) => item.id));
+    const imagePaths = items.flatMap((item) => (
+      (imagesByItem.get(item.id) || []).map((image) => image.storage_path)
+    ));
+    const signedAssets = await createSignedAssetUrls([
+      ...items.map((item) => item.cutout_path),
+      ...imagePaths,
+    ]);
     const signedUrlByPath = new Map(
       signedAssets.map((asset) => [asset.path, asset.signedUrl]),
     );
 
-    return items.map((item) => ({
-      ...item,
-      cutoutUrl: signedUrlByPath.get(item.cutout_path) ?? null,
-    }));
+    return items.map((item) => {
+      const cutoutUrl = signedUrlByPath.get(item.cutout_path) ?? null;
+      const images = (imagesByItem.get(item.id) || []).map((image) => ({
+        id: image.id,
+        view: image.view,
+        sortOrder: image.sort_order,
+        isPrimary: image.is_primary,
+        url: signedUrlByPath.get(image.storage_path) ?? null,
+      }));
+      const primary = images.find((image) => image.isPrimary) ?? images[0] ?? null;
+      return {
+        ...item,
+        cutoutUrl,
+        images,
+        primaryImageUrl: primary?.url ?? cutoutUrl,
+      };
+    });
   }
 
   async function updateItem(item) {

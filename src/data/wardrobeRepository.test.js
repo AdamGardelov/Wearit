@@ -15,14 +15,28 @@ function createQuery(result) {
   return query;
 }
 
-function createClient(query, signedResult = { data: [], error: null }) {
+function createImagesQuery(imagesResult = { data: [], error: null }) {
+  const query = {
+    select: vi.fn(() => query),
+    in: vi.fn(() => Promise.resolve(imagesResult)),
+  };
+  return query;
+}
+
+function createClient(
+  query,
+  signedResult = { data: [], error: null },
+  imagesResult = { data: [], error: null },
+) {
   const createSignedUrls = vi.fn().mockResolvedValue(signedResult);
+  const imagesQuery = createImagesQuery(imagesResult);
   return {
     client: {
-      from: vi.fn(() => query),
+      from: vi.fn((table) => (table === "wardrobe_item_images" ? imagesQuery : query)),
       storage: { from: vi.fn(() => ({ createSignedUrls })) },
     },
     createSignedUrls,
+    imagesQuery,
   };
 }
 
@@ -363,8 +377,12 @@ describe("createWardrobeRepository", () => {
       data: [{ wardrobe_item_id: "item-a", last_worn_at: "2026-07-16T12:00:00.000Z" }],
       error: null,
     });
+    const imagesQuery = createImagesQuery();
     const client = {
-      from: vi.fn((table) => table === "wardrobe_items" ? itemQuery : lastWornQuery),
+      from: vi.fn((table) => {
+        if (table === "wardrobe_item_images") return imagesQuery;
+        return table === "wardrobe_items" ? itemQuery : lastWornQuery;
+      }),
       storage: {
         from: vi.fn(() => ({
           createSignedUrls: vi.fn().mockResolvedValue({
@@ -438,6 +456,62 @@ describe("createWardrobeRepository", () => {
       { id: "first", cutoutUrl: "https://assets.test/first" },
       { id: "second", cutoutUrl: "https://assets.test/second" },
     ]);
+  });
+
+  it("signs structured product images ordered by sort order and derives the primary", async () => {
+    const items = [{ id: "item-a", cutout_path: "owner/items/item-a/wear-layer/1.png" }];
+    const query = createQuery({ data: items, error: null });
+    const { client, createSignedUrls, imagesQuery } = createClient(
+      query,
+      {
+        data: [
+          { path: "owner/items/item-a/wear-layer/1.png", signedUrl: "https://assets.test/layer" },
+          { path: "owner/items/item-a/images/front.webp", signedUrl: "https://assets.test/front" },
+          { path: "owner/items/item-a/images/back.webp", signedUrl: "https://assets.test/back" },
+        ],
+        error: null,
+      },
+      {
+        data: [
+          { id: "img-back", wardrobe_item_id: "item-a", storage_path: "owner/items/item-a/images/back.webp", view: "back", sort_order: 1, is_primary: false },
+          { id: "img-front", wardrobe_item_id: "item-a", storage_path: "owner/items/item-a/images/front.webp", view: "front", sort_order: 0, is_primary: true },
+        ],
+        error: null,
+      },
+    );
+
+    const [item] = await createWardrobeRepository(client).listItems();
+
+    expect(client.from).toHaveBeenCalledWith("wardrobe_item_images");
+    expect(imagesQuery.in).toHaveBeenCalledWith("wardrobe_item_id", ["item-a"]);
+    expect(createSignedUrls).toHaveBeenCalledWith(
+      [
+        "owner/items/item-a/wear-layer/1.png",
+        "owner/items/item-a/images/front.webp",
+        "owner/items/item-a/images/back.webp",
+      ],
+      3600,
+    );
+    expect(item.primaryImageUrl).toBe("https://assets.test/front");
+    expect(item.images).toEqual([
+      { id: "img-front", view: "front", sortOrder: 0, isPrimary: true, url: "https://assets.test/front" },
+      { id: "img-back", view: "back", sortOrder: 1, isPrimary: false, url: "https://assets.test/back" },
+    ]);
+  });
+
+  it("falls back to the cutout as the primary image for legacy items without image rows", async () => {
+    const items = [{ id: "legacy", cutout_path: "owner/items/legacy/cutout.png" }];
+    const query = createQuery({ data: items, error: null });
+    const { client } = createClient(query, {
+      data: [{ path: "owner/items/legacy/cutout.png", signedUrl: "https://assets.test/legacy" }],
+      error: null,
+    });
+
+    const [item] = await createWardrobeRepository(client).listItems();
+
+    expect(item.images).toEqual([]);
+    expect(item.primaryImageUrl).toBe("https://assets.test/legacy");
+    expect(item.cutoutUrl).toBe("https://assets.test/legacy");
   });
 
   it("updates only editable metadata and placement fields", async () => {
