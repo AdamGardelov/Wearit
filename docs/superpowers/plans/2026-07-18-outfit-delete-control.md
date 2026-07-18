@@ -4,37 +4,38 @@
 
 **Goal:** Restore the saved-outfit delete trigger as a professional corner icon that is always discoverable on touch and appears on hover or focus on desktop.
 
-**Architecture:** Keep the existing React markup and delete flow. Add a computed-style regression test, then fix the CSS cascade with a selector more specific than the generic outfit-card button rule; retain a 44-pixel target while styling the SVG as the smaller visible circle.
+**Architecture:** Keep the existing React markup and delete flow. Add a source-level CSS regression test because Vitest/jsdom does not load component stylesheets, then fix the cascade with a selector more specific than the generic outfit-card button rule; retain a 44-pixel target while styling the SVG as the smaller visible circle.
 
-**Tech Stack:** React 19, Vitest, Testing Library, CSS
+**Tech Stack:** React 19, Vitest, CSS
 
 ---
 
 ### Task 1: Correct the outfit-card delete affordance
 
 **Files:**
-- Modify: `src/features/outfits/OutfitsView.test.jsx`
+- Create: `src/features/outfits/outfits.css.test.js`
 - Modify: `src/features/outfits/outfits.css`
 
-- [ ] **Step 1: Write the failing computed-style regression test**
+- [ ] **Step 1: Write the failing CSS-source regression test**
 
-Add this test beside the existing deletion tests:
+Create a focused test that reads the real stylesheet and extracts the more-specific delete-trigger block:
 
-```jsx
-it("keeps the delete trigger as a transparent 44px corner target", async () => {
-  const repository = {
-    listOutfits: vi.fn().mockResolvedValue([office]),
-    deleteOutfit: vi.fn(),
-  };
-  render(<OutfitsView active repository={repository} onLoad={vi.fn()} />);
+```js
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
 
-  const trigger = await screen.findByRole("button", { name: "Ta bort Office day" });
-  const style = getComputedStyle(trigger);
+const stylesheet = readFileSync(new URL("./outfits.css", import.meta.url), "utf8");
 
-  expect(style.width).toBe("44px");
-  expect(style.height).toBe("44px");
-  expect(style.minHeight).toBe("44px");
-  expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+describe("outfit delete control styles", () => {
+  it("overrides the generic card button with a transparent 44px corner target", () => {
+    const rule = stylesheet.match(/\.outfit-card \.outfit-delete-trigger\s*\{([^}]*)\}/)?.[1] || "";
+
+    expect(rule).toMatch(/width:\s*44px/);
+    expect(rule).toMatch(/height:\s*44px/);
+    expect(rule).toMatch(/min-height:\s*44px/);
+    expect(rule).toMatch(/background:\s*transparent/);
+    expect(rule).toMatch(/padding:\s*0/);
+  });
 });
 ```
 
@@ -43,10 +44,10 @@ it("keeps the delete trigger as a transparent 44px corner target", async () => {
 Run:
 
 ```bash
-npm test -- src/features/outfits/OutfitsView.test.jsx
+npm test -- src/features/outfits/outfits.css.test.js
 ```
 
-Expected: FAIL because `.outfit-card button` currently wins, producing `width: 100%` and the ink background.
+Expected: FAIL because the current stylesheet has only the less-specific `.outfit-delete-trigger` rule and the extracted rule is empty.
 
 - [ ] **Step 3: Fix the selector and split target size from visible size**
 
@@ -94,10 +95,10 @@ Keep the existing focus-visible rule and hover-capability media query. Their opa
 Run:
 
 ```bash
-npm test -- src/features/outfits/OutfitsView.test.jsx
+npm test -- src/features/outfits/outfits.css.test.js src/features/outfits/OutfitsView.test.jsx
 ```
 
-Expected: all OutfitsView tests pass, including the new computed-style regression.
+Expected: the CSS regression and all existing OutfitsView interaction tests pass.
 
 - [ ] **Step 5: Run the production build**
 
@@ -112,6 +113,6 @@ Expected: Vite exits successfully with no compilation errors.
 - [ ] **Step 6: Commit the fix**
 
 ```bash
-git add src/features/outfits/OutfitsView.test.jsx src/features/outfits/outfits.css
+git add src/features/outfits/outfits.css.test.js src/features/outfits/outfits.css
 git commit -m "fix: restore compact outfit delete control"
 ```
