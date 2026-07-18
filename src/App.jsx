@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { emptyLabelFilter, sanitizeLabelFilter } from "./domain/labels.js";
 import { createWardrobeRepository } from "./data/wardrobeRepository.js";
 import { ImportAdminView } from "./features/admin/ImportAdminView.jsx";
 import { DressingRoom } from "./features/dress/DressingRoom.jsx";
@@ -36,6 +37,72 @@ export function App({ repository: injectedRepository }) {
     items: [],
   }));
   const itemSnapshotRef = useRef(itemSnapshot);
+  const [labelsState, setLabelsState] = useState(() => ({
+    repository: baseRepository,
+    labels: [],
+    loading: true,
+    error: "",
+  }));
+  const [labelFilter, setLabelFilter] = useState(emptyLabelFilter);
+
+  // Load the owner's labels once per repository. A repository double without
+  // listLabels degrades to an empty, successfully loaded list; the app shell stays
+  // visible on failure so an error is never mistaken for an empty wardrobe.
+  useEffect(() => {
+    let active = true;
+    setLabelFilter(emptyLabelFilter());
+    if (typeof baseRepository.listLabels !== "function") {
+      setLabelsState({ repository: baseRepository, labels: [], loading: false, error: "" });
+      return () => { active = false; };
+    }
+    setLabelsState({ repository: baseRepository, labels: [], loading: true, error: "" });
+    baseRepository.listLabels()
+      .then((labels) => {
+        if (active) setLabelsState({ repository: baseRepository, labels, loading: false, error: "" });
+      })
+      .catch((error) => {
+        if (active) {
+          setLabelsState({
+            repository: baseRepository,
+            labels: [],
+            loading: false,
+            error: error?.message || "Kunde inte ladda etiketter.",
+          });
+        }
+      });
+    return () => { active = false; };
+  }, [baseRepository]);
+
+  const labels = labelsState.repository === baseRepository ? labelsState.labels : [];
+  const labelsLoading = labelsState.repository === baseRepository ? labelsState.loading : true;
+  const labelsError = labelsState.repository === baseRepository ? labelsState.error : "";
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
+
+  const createTheme = useCallback(async (name) => {
+    const theme = await baseRepository.createTheme(name);
+    setLabelsState((current) => (current.repository === baseRepository
+      ? { ...current, labels: [...current.labels, theme] }
+      : current));
+    return theme;
+  }, [baseRepository]);
+
+  const renameTheme = useCallback(async (labelId, name) => {
+    const theme = await baseRepository.renameTheme(labelId, name);
+    setLabelsState((current) => (current.repository === baseRepository
+      ? { ...current, labels: current.labels.map((label) => (label.id === labelId ? theme : label)) }
+      : current));
+    return theme;
+  }, [baseRepository]);
+
+  const deleteTheme = useCallback(async (labelId) => {
+    await baseRepository.deleteTheme(labelId);
+    const remaining = labelsRef.current.filter((label) => label.id !== labelId);
+    setLabelsState((current) => (current.repository === baseRepository
+      ? { ...current, labels: current.labels.filter((label) => label.id !== labelId) }
+      : current));
+    setLabelFilter((current) => sanitizeLabelFilter(current, remaining));
+  }, [baseRepository]);
 
   const repository = useMemo(() => {
     let activeItemsRequest = null;
@@ -146,6 +213,17 @@ export function App({ repository: injectedRepository }) {
     setActionStatus(`Laddade ${outfit.name}.`);
   };
 
+  const labelProps = {
+    labels,
+    labelFilter,
+    onLabelFilterChange: setLabelFilter,
+    labelsLoading,
+    labelsError,
+    onCreateTheme: createTheme,
+    onRenameTheme: renameTheme,
+    onDeleteTheme: deleteTheme,
+  };
+
   const requestWear = (selection, sourceOutfit = null) => {
     const selectionIds = selection.map((item) => item.id).sort();
     const sourceIds = (sourceOutfit?.items || []).map((item) => item.id).sort();
@@ -170,6 +248,8 @@ export function App({ repository: injectedRepository }) {
           repository={repository}
           active={section === "wardrobe"}
           onMarkWorn={(selection) => requestWear(selection)}
+          context="Garderob"
+          {...labelProps}
         />
       </section>
       <section className="app-section" hidden={section !== "dress"}>
@@ -182,6 +262,8 @@ export function App({ repository: injectedRepository }) {
             setSaveSelection(selection);
           }}
           onWear={(selection) => requestWear(selection, loadedOutfit)}
+          context="Styla"
+          {...labelProps}
         />
         {actionStatus && <p className="app-action-status" role="status">{actionStatus}</p>}
       </section>
@@ -193,6 +275,8 @@ export function App({ repository: injectedRepository }) {
             refreshKey={outfitsRefreshKey}
             onLoad={loadOutfit}
             onWear={(selection, outfit) => requestWear(selection, outfit)}
+            context="Outfits"
+            {...labelProps}
           />
         ) : (
           <div className="placeholder-section">
@@ -259,6 +343,9 @@ export function App({ repository: injectedRepository }) {
           items={saveSelection}
           sourceOutfit={loadedOutfit}
           repository={repository}
+          labels={labels}
+          labelsLoading={labelsLoading}
+          labelsError={labelsError}
           onClose={() => setSaveSelection(null)}
           onSaved={(savedOutfit) => {
             setLoadedOutfit(savedOutfit);

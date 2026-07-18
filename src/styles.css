@@ -627,6 +627,18 @@ button { font: inherit; }
 .color-field,
 .details-field { grid-column: 1 / -1; }
 
+.item-labels {
+  display: grid;
+  gap: 12px;
+}
+
+.item-labels > span {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
 .colors-editor {
   display: grid;
   grid-template-columns: 1fr 1fr;

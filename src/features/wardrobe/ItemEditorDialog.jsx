@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, CalendarCheck, Check, MagnifyingGlassPlus, X } from "@phosphor-icons/react";
 import { CATEGORIES } from "../../domain/slots.js";
+import { labelsByKind } from "../../domain/labels.js";
+import { LabelPicker } from "../labels/LabelPicker.jsx";
+import { ThemeManager } from "../labels/ThemeManager.jsx";
 import { OptimizedImage } from "../../OptimizedImage.jsx";
 import { ImageLightbox, viewLabel } from "./ImageLightbox.jsx";
 import "./wardrobe.css";
@@ -105,6 +108,12 @@ export function ItemEditorDialog({
   onArchive,
   onMarkWorn,
   onRestoreFocus,
+  labels = [],
+  labelsLoading = false,
+  labelsError = "",
+  onCreateTheme,
+  onRenameTheme,
+  onDeleteTheme,
 }) {
   const dialogRef = useRef(null);
   const nameInputRef = useRef(null);
@@ -112,10 +121,14 @@ export function ItemEditorDialog({
   const [colorsText, setColorsText] = useState(() => (item.colors || []).join(", "));
   const [tagsText, setTagsText] = useState(() => (item.tags || []).join(", "));
   const [palette, setPalette] = useState(() => item.colors || []);
+  const [selectedLabelIds, setSelectedLabelIds] = useState(() => item.labelIds ?? []);
   const [busyAction, setBusyAction] = useState(null);
   const [error, setError] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  const themes = useMemo(() => labelsByKind(labels).themes, [labels]);
+  const labelsUnavailable = labelsLoading || Boolean(labelsError);
 
   const galleryImages = useMemo(() => galleryImagesFor(item), [item]);
   const safeIndex = Math.min(activeIndex, Math.max(galleryImages.length - 1, 0));
@@ -127,6 +140,7 @@ export function ItemEditorDialog({
     setColorsText((item.colors || []).join(", "));
     setTagsText((item.tags || []).join(", "));
     setPalette(item.colors || []);
+    setSelectedLabelIds(item.labelIds ?? []);
     setError("");
     setActiveIndex(0);
     setLightboxOpen(false);
@@ -206,8 +220,21 @@ export function ItemEditorDialog({
     setColorsText([...colors, color].join(", "));
   };
 
+  // Auto-select a freshly created theme; drop a deleted one from the unsaved selection.
+  const createTheme = async (name) => {
+    const theme = await onCreateTheme?.(name);
+    if (theme?.id) setSelectedLabelIds((current) => [...new Set([...current, theme.id])]);
+    return theme;
+  };
+
+  const deleteTheme = async (labelId) => {
+    await onDeleteTheme?.(labelId);
+    setSelectedLabelIds((current) => current.filter((id) => id !== labelId));
+  };
+
   const save = async (event) => {
     event.preventDefault();
+    if (labelsUnavailable) return;
     setError("");
     setBusyAction("save");
     try {
@@ -219,6 +246,7 @@ export function ItemEditorDialog({
         notes: draft.notes.trim(),
         colors: splitValues(colorsText),
         tags: splitValues(tagsText),
+        labelIds: selectedLabelIds,
       });
       onClose();
     } catch (saveError) {
@@ -409,6 +437,24 @@ export function ItemEditorDialog({
                   placeholder="ull, vardag"
                 />
               </label>
+              <div className="field details-field item-labels" role="group" aria-label="Etiketter">
+                <span>Etiketter</span>
+                {labelsLoading && <p className="label-filter-status">Laddar etiketter…</p>}
+                {labelsError && <p className="status error" role="alert">{labelsError}</p>}
+                <LabelPicker
+                  labels={labels}
+                  selectedIds={selectedLabelIds}
+                  onChange={setSelectedLabelIds}
+                  disabled={Boolean(busyAction) || labelsLoading}
+                />
+                <ThemeManager
+                  themes={themes}
+                  onCreate={createTheme}
+                  onRename={onRenameTheme}
+                  onDelete={deleteTheme}
+                  disabled={Boolean(busyAction)}
+                />
+              </div>
             </div>
 
             {error && <p className="status error" role="alert">{error}</p>}
@@ -440,7 +486,11 @@ export function ItemEditorDialog({
               >
                 Avbryt
               </button>
-              <button className="primary-button" type="submit" disabled={Boolean(busyAction)}>
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={Boolean(busyAction) || labelsUnavailable}
+              >
                 <Check size={15} weight="bold" aria-hidden="true" />
                 {busyAction === "save" ? "Sparar…" : "Spara"}
               </button>

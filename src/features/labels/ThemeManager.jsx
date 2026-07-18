@@ -13,9 +13,10 @@ export function ThemeManager({ themes = [], onCreate, onRename, onDelete, disabl
   const [deleteError, setDeleteError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const create = async (event) => {
-    event.preventDefault();
-    if (busy) return;
+  // These controls are often embedded inside another form (the item editor), so they
+  // avoid nested <form> elements and submit via buttons and Enter instead.
+  const create = async () => {
+    if (busy || !createName.trim()) return;
     setCreateError("");
     setBusy(true);
     try {
@@ -35,9 +36,8 @@ export function ThemeManager({ themes = [], onCreate, onRename, onDelete, disabl
     setConfirmingId(null);
   };
 
-  const submitRename = async (event) => {
-    event.preventDefault();
-    if (busy) return;
+  const submitRename = async () => {
+    if (busy || !renameName.trim()) return;
     setRenameError("");
     setBusy(true);
     try {
@@ -67,39 +67,56 @@ export function ThemeManager({ themes = [], onCreate, onRename, onDelete, disabl
 
   return (
     <div className="theme-manager">
-      <form className="theme-create" onSubmit={create}>
+      <div className="theme-create">
         <label className="theme-create-field">
           <span>Nytt tema</span>
           <input
             value={createName}
             onChange={(event) => setCreateName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                create();
+              }
+            }}
             disabled={disabled || busy}
             aria-label="Nytt tema"
             placeholder="t.ex. Regn"
           />
         </label>
-        <button type="submit" className="theme-create-submit" disabled={disabled || busy || !createName.trim()}>
+        <button
+          type="button"
+          className="theme-create-submit"
+          onClick={create}
+          disabled={disabled || busy || !createName.trim()}
+        >
           Skapa
         </button>
         {createError && <p className="theme-error" role="alert">{createError}</p>}
-      </form>
+      </div>
 
       {themes.length > 0 && (
         <ul className="theme-list">
           {themes.map((theme) => (
             <li key={theme.id} className="theme-row">
               {renamingId === theme.id ? (
-                <form className="theme-rename" onSubmit={submitRename}>
+                <div className="theme-rename">
                   <input
                     value={renameName}
                     onChange={(event) => setRenameName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        submitRename();
+                      }
+                    }}
                     disabled={busy}
                     aria-label={`Nytt namn för ${theme.name}`}
                   />
-                  <button type="submit" disabled={busy || !renameName.trim()}>Spara</button>
+                  <button type="button" onClick={submitRename} disabled={busy || !renameName.trim()}>Spara</button>
                   <button type="button" onClick={() => setRenamingId(null)} disabled={busy}>Avbryt</button>
                   {renameError && <p className="theme-error" role="alert">{renameError}</p>}
-                </form>
+                </div>
               ) : confirmingId === theme.id ? (
                 <div className="theme-confirm" role="group" aria-label={`Bekräfta borttagning av ${theme.name}`}>
                   <p>Ta bort ”{theme.name}”? Kläder och outfits behålls.</p>

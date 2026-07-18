@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CATEGORY_BY_ID, CATEGORIES } from "../../domain/slots.js";
 import { availableColorFamilies, itemColorFamilies } from "../../domain/colors.js";
+import { emptyLabelFilter, matchesLabelFilter } from "../../domain/labels.js";
+import { LabelFilter } from "../labels/LabelFilter.jsx";
 import { OptimizedImage } from "../../OptimizedImage.jsx";
 import { ItemEditorDialog } from "./ItemEditorDialog.jsx";
 
@@ -29,7 +31,20 @@ function GalleryItem({ item, selected, onOpen, buttonRef }) {
   );
 }
 
-export function WardrobeView({ repository, active = true, onMarkWorn }) {
+export function WardrobeView({
+  repository,
+  active = true,
+  onMarkWorn,
+  labels = [],
+  labelFilter = emptyLabelFilter(),
+  onLabelFilterChange = () => {},
+  labelsLoading = false,
+  labelsError = "",
+  onCreateTheme,
+  onRenameTheme,
+  onDeleteTheme,
+  context = "",
+}) {
   const galleryButtonRefs = useRef(new Map());
   const categoryButtonRefs = useRef(new Map());
   const returnFocusTargetRef = useRef(null);
@@ -95,12 +110,12 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
 
   const selectedItem = items.find((item) => item.id === selectedId) || null;
   const visibleItems = useMemo(
-    () => items.filter((item) => {
-      if (activeCategory !== "all" && item.category !== activeCategory) return false;
-      if (activeColor && !itemFamilies.get(item.id)?.has(activeColor)) return false;
-      return true;
-    }),
-    [activeCategory, activeColor, itemFamilies, items],
+    () => items.filter((item) => (
+      (activeCategory === "all" || item.category === activeCategory)
+      && (!activeColor || Boolean(itemFamilies.get(item.id)?.has(activeColor)))
+      && matchesLabelFilter(item, labelFilter)
+    )),
+    [activeCategory, activeColor, itemFamilies, items, labelFilter],
   );
 
   const openItem = (itemId) => {
@@ -220,6 +235,16 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
               ))}
             </div>
           )}
+          <LabelFilter
+            labels={labels}
+            value={labelFilter}
+            onChange={onLabelFilterChange}
+            loading={labelsLoading}
+            error={labelsError}
+            visibleCount={visibleItems.length}
+            totalCount={items.length}
+            context={context}
+          />
         </header>
 
         {error && <p className="status error" role="alert">{error}</p>}
@@ -257,6 +282,12 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
           onArchive={archiveItem}
           onMarkWorn={markWorn}
           onRestoreFocus={restoreEditorFocus}
+          labels={labels}
+          labelsLoading={labelsLoading}
+          labelsError={labelsError}
+          onCreateTheme={onCreateTheme}
+          onRenameTheme={onRenameTheme}
+          onDeleteTheme={onDeleteTheme}
         />
       )}
     </div>

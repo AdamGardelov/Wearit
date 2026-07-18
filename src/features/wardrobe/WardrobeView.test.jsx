@@ -163,6 +163,7 @@ describe("WardrobeView", () => {
       notes: "Dry clean",
       colors: ["#112233", "#445566"],
       tags: ["wool", "smart"],
+      labelIds: [],
     }));
     const updatedButton = await screen.findByRole("button", { name: "Visa Tailored shirt" });
     expect(updatedButton).toBeInTheDocument();
