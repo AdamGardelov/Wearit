@@ -7,6 +7,8 @@ import {
   matchesAdvancedFilter,
 } from "../../domain/filters.js";
 import { UnifiedFilter } from "../filters/UnifiedFilter.jsx";
+import { LastWornSort, LastWornMeta } from "../sorting/LastWornSort.jsx";
+import { LAST_WORN_SORT, sortByLastWorn } from "../../domain/lastWorn.js";
 import { OptimizedImage } from "../../OptimizedImage.jsx";
 import { ItemEditorDialog } from "./ItemEditorDialog.jsx";
 
@@ -57,6 +59,7 @@ export function WardrobeView({
   const returnFocusTargetRef = useRef(null);
   const [items, setItems] = useState([]);
   const [activeCategory, setActiveCategory] = useState("all");
+  const [sortOrder, setSortOrder] = useState(LAST_WORN_SORT.STANDARD);
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -133,12 +136,24 @@ export function WardrobeView({
   }, [availableCategoryIds, activeCategory]);
 
   const selectedItem = items.find((item) => item.id === selectedId) || null;
-  const visibleItems = useMemo(
+  const filteredItems = useMemo(
     () => items.filter((item) => (
       (activeCategory === "all" || item.category === activeCategory)
       && matchesAdvancedFilter(item, advancedFilter, ITEM_FILTER_GROUPS)
     )),
     [activeCategory, advancedFilter, items],
+  );
+  // A chronological sort needs last-worn metadata. If it failed to load, keep Standard order and
+  // surface a non-destructive alert rather than rendering a misleading order.
+  const lastWornUnavailable = items.some((item) => item.last_worn_unavailable);
+  const chronologicalRequested = sortOrder !== LAST_WORN_SORT.STANDARD;
+  const effectiveSortOrder = chronologicalRequested && lastWornUnavailable
+    ? LAST_WORN_SORT.STANDARD
+    : sortOrder;
+  const showLastWornMeta = effectiveSortOrder !== LAST_WORN_SORT.STANDARD;
+  const visibleItems = useMemo(
+    () => sortByLastWorn(filteredItems, effectiveSortOrder),
+    [filteredItems, effectiveSortOrder],
   );
 
   const openItem = (itemId) => {
@@ -238,22 +253,35 @@ export function WardrobeView({
                 </button>
               ))}
             </nav>
-            <UnifiedFilter
-              groups={ITEM_FILTER_GROUPS}
-              colors={availableColors}
-              labels={labels}
-              value={advancedFilter}
-              onChange={onAdvancedFilterChange}
-              loading={labelsLoading}
-              error={labelsError}
-              visibleCount={visibleItems.length}
-              totalCount={items.length}
-              resultNoun="plagg"
-              context={context}
-              align="end"
-            />
+            <div className="wardrobe-controls">
+              <LastWornSort
+                value={sortOrder}
+                onChange={setSortOrder}
+                context="garderob"
+              />
+              <UnifiedFilter
+                groups={ITEM_FILTER_GROUPS}
+                colors={availableColors}
+                labels={labels}
+                value={advancedFilter}
+                onChange={onAdvancedFilterChange}
+                loading={labelsLoading}
+                error={labelsError}
+                visibleCount={visibleItems.length}
+                totalCount={items.length}
+                resultNoun="plagg"
+                context={context}
+                align="end"
+              />
+            </div>
           </div>
         </header>
+
+        {chronologicalRequested && lastWornUnavailable && (
+          <p className="last-worn-alert" role="alert">
+            Kunde inte ladda senast använd. Försök igen.
+          </p>
+        )}
 
         {error && <p className="status error" role="alert">{error}</p>}
         {!error && loading && <p className="status">Laddar garderob</p>}
@@ -267,16 +295,18 @@ export function WardrobeView({
         {!!visibleItems.length && (
           <section className="gallery-grid" aria-label={`${activeLabel} i garderoben`}>
             {visibleItems.map((item) => (
-              <GalleryItem
-                key={item.id}
-                item={item}
-                selected={selectedId === item.id}
-                onOpen={openItem}
-                buttonRef={(node) => {
-                  if (node) galleryButtonRefs.current.set(item.id, node);
-                  else galleryButtonRefs.current.delete(item.id);
-                }}
-              />
+              <div className="gallery-entry" key={item.id}>
+                <GalleryItem
+                  item={item}
+                  selected={selectedId === item.id}
+                  onOpen={openItem}
+                  buttonRef={(node) => {
+                    if (node) galleryButtonRefs.current.set(item.id, node);
+                    else galleryButtonRefs.current.delete(item.id);
+                  }}
+                />
+                {showLastWornMeta && <LastWornMeta value={item.last_worn_at} />}
+              </div>
             ))}
           </section>
         )}

@@ -7,6 +7,8 @@ import {
   matchesAdvancedFilter,
 } from "../../domain/filters.js";
 import { UnifiedFilter } from "../filters/UnifiedFilter.jsx";
+import { LastWornSort, LastWornMeta } from "../sorting/LastWornSort.jsx";
+import { LAST_WORN_SORT, sortByLastWorn } from "../../domain/lastWorn.js";
 import "./outfits.css";
 
 function archivedItems(outfit) {
@@ -29,6 +31,7 @@ export function OutfitsView({
   context = "",
 }) {
   const [outfits, setOutfits] = useState([]);
+  const [sortOrder, setSortOrder] = useState(LAST_WORN_SORT.STANDARD);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -55,9 +58,21 @@ export function OutfitsView({
   // Saved outfits filter by their own saved labels, never by recomputing item labels or
   // colours. OUTFIT_FILTER_GROUPS restricts matching to Season and Theme, so a retained
   // Colour selection is ignored here even though it stays in the shared state.
-  const visibleOutfits = useMemo(
+  const filteredOutfits = useMemo(
     () => outfits.filter((outfit) => matchesAdvancedFilter(outfit, advancedFilter, OUTFIT_FILTER_GROUPS)),
     [outfits, advancedFilter],
+  );
+  // A chronological order needs last-worn data; if it failed to load, keep Standard order and
+  // show a non-destructive alert instead of a misleading order.
+  const lastWornUnavailable = outfits.some((outfit) => outfit.last_worn_unavailable);
+  const chronologicalRequested = sortOrder !== LAST_WORN_SORT.STANDARD;
+  const effectiveSortOrder = chronologicalRequested && lastWornUnavailable
+    ? LAST_WORN_SORT.STANDARD
+    : sortOrder;
+  const showLastWornMeta = effectiveSortOrder !== LAST_WORN_SORT.STANDARD;
+  const visibleOutfits = useMemo(
+    () => sortByLastWorn(filteredOutfits, effectiveSortOrder),
+    [filteredOutfits, effectiveSortOrder],
   );
 
   useEffect(() => {
@@ -85,21 +100,33 @@ export function OutfitsView({
         <h1>Sparade outfits</h1>
         <div className="outfits-toolbar">
           <span className="outfits-count">{outfits.length} {outfits.length === 1 ? "outfit" : "outfits"}</span>
-          <UnifiedFilter
-            groups={OUTFIT_FILTER_GROUPS}
-            colors={colors}
-            labels={labels}
-            value={advancedFilter}
-            onChange={onAdvancedFilterChange}
-            loading={labelsLoading}
-            error={labelsError}
-            visibleCount={visibleOutfits.length}
-            totalCount={outfits.length}
-            resultNoun="outfits"
-            context={context}
-            align="end"
-          />
+          <div className="outfits-controls">
+            <LastWornSort
+              value={sortOrder}
+              onChange={setSortOrder}
+              context="outfits"
+            />
+            <UnifiedFilter
+              groups={OUTFIT_FILTER_GROUPS}
+              colors={colors}
+              labels={labels}
+              value={advancedFilter}
+              onChange={onAdvancedFilterChange}
+              loading={labelsLoading}
+              error={labelsError}
+              visibleCount={visibleOutfits.length}
+              totalCount={outfits.length}
+              resultNoun="outfits"
+              context={context}
+              align="end"
+            />
+          </div>
         </div>
+        {chronologicalRequested && lastWornUnavailable && (
+          <p className="last-worn-alert" role="alert">
+            Kunde inte ladda senast använd. Försök igen.
+          </p>
+        )}
       </header>
 
       {error && <p className="outfits-status error" role="alert">{error}</p>}
@@ -138,6 +165,7 @@ export function OutfitsView({
                 <div className="outfit-card-copy">
                   <h2>{outfit.name}</h2>
                   <p>{outfit.items.length} plagg</p>
+                  {showLastWornMeta && <LastWornMeta value={outfit.last_worn_at} />}
                   {archived.map((item) => {
                     const slot = item.saved_slot || item.slot;
                     return (

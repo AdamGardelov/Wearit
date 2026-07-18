@@ -511,4 +511,73 @@ describe("WardrobeView", () => {
     expect(screen.getByRole("button", { name: "Överdelar" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Underdelar" })).toBeInTheDocument();
   });
+
+  describe("last-worn sorting", () => {
+    const neverWorn = { ...shirt, id: "never-item", name: "Never worn" };
+    const oldWorn = { ...shirt, id: "old-item", name: "Old worn", last_worn_at: "2026-01-15T12:00:00Z" };
+    const recentWorn = { ...shirt, id: "recent-item", name: "Recent worn", last_worn_at: "2026-07-15T12:00:00Z" };
+
+    const cardOrder = () => screen.getAllByRole("button", { name: /^Visa / })
+      .map((button) => button.getAttribute("aria-label"));
+
+    it("keeps Standard order and hides last-worn metadata by default", async () => {
+      const repository = createRepository({
+        listItems: vi.fn().mockResolvedValue([recentWorn, neverWorn, oldWorn]),
+      });
+      render(<WardrobeView repository={repository} />);
+      await screen.findByRole("button", { name: "Visa Recent worn" });
+
+      expect(cardOrder()).toEqual(["Visa Recent worn", "Visa Never worn", "Visa Old worn"]);
+      expect(screen.queryByText("Aldrig använd")).not.toBeInTheDocument();
+    });
+
+    it("puts never-used first for longest-since-used and shows metadata", async () => {
+      const user = userEvent.setup();
+      const repository = createRepository({
+        listItems: vi.fn().mockResolvedValue([recentWorn, neverWorn, oldWorn]),
+      });
+      render(<WardrobeView repository={repository} />);
+      await screen.findByRole("button", { name: "Visa Recent worn" });
+
+      await user.selectOptions(screen.getByRole("combobox", { name: "Sortera garderob" }), "oldest");
+
+      expect(cardOrder()).toEqual(["Visa Never worn", "Visa Old worn", "Visa Recent worn"]);
+      expect(screen.getByText("Aldrig använd")).toBeInTheDocument();
+      expect(screen.getByText("Senast använd 15 juli")).toBeInTheDocument();
+    });
+
+    it("puts never-used last for most-recently-used", async () => {
+      const user = userEvent.setup();
+      const repository = createRepository({
+        listItems: vi.fn().mockResolvedValue([oldWorn, neverWorn, recentWorn]),
+      });
+      render(<WardrobeView repository={repository} />);
+      await screen.findByRole("button", { name: "Visa Recent worn" });
+
+      await user.selectOptions(screen.getByRole("combobox", { name: "Sortera garderob" }), "newest");
+
+      expect(cardOrder()).toEqual(["Visa Recent worn", "Visa Old worn", "Visa Never worn"]);
+      expect(screen.getByText("Aldrig använd")).toBeInTheDocument();
+    });
+
+    it("falls back to Standard order and alerts when last-worn is unavailable", async () => {
+      const user = userEvent.setup();
+      const repository = createRepository({
+        listItems: vi.fn().mockResolvedValue([
+          { ...recentWorn, last_worn_unavailable: true },
+          { ...neverWorn, last_worn_unavailable: true },
+          { ...oldWorn, last_worn_unavailable: true },
+        ]),
+      });
+      render(<WardrobeView repository={repository} />);
+      await screen.findByRole("button", { name: "Visa Recent worn" });
+
+      await user.selectOptions(screen.getByRole("combobox", { name: "Sortera garderob" }), "oldest");
+
+      // Order is preserved and no misleading metadata renders.
+      expect(cardOrder()).toEqual(["Visa Recent worn", "Visa Never worn", "Visa Old worn"]);
+      expect(screen.queryByText("Aldrig använd")).not.toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent("Kunde inte ladda senast använd. Försök igen.");
+    });
+  });
 });

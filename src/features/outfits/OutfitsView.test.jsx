@@ -390,4 +390,64 @@ describe("OutfitsView", () => {
 
     expect(screen.queryByRole("button", { name: "Ta bort Office day" })).not.toBeInTheDocument();
   });
+
+  describe("last-worn sorting", () => {
+    const neverLook = { ...office, id: "o-never", name: "Never look", thumbnailUrl: "/never.webp" };
+    const oldLook = { ...office, id: "o-old", name: "Old look", thumbnailUrl: "/old.webp", last_worn_at: "2026-01-15T12:00:00Z" };
+    const recentLook = { ...office, id: "o-recent", name: "Recent look", thumbnailUrl: "/recent.webp", last_worn_at: "2026-07-15T12:00:00Z" };
+
+    const cardOrder = () => screen.getAllByRole("img").map((img) => img.getAttribute("alt"));
+
+    it("keeps updated-at order and hides metadata by default", async () => {
+      const repository = { listOutfits: vi.fn().mockResolvedValue([recentLook, neverLook, oldLook]) };
+      render(<OutfitsView active repository={repository} onLoad={vi.fn()} />);
+      await screen.findByRole("img", { name: "Recent look" });
+
+      expect(cardOrder()).toEqual(["Recent look", "Never look", "Old look"]);
+      expect(screen.queryByText("Aldrig använd")).not.toBeInTheDocument();
+    });
+
+    it("orders longest-since-used with never-used first and shows metadata", async () => {
+      const user = userEvent.setup();
+      const repository = { listOutfits: vi.fn().mockResolvedValue([recentLook, neverLook, oldLook]) };
+      render(<OutfitsView active repository={repository} onLoad={vi.fn()} />);
+      await screen.findByRole("img", { name: "Recent look" });
+
+      await user.selectOptions(screen.getByRole("combobox", { name: "Sortera outfits" }), "oldest");
+
+      expect(cardOrder()).toEqual(["Never look", "Old look", "Recent look"]);
+      expect(screen.getByText("Aldrig använd")).toBeInTheDocument();
+      expect(screen.getByText("Senast använd 15 juli")).toBeInTheDocument();
+    });
+
+    it("orders most-recently-used with never-used last", async () => {
+      const user = userEvent.setup();
+      const repository = { listOutfits: vi.fn().mockResolvedValue([oldLook, neverLook, recentLook]) };
+      render(<OutfitsView active repository={repository} onLoad={vi.fn()} />);
+      await screen.findByRole("img", { name: "Recent look" });
+
+      await user.selectOptions(screen.getByRole("combobox", { name: "Sortera outfits" }), "newest");
+
+      expect(cardOrder()).toEqual(["Recent look", "Old look", "Never look"]);
+    });
+
+    it("falls back to Standard order and alerts when last-worn is unavailable", async () => {
+      const user = userEvent.setup();
+      const repository = {
+        listOutfits: vi.fn().mockResolvedValue([
+          { ...recentLook, last_worn_unavailable: true },
+          { ...neverLook, last_worn_unavailable: true },
+          { ...oldLook, last_worn_unavailable: true },
+        ]),
+      };
+      render(<OutfitsView active repository={repository} onLoad={vi.fn()} />);
+      await screen.findByRole("img", { name: "Recent look" });
+
+      await user.selectOptions(screen.getByRole("combobox", { name: "Sortera outfits" }), "oldest");
+
+      expect(cardOrder()).toEqual(["Recent look", "Never look", "Old look"]);
+      expect(screen.queryByText("Aldrig använd")).not.toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent("Kunde inte ladda senast använd. Försök igen.");
+    });
+  });
 });
