@@ -179,6 +179,35 @@ describe("ImportAdminView", () => {
     expect(await screen.findAllByText("Importerad")).toHaveLength(2);
   });
 
+  it("advances to the next item after a successful upload", async () => {
+    const repo = repository();
+    render(<ImportAdminView repository={repo} />);
+    await selectBundle(bundleFiles([
+      item(),
+      item(SECOND_ID, "Cream trousers", { category: "bottom", slot: "bottom" }),
+    ]));
+
+    await userEvent.click(screen.getByRole("button", { name: "Godkänn och ladda upp" }));
+
+    expect(await screen.findByRole("heading", { name: "Cream trousers" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Navy cardigan" })).not.toBeInTheDocument();
+  });
+
+  it("skips an item without uploading and moves to the next", async () => {
+    const repo = repository();
+    render(<ImportAdminView repository={repo} />);
+    await selectBundle(bundleFiles([
+      item(),
+      item(SECOND_ID, "Cream trousers", { category: "bottom", slot: "bottom" }),
+    ]));
+
+    await userEvent.click(screen.getByRole("button", { name: "Hoppa över" }));
+
+    expect(await screen.findByRole("heading", { name: "Cream trousers" })).toBeInTheDocument();
+    expect(repo.importWardrobeItem).not.toHaveBeenCalled();
+    expect(screen.getByText("Överhoppad")).toBeInTheDocument();
+  });
+
   it("lists exact reconciliation paths and requires a second explicit cleanup confirmation", async () => {
     const repo = repository({
       reconcileWardrobeAssets: vi.fn()

@@ -7,6 +7,7 @@ function statusLabel(status) {
   if (status === "imported") return "Importerad";
   if (status === "already-imported") return "Redan importerad";
   if (status === "uploading") return "Laddar upp…";
+  if (status === "skipped") return "Överhoppad";
   return "Redo för granskning";
 }
 
@@ -63,6 +64,31 @@ export function ImportAdminView({ repository, onClose, onImported }) {
     )));
   };
 
+  // Move the review focus to the next item in bundle order. The draft order never changes,
+  // so resolving by id keeps this correct even when called after an async status update.
+  const advanceToNext = (fromId) => {
+    const index = drafts.findIndex((draft) => draft.manifestItem.id === fromId);
+    const next = index >= 0 ? drafts[index + 1] : null;
+    if (next) {
+      setCurrentId(next.manifestItem.id);
+      setImportError("");
+    }
+  };
+
+  const skipCurrent = () => {
+    if (!current || current.importStatus === "uploading") return;
+    const itemId = current.manifestItem.id;
+    setDrafts((existing) => existing.map((draft) => (
+      draft.manifestItem.id === itemId
+        && draft.importStatus !== "imported"
+        && draft.importStatus !== "already-imported"
+        ? { ...draft, importStatus: "skipped" }
+        : draft
+    )));
+    setImportError("");
+    advanceToNext(itemId);
+  };
+
   const approveCurrent = async () => {
     if (!current || current.importStatus === "uploading") return;
     const itemId = current.manifestItem.id;
@@ -85,6 +111,8 @@ export function ImportAdminView({ repository, onClose, onImported }) {
           : draft
       )));
       await onImported?.(result);
+      // Roll straight on to the next item so a bundle can be worked through without extra clicks.
+      advanceToNext(itemId);
     } catch (error) {
       setDrafts((existing) => existing.map((draft) => (
         draft.manifestItem.id === itemId ? { ...draft, importStatus: "failed" } : draft
@@ -178,16 +206,28 @@ export function ImportAdminView({ repository, onClose, onImported }) {
               </div>
               <AlignmentEditor draft={current} onChange={updatePlacement} />
               {importError && <p role="alert" className="admin-error">{importError}</p>}
-              <button
-                type="button"
-                className="primary-action"
-                disabled={current.importStatus === "uploading"
-                  || current.importStatus === "imported"
-                  || current.importStatus === "already-imported"}
-                onClick={approveCurrent}
-              >
-                {current.importStatus === "failed" ? "Försök igen" : "Godkänn och ladda upp"}
-              </button>
+              <div className="import-review-actions">
+                <button
+                  type="button"
+                  className="primary-action"
+                  disabled={current.importStatus === "uploading"
+                    || current.importStatus === "imported"
+                    || current.importStatus === "already-imported"}
+                  onClick={approveCurrent}
+                >
+                  {current.importStatus === "failed" ? "Försök igen" : "Godkänn och ladda upp"}
+                </button>
+                {current.importStatus !== "imported" && current.importStatus !== "already-imported" && (
+                  <button
+                    type="button"
+                    className="text-action"
+                    disabled={current.importStatus === "uploading"}
+                    onClick={skipCurrent}
+                  >
+                    Hoppa över
+                  </button>
+                )}
+              </div>
             </article>
           )}
         </div>
