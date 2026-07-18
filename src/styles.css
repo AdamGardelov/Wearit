@@ -1,5 +1,6 @@
 @import "@fontsource-variable/instrument-sans";
 @import "./features/dress/dress.css";
+@import "./features/labels/labels.css";
 
 :root {
   --paper: #f4f0e8;
