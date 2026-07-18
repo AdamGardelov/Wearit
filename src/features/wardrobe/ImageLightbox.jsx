@@ -179,7 +179,6 @@ export function ImageLightbox({ images, index, name, onIndexChange, onClose }) {
   };
 
   const pointerDown = (event) => {
-    stageRef.current?.setPointerCapture?.(event.pointerId);
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
     if (pointersRef.current.size === 2) {
@@ -200,6 +199,12 @@ export function ImageLightbox({ images, index, name, onIndexChange, onClose }) {
         pointerType: event.pointerType,
         moved: false,
       };
+    }
+
+    try {
+      stageRef.current?.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture is a best-effort enhancement; panning works without it.
     }
   };
 
@@ -262,22 +267,21 @@ export function ImageLightbox({ images, index, name, onIndexChange, onClose }) {
 
     const dx = event.clientX - gesture.startX;
     const dy = event.clientY - gesture.startY;
-    if (gesture.startScale > 1.01) return; // finished a pan
 
-    if (Math.abs(dx) > SWIPE_DISTANCE && Math.abs(dx) > Math.abs(dy)) {
-      goTo(index + (dx < 0 ? 1 : -1));
+    if (gesture.moved) {
+      // A drag while zoomed has already panned; while unzoomed it navigates or closes.
+      if (gesture.startScale <= 1.01) {
+        if (Math.abs(dx) > SWIPE_DISTANCE && Math.abs(dx) > Math.abs(dy)) {
+          goTo(index + (dx < 0 ? 1 : -1));
+        } else if (dy > CLOSE_DISTANCE && dy > Math.abs(dx)) {
+          onClose();
+        }
+      }
       return;
     }
-    if (dy > CLOSE_DISTANCE && dy > Math.abs(dx)) {
-      onClose();
-      return;
-    }
-    if (gesture.moved) return;
 
-    if (gesture.pointerType === "mouse") {
-      toggleZoom();
-      return;
-    }
+    // A stationary tap/click does nothing on its own so it never fights panning;
+    // a second one within the double-tap window toggles zoom in either direction.
     const now = Date.now();
     if (now - lastTapRef.current < DOUBLE_TAP_MS) {
       toggleZoom();

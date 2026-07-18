@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ItemEditorDialog } from "./ItemEditorDialog.jsx";
@@ -90,6 +90,58 @@ describe("ItemEditorDialog gallery", () => {
 
     await user.click(within(lightbox).getByRole("button", { name: "Reset zoom" }));
     expect(image.style.transform).toContain("scale(1)");
+  });
+
+  async function openZoomableStage(user) {
+    await user.click(screen.getByRole("button", { name: "Zoom Disco tee, Front" }));
+    const lightbox = screen.getByRole("dialog", { name: "Disco tee image viewer" });
+    const stage = lightbox.querySelector(".lightbox-stage");
+    const image = within(lightbox).getByRole("img");
+    Object.defineProperty(stage, "clientWidth", { value: 1000, configurable: true });
+    Object.defineProperty(stage, "clientHeight", { value: 1000, configurable: true });
+    return { lightbox, stage, image };
+  }
+
+  it("pans a zoomed image by dragging and stays zoomed", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const { lightbox, stage, image } = await openZoomableStage(user);
+
+    await user.click(within(lightbox).getByRole("button", { name: "Zoom in" }));
+    await user.click(within(lightbox).getByRole("button", { name: "Zoom in" }));
+    expect(image.style.transform).toContain("scale(2)");
+
+    fireEvent.pointerDown(stage, { pointerId: 1, clientX: 500, clientY: 500, pointerType: "mouse" });
+    fireEvent.pointerMove(stage, { pointerId: 1, clientX: 400, clientY: 460 });
+    expect(image.style.transform).toContain("translate(-100px, -40px)");
+
+    fireEvent.pointerUp(stage, { pointerId: 1, clientX: 400, clientY: 460, pointerType: "mouse" });
+    // A drag must never toggle zoom off.
+    expect(image.style.transform).toContain("scale(2)");
+  });
+
+  it("ignores a single stationary click so it cannot fight panning", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const { stage, image } = await openZoomableStage(user);
+
+    fireEvent.pointerDown(stage, { pointerId: 1, clientX: 500, clientY: 500, pointerType: "mouse" });
+    fireEvent.pointerUp(stage, { pointerId: 1, clientX: 500, clientY: 500, pointerType: "mouse" });
+
+    expect(image.style.transform).toContain("scale(1)");
+  });
+
+  it("toggles zoom on a double click", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const { stage, image } = await openZoomableStage(user);
+
+    fireEvent.pointerDown(stage, { pointerId: 1, clientX: 500, clientY: 500, pointerType: "mouse" });
+    fireEvent.pointerUp(stage, { pointerId: 1, clientX: 500, clientY: 500, pointerType: "mouse" });
+    fireEvent.pointerDown(stage, { pointerId: 1, clientX: 500, clientY: 500, pointerType: "mouse" });
+    fireEvent.pointerUp(stage, { pointerId: 1, clientX: 500, clientY: 500, pointerType: "mouse" });
+
+    expect(image.style.transform).toContain("scale(2.5)");
   });
 
   it("falls back to the cutout as a single zoomable image for legacy items", async () => {

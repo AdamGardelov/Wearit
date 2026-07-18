@@ -272,13 +272,14 @@ button { font: inherit; }
 
 .viewer-icon-close {
   position: absolute;
-  top: 38px;
-  right: 38px;
+  top: 30px;
+  right: 30px;
   width: 42px;
   height: 42px;
   display: grid;
   place-items: center;
   border: 0;
+  border-radius: 999px;
   padding: 0;
   background: transparent;
   color: var(--ink);
@@ -286,9 +287,12 @@ button { font: inherit; }
   z-index: 8;
 }
 
-.viewer-icon-close:hover,
+.viewer-icon-close:hover {
+  background: rgba(25, 24, 22, .07);
+}
+
 .viewer-icon-close:focus-visible {
-  outline: 1px solid var(--ink);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
