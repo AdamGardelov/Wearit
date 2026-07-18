@@ -409,10 +409,93 @@ describe("prepareImportBundle", () => {
   });
 
   it("rejects unsupported manifest versions", async () => {
-    await writeManifest(manifestFile, [accepted()], 2);
+    await writeManifest(manifestFile, [accepted()], 3);
 
     await expect(prepareImportBundle({ itemsDir, manifestFile, outputDir }))
-      .rejects.toThrow(/version 1/i);
+      .rejects.toThrow(/version 1 or 2/i);
+  });
+
+  const ITEM_UUID = "96541a13-deb2-51da-bc91-8d0505624551";
+  const FRONT_UUID = "11111111-1111-4111-8111-111111111111";
+  const BACK_UUID = "22222222-2222-4222-8222-222222222222";
+
+  function acceptedV2(overrides = {}) {
+    return {
+      id: ITEM_UUID,
+      name: "Disco tee",
+      category: "top",
+      wearLayerFile: "wear-layer.png",
+      images: [
+        { id: FRONT_UUID, file: "images/front.webp", view: "front", sortOrder: 0, isPrimary: true },
+        { id: BACK_UUID, file: "images/back.webp", view: "back", sortOrder: 1, isPrimary: false },
+      ],
+      colors: ["#202020"],
+      tags: ["tshirt"],
+      placement: VALID_PLACEMENT,
+      status: "accepted",
+      ...overrides,
+    };
+  }
+
+  async function writeV2Sources() {
+    await writeRgbaPng(path.join(itemsDir, "wear-layer.png"));
+    await mkdir(path.join(itemsDir, "images"), { recursive: true });
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#202020" } })
+      .webp().toFile(path.join(itemsDir, "images", "front.webp"));
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#303030" } })
+      .webp().toFile(path.join(itemsDir, "images", "back.webp"));
+  }
+
+  it("turns an accepted v2 item into a wear-layer plus product-image bundle", async () => {
+    await writeV2Sources();
+    await writeManifest(manifestFile, [acceptedV2()], 2);
+
+    const result = await prepareImportBundle({ itemsDir, manifestFile, outputDir });
+    const bundle = JSON.parse(await readFile(path.join(outputDir, "manifest.json"), "utf8"));
+
+    expect(result).toMatchObject({ changed: true, accepted: 1 });
+    expect(bundle.version).toBe(2);
+    expect(bundle.items[0]).toMatchObject({
+      id: ITEM_UUID,
+      slot: "top",
+      wearLayerFile: `assets/${ITEM_UUID}/wear-layer.png`,
+      images: [
+        { id: FRONT_UUID, file: `assets/${ITEM_UUID}/images/front.webp`, view: "front", sortOrder: 0, isPrimary: true },
+        { id: BACK_UUID, file: `assets/${ITEM_UUID}/images/back.webp`, view: "back", sortOrder: 1, isPrimary: false },
+      ],
+    });
+    expect(await allRelativeFiles(outputDir)).toEqual([
+      `assets/${ITEM_UUID}/images/back.webp`,
+      `assets/${ITEM_UUID}/images/front.webp`,
+      `assets/${ITEM_UUID}/wear-layer.png`,
+      "manifest.json",
+    ]);
+  });
+
+  it("preserves the reviewed UUID and leaves an identical v2 bundle untouched", async () => {
+    await writeV2Sources();
+    await writeManifest(manifestFile, [acceptedV2()], 2);
+    await prepareImportBundle({ itemsDir, manifestFile, outputDir });
+
+    const second = await prepareImportBundle({ itemsDir, manifestFile, outputDir });
+    const bundle = JSON.parse(await readFile(path.join(outputDir, "manifest.json"), "utf8"));
+
+    expect(second.changed).toBe(false);
+    expect(bundle.items[0].id).toBe(ITEM_UUID);
+  });
+
+  it("rejects a v2 item whose primary image is not the front", async () => {
+    await writeV2Sources();
+    await writeManifest(manifestFile, [acceptedV2({
+      images: [
+        { id: FRONT_UUID, file: "images/front.webp", view: "front", sortOrder: 0, isPrimary: false },
+        { id: BACK_UUID, file: "images/back.webp", view: "back", sortOrder: 1, isPrimary: true },
+      ],
+    })], 2);
+
+    await expect(prepareImportBundle({ itemsDir, manifestFile, outputDir }))
+      .rejects.toThrow(/primary/i);
+    await expect(access(outputDir)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("uses the SHA-256 cutout digest as the sole stable-ID input", async () => {

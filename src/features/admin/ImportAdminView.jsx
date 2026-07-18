@@ -70,6 +70,7 @@ export function ImportAdminView({ repository, onClose, onImported }) {
       manifestItem: current.manifestItem,
       cutoutFile: current.cutoutFile,
       detailFiles: current.detailFiles,
+      imageFiles: current.imageFiles,
       placement: current.placement,
     };
     setImportError("");

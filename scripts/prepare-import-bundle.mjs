@@ -25,7 +25,14 @@ const CATEGORY_SLOTS = Object.freeze({
   accessory: "accessory",
 });
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DETAIL_FORMATS = new Set(["jpeg", "png", "webp"]);
+const IMAGE_VIEWS = new Set(["front", "back", "detail"]);
+
+function normalizeUuid(value, label) {
+  if (typeof value !== "string" || !UUID.test(value)) throw new Error(`${label} must be a UUID`);
+  return value.toLowerCase();
+}
 
 function isInside(parent, candidate) {
   const relative = path.relative(parent, candidate);
@@ -221,8 +228,10 @@ async function prepareAcceptedItem(raw, index, itemsRoot) {
 
   return {
     id,
-    cutoutBytes,
-    details,
+    assets: [
+      { output: `assets/${id}/cutout.png`, bytes: cutoutBytes },
+      ...details.map((detail) => ({ output: detail.output, bytes: detail.bytes })),
+    ],
     manifest: {
       id,
       file: `assets/${id}/cutout.png`,
@@ -230,6 +239,106 @@ async function prepareAcceptedItem(raw, index, itemsRoot) {
       name: normalizeText(raw.name, `${label}.name`, 120),
       category,
       slot,
+      colors: normalizeColors(raw.colors, `${label}.colors`),
+      tags: normalizeTags(raw.tags, `${label}.tags`),
+      placement: normalizePlacement(raw.placement, `${label}.placement`),
+      status: "accepted",
+    },
+  };
+}
+
+// Version 2 keeps the transparent mannequin wear layer separate from browsable
+// product images. Identity is provided by the reviewed manifest and preserved, not
+// derived from bytes, so several physical items can share a display name.
+async function prepareAcceptedItemV2(raw, index, itemsRoot) {
+  const label = `items[${index}]`;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${label} must be an object`);
+
+  const id = normalizeUuid(raw.id, `${label}.id`);
+  const category = raw.category;
+  const slot = CATEGORY_SLOTS[category];
+  if (!slot) throw new Error(`${label}: invalid category ${String(category)}`);
+  if (raw.slot !== undefined && raw.slot !== slot) {
+    throw new Error(`${label}.slot must be ${slot} for category ${category}`);
+  }
+
+  const wearLayer = await resolveReviewedFile(itemsRoot, raw.wearLayerFile, `${label}.wearLayerFile`);
+  const wearBytes = await validateCutout(wearLayer.absolute, `${label}.wearLayerFile (${raw.wearLayerFile})`);
+
+  const rawImages = raw.images;
+  if (!Array.isArray(rawImages) || rawImages.length < 1) {
+    throw new Error(`${label}.images must list at least one product image`);
+  }
+
+  const images = [];
+  const imageIds = new Set();
+  const outputNames = new Set();
+  const sortOrders = new Set();
+  let primaryCount = 0;
+  let frontCount = 0;
+  let backCount = 0;
+  for (let imageIndex = 0; imageIndex < rawImages.length; imageIndex += 1) {
+    const rawImage = rawImages[imageIndex];
+    const imageLabel = `${label}.images[${imageIndex}]`;
+    if (!rawImage || typeof rawImage !== "object" || Array.isArray(rawImage)) {
+      throw new Error(`${imageLabel} must be an object`);
+    }
+    const imageId = normalizeUuid(rawImage.id, `${imageLabel}.id`);
+    if (imageIds.has(imageId)) throw new Error(`${imageLabel}.id is duplicated`);
+    imageIds.add(imageId);
+    if (!IMAGE_VIEWS.has(rawImage.view)) throw new Error(`${imageLabel}.view must be front, back, or detail`);
+    if (!Number.isInteger(rawImage.sortOrder) || rawImage.sortOrder < 0) {
+      throw new Error(`${imageLabel}.sortOrder must be a non-negative integer`);
+    }
+    if (sortOrders.has(rawImage.sortOrder)) throw new Error(`${imageLabel}.sortOrder is duplicated`);
+    sortOrders.add(rawImage.sortOrder);
+    if (typeof rawImage.isPrimary !== "boolean") throw new Error(`${imageLabel}.isPrimary must be a boolean`);
+    if (rawImage.isPrimary) {
+      primaryCount += 1;
+      if (rawImage.view !== "front") throw new Error(`${imageLabel} primary image must be the front view`);
+    }
+    if (rawImage.view === "front") frontCount += 1;
+    if (rawImage.view === "back") backCount += 1;
+
+    const source = await resolveReviewedFile(itemsRoot, rawImage.file, `${imageLabel}.file`);
+    const bytes = await validateDetail(source.absolute, `${imageLabel}.file`);
+    const name = path.posix.basename(source.relative);
+    if (outputNames.has(name)) throw new Error(`${label}.images has duplicate output name: ${name}`);
+    outputNames.add(name);
+    images.push({
+      id: imageId,
+      view: rawImage.view,
+      sortOrder: rawImage.sortOrder,
+      isPrimary: rawImage.isPrimary,
+      output: `assets/${id}/images/${name}`,
+      bytes,
+    });
+  }
+  if (primaryCount !== 1) throw new Error(`${label} must have exactly one primary image`);
+  if (frontCount !== 1) throw new Error(`${label} requires exactly one front image`);
+  if (backCount > 1) throw new Error(`${label} may have at most one back image`);
+
+  images.sort((left, right) => left.sortOrder - right.sortOrder || left.output.localeCompare(right.output));
+
+  return {
+    id,
+    assets: [
+      { output: `assets/${id}/wear-layer.png`, bytes: wearBytes },
+      ...images.map((image) => ({ output: image.output, bytes: image.bytes })),
+    ],
+    manifest: {
+      id,
+      name: normalizeText(raw.name, `${label}.name`, 120),
+      category,
+      slot,
+      wearLayerFile: `assets/${id}/wear-layer.png`,
+      images: images.map((image) => ({
+        id: image.id,
+        file: image.output,
+        view: image.view,
+        sortOrder: image.sortOrder,
+        isPrimary: image.isPrimary,
+      })),
       colors: normalizeColors(raw.colors, `${label}.colors`),
       tags: normalizeTags(raw.tags, `${label}.tags`),
       placement: normalizePlacement(raw.placement, `${label}.placement`),
@@ -247,7 +356,7 @@ async function readBundleInput(manifestFile) {
     throw error;
   }
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) throw new Error("Manifest must be an object");
-  if (manifest.version !== 1) throw new Error("Manifest must use version 1");
+  if (manifest.version !== 1 && manifest.version !== 2) throw new Error("Manifest must use version 1 or 2");
   if (!Array.isArray(manifest.items)) throw new Error("Manifest must contain an items array");
   return manifest;
 }
@@ -274,16 +383,12 @@ async function currentBundleMatches(outputDir, manifestText, prepared) {
 
     const expectedFiles = ["manifest.json"];
     for (const item of prepared) {
-      expectedFiles.push(item.manifest.file, ...item.manifest.detailFiles);
-      const cutoutPath = path.join(outputDir, item.manifest.file);
-      const cutoutInfo = await lstat(cutoutPath);
-      if (!cutoutInfo.isFile() || cutoutInfo.isSymbolicLink()) return false;
-      if (!Buffer.from(await readFile(cutoutPath)).equals(item.cutoutBytes)) return false;
-      for (const detail of item.details) {
-        const detailPath = path.join(outputDir, detail.output);
-        const detailInfo = await lstat(detailPath);
-        if (!detailInfo.isFile() || detailInfo.isSymbolicLink()) return false;
-        if (!Buffer.from(await readFile(detailPath)).equals(detail.bytes)) return false;
+      for (const asset of item.assets) {
+        expectedFiles.push(asset.output);
+        const assetPath = path.join(outputDir, asset.output);
+        const assetInfo = await lstat(assetPath);
+        if (!assetInfo.isFile() || assetInfo.isSymbolicLink()) return false;
+        if (!Buffer.from(await readFile(assetPath)).equals(asset.bytes)) return false;
       }
     }
     return JSON.stringify(await listFiles(outputDir)) === JSON.stringify(expectedFiles.sort());
@@ -317,11 +422,9 @@ async function stageBundle(parent, outputName, currentOutput, manifestText, prep
   const staging = await mkdtemp(path.join(parent, `.${outputName}.tmp-`));
   try {
     for (const item of prepared) {
-      const assetDir = path.join(staging, "assets", item.id);
-      await mkdir(path.join(assetDir, "details"), { recursive: true });
-      await writeOrReuseAsset(staging, currentOutput, item.manifest.file, item.cutoutBytes);
-      for (const detail of item.details) {
-        await writeOrReuseAsset(staging, currentOutput, detail.output, detail.bytes);
+      for (const asset of item.assets) {
+        await mkdir(path.dirname(path.join(staging, asset.output)), { recursive: true });
+        await writeOrReuseAsset(staging, currentOutput, asset.output, asset.bytes);
       }
     }
     await writeFile(path.join(staging, "manifest.json"), manifestText);
@@ -374,20 +477,21 @@ export async function prepareImportBundle({ itemsDir, manifestFile, outputDir, d
   }
 
   const input = await readBundleInput(manifestPath);
+  const prepareItem = input.version === 2 ? prepareAcceptedItemV2 : prepareAcceptedItem;
   const prepared = [];
   for (let index = 0; index < input.items.length; index += 1) {
     if (input.items[index]?.status !== "accepted") continue;
-    prepared.push(await prepareAcceptedItem(input.items[index], index, itemsPath));
+    prepared.push(await prepareItem(input.items[index], index, itemsPath));
   }
   prepared.sort((left, right) => left.id.localeCompare(right.id));
 
   const seenIds = new Set();
   for (const item of prepared) {
-    if (seenIds.has(item.id)) throw new Error(`Duplicate accepted cutout content: ${item.id}`);
+    if (seenIds.has(item.id)) throw new Error(`Duplicate accepted item ID: ${item.id}`);
     seenIds.add(item.id);
   }
 
-  const manifest = { version: 1, items: prepared.map((item) => item.manifest) };
+  const manifest = { version: input.version, items: prepared.map((item) => item.manifest) };
   const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
   const changed = !(await currentBundleMatches(outputPath, manifestText, prepared));
   const result = {

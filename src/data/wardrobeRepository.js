@@ -387,7 +387,123 @@ export function createWardrobeRepository(client) {
     }));
   }
 
-  async function importWardrobeItem({ manifestItem, cutoutFile, detailFiles, placement }) {
+  async function importWardrobeItem(request) {
+    if (Array.isArray(request?.manifestItem?.images)) {
+      return importWardrobeItemV2(request);
+    }
+    return importWardrobeItemV1(request);
+  }
+
+  async function importWardrobeItemV2({ manifestItem, cutoutFile, imageFiles, placement }) {
+    const stages = { wearLayer: false, images: false, database: false, all: false };
+    const uploadedPaths = [];
+    try {
+      const ownerId = await authenticatedOwnerId();
+      if (!Array.isArray(imageFiles) || imageFiles.length !== manifestItem.images.length) {
+        throw new Error("Every reviewed product image must have a matching file.");
+      }
+
+      const version = crypto.randomUUID();
+      const wearLayerPath = `${ownerId}/items/${manifestItem.id}/wear-layer/${version}.png`;
+      const images = manifestItem.images.map((image, index) => {
+        const file = imageFiles[index]?.file;
+        const ext = (file?.name?.split(".").at(-1) || "webp").toLowerCase();
+        return {
+          id: image.id,
+          view: image.view,
+          sortOrder: image.sortOrder,
+          isPrimary: image.isPrimary,
+          file,
+          storagePath: `${ownerId}/items/${manifestItem.id}/images/${image.id}-${version}.${ext}`,
+        };
+      });
+
+      const existingResult = await client
+        .from("wardrobe_items")
+        .select("id")
+        .eq("id", manifestItem.id)
+        .eq("owner_id", ownerId)
+        .maybeSingle();
+      if (existingResult.error) throw existingResult.error;
+      const alreadyImported = Boolean(existingResult.data);
+
+      const storage = client.storage.from("wardrobe-assets");
+      dataOrThrow(await storage.upload(wearLayerPath, cutoutFile, {
+        contentType: cutoutFile.type || "image/png",
+        upsert: true,
+      }));
+      uploadedPaths.push(wearLayerPath);
+      stages.wearLayer = true;
+
+      for (const image of images) {
+        dataOrThrow(await storage.upload(image.storagePath, image.file, {
+          contentType: image.file?.type || "application/octet-stream",
+          upsert: true,
+        }));
+        uploadedPaths.push(image.storagePath);
+      }
+      stages.images = true;
+
+      const savedItemId = dataOrThrow(await client.rpc("import_wardrobe_item_v2", {
+        p_item_id: manifestItem.id,
+        p_name: manifestItem.name,
+        p_category: manifestItem.category,
+        p_slot: manifestItem.slot,
+        p_colors: manifestItem.colors,
+        p_tags: manifestItem.tags,
+        p_wear_layer_path: wearLayerPath,
+        p_images: images.map((image) => ({
+          id: image.id,
+          storage_path: image.storagePath,
+          view: image.view,
+          sort_order: image.sortOrder,
+          is_primary: image.isPrimary,
+        })),
+        p_anchor_x: placement.anchorX,
+        p_anchor_y: placement.anchorY,
+        p_scale: placement.scale,
+        p_rotation_degrees: placement.rotationDegrees,
+        p_layer_order: placement.layerOrder,
+      }));
+      stages.database = true;
+
+      const signedAssets = await createSignedAssetUrls([
+        wearLayerPath,
+        ...images.map((image) => image.storagePath),
+      ]);
+      const signedUrlByPath = new Map(
+        signedAssets.map((asset) => [asset.path, asset.signedUrl]),
+      );
+      const signedImages = images.map((image) => ({
+        id: image.id,
+        view: image.view,
+        sortOrder: image.sortOrder,
+        isPrimary: image.isPrimary,
+        url: signedUrlByPath.get(image.storagePath) ?? null,
+      }));
+      const primary = signedImages.find((image) => image.isPrimary) ?? signedImages[0] ?? null;
+      stages.all = true;
+      return {
+        item: { id: savedItemId },
+        alreadyImported,
+        cutoutUrl: signedUrlByPath.get(wearLayerPath) ?? null,
+        images: signedImages,
+        primaryImageUrl: primary?.url ?? signedUrlByPath.get(wearLayerPath) ?? null,
+        stages,
+      };
+    } catch (cause) {
+      // A committed import owns its objects; only clean up when the database never
+      // accepted the upload so a retry starts from a clean slate.
+      if (!stages.database && uploadedPaths.length) {
+        await removeAssets(uploadedPaths);
+      }
+      const error = new Error(cause.message || "The wardrobe item could not be imported.", { cause });
+      error.stages = { ...stages };
+      throw error;
+    }
+  }
+
+  async function importWardrobeItemV1({ manifestItem, cutoutFile, detailFiles, placement }) {
     const stages = { cutout: false, details: false, database: false, all: false };
     try {
       const ownerId = await authenticatedOwnerId();
@@ -480,6 +596,24 @@ export function createWardrobeRepository(client) {
     return paths;
   }
 
+  async function ownerImagePaths(ownerId) {
+    let result;
+    try {
+      result = await client
+        .from("wardrobe_item_images")
+        .select("storage_path")
+        .eq("owner_id", ownerId);
+    } catch (error) {
+      if (isMissingRelationError(error)) return [];
+      throw error;
+    }
+    if (result.error) {
+      if (isMissingRelationError(result.error)) return [];
+      throw result.error;
+    }
+    return (result.data || []).map((row) => row.storage_path).filter(Boolean);
+  }
+
   async function reconcileWardrobeAssets() {
     const ownerId = await authenticatedOwnerId();
     const rows = dataOrThrow(
@@ -488,13 +622,17 @@ export function createWardrobeRepository(client) {
         .select("id, cutout_path, detail_image_paths")
         .eq("owner_id", ownerId),
     ) || [];
+    const imagePaths = await ownerImagePaths(ownerId);
     const storagePaths = new Set(
       await listStorageFiles(client.storage.from("wardrobe-assets"), `${ownerId}/items`),
     );
-    const databasePaths = new Set(rows.flatMap((row) => [
-      row.cutout_path,
-      ...(row.detail_image_paths || []),
-    ]));
+    const databasePaths = new Set([
+      ...rows.flatMap((row) => [
+        row.cutout_path,
+        ...(row.detail_image_paths || []),
+      ]),
+      ...imagePaths,
+    ]);
     return {
       orphanedStoragePaths: [...storagePaths]
         .filter((path) => !databasePaths.has(path))

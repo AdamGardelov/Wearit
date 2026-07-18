@@ -42,6 +42,7 @@ function createClient(
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("createWardrobeRepository", () => {
@@ -195,6 +196,84 @@ describe("createWardrobeRepository", () => {
       p_layer_order: 44,
     });
     expect(result).toMatchObject({ alreadyImported: true, stages: { database: true, all: true } });
+  });
+
+  it("imports a v2 item with a versioned wear layer and structured product images", async () => {
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "ver-1") });
+    const ownerId = "owner-1";
+    const itemId = "96541a13-deb2-51da-bc91-8d0505624551";
+    const frontId = "11111111-1111-4111-8111-111111111111";
+    const wearPath = `${ownerId}/items/${itemId}/wear-layer/ver-1.png`;
+    const frontPath = `${ownerId}/items/${itemId}/images/${frontId}-ver-1.webp`;
+    const existing = {
+      select: vi.fn(() => existing),
+      eq: vi.fn(() => existing),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    };
+    const upload = vi.fn().mockResolvedValue({ data: {}, error: null });
+    const createSignedUrls = vi.fn().mockResolvedValue({
+      data: [
+        { path: wearPath, signedUrl: "https://signed.test/layer" },
+        { path: frontPath, signedUrl: "https://signed.test/front" },
+      ],
+      error: null,
+    });
+    const rpc = vi.fn().mockResolvedValue({ data: itemId, error: null });
+    const client = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: ownerId } }, error: null }) },
+      from: vi.fn(() => existing),
+      rpc,
+      storage: { from: vi.fn(() => ({ upload, createSignedUrls })) },
+    };
+
+    const result = await createWardrobeRepository(client).importWardrobeItem({
+      manifestItem: {
+        version: 2,
+        id: itemId,
+        name: "Disco tee",
+        category: "top",
+        slot: "top",
+        colors: ["#202020"],
+        tags: ["tshirt"],
+        images: [{ id: frontId, view: "front", sortOrder: 0, isPrimary: true }],
+      },
+      cutoutFile: new File(["layer"], "wear-layer.png", { type: "image/png" }),
+      imageFiles: [{
+        id: frontId,
+        view: "front",
+        sortOrder: 0,
+        isPrimary: true,
+        file: new File(["front"], "front.webp", { type: "image/webp" }),
+      }],
+      placement: { anchorX: 0.5, anchorY: 0.34, scale: 0.6, rotationDegrees: 0, layerOrder: 30 },
+    });
+
+    expect(upload).toHaveBeenNthCalledWith(1, wearPath, expect.any(File), {
+      contentType: "image/png",
+      upsert: true,
+    });
+    expect(upload).toHaveBeenNthCalledWith(2, frontPath, expect.any(File), {
+      contentType: "image/webp",
+      upsert: true,
+    });
+    expect(rpc).toHaveBeenCalledWith("import_wardrobe_item_v2", expect.objectContaining({
+      p_item_id: itemId,
+      p_wear_layer_path: wearPath,
+      p_images: [{
+        id: frontId,
+        storage_path: frontPath,
+        view: "front",
+        sort_order: 0,
+        is_primary: true,
+      }],
+      p_layer_order: 30,
+    }));
+    expect(result).toMatchObject({
+      alreadyImported: false,
+      cutoutUrl: "https://signed.test/layer",
+      primaryImageUrl: "https://signed.test/front",
+      stages: { wearLayer: true, images: true, database: true, all: true },
+    });
   });
 
   it("reconciles owner storage objects against database asset paths", async () => {
