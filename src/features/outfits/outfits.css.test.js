@@ -9,10 +9,10 @@ describe("outfit delete control styles", () => {
   it("overrides the generic card button with a transparent 44px corner target", () => {
     const rule = stylesheet.match(/\.outfit-card \.outfit-delete-trigger\s*\{([^}]*)\}/)?.[1] || "";
 
-    expect(rule).toMatch(/width:\s*44px/);
-    expect(rule).toMatch(/height:\s*44px/);
-    expect(rule).toMatch(/min-height:\s*44px/);
-    expect(rule).toMatch(/background:\s*transparent/);
-    expect(rule).toMatch(/padding:\s*0/);
+    expect(rule).toMatch(/(?:^|\n)\s*width:\s*44px\s*;/);
+    expect(rule).toMatch(/(?:^|\n)\s*height:\s*44px\s*;/);
+    expect(rule).toMatch(/(?:^|\n)\s*min-height:\s*44px\s*;/);
+    expect(rule).toMatch(/(?:^|\n)\s*background:\s*transparent\s*;/);
+    expect(rule).toMatch(/(?:^|\n)\s*padding:\s*0\s*;/);
   });
 });
