@@ -157,11 +157,17 @@ button { font: inherit; }
   aspect-ratio: .78;
   display: grid;
   place-items: center;
-  border: 1px solid transparent;
-  padding: 10px;
-  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, .42);
   cursor: zoom-in;
-  transition: border-color 160ms ease;
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.gallery-item:hover {
+  background: rgba(255, 255, 255, .72);
+  box-shadow: 0 10px 30px rgba(25, 24, 22, .06);
 }
 
 .gallery-item img {
