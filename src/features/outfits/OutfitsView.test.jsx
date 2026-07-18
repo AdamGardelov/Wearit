@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { emptyLabelFilter } from "../../domain/labels.js";
 import { SaveOutfitDialog } from "./SaveOutfitDialog.jsx";
 import { OutfitsView } from "./OutfitsView.jsx";
 
@@ -10,6 +12,14 @@ const top = { id: "top-1", name: "Blue top", slot: "top", status: "active", laye
 const bottom = { id: "bottom-1", name: "Black trousers", slot: "bottom", status: "active", layer_order: 30, cutoutUrl: "/bottom.png" };
 const shoes = { id: "shoes-1", name: "White shoes", slot: "shoes", status: "active", layer_order: 10, cutoutUrl: "/shoes.png" };
 const office = { id: "outfit-1", name: "Office day", items: [top, bottom], thumbnailUrl: "/office.webp", needs_attention: false };
+
+const summer = { id: "s-summer", kind: "season", seasonKey: "summer", name: "Summer", locked: true };
+const winter = { id: "s-winter", kind: "season", seasonKey: "winter", name: "Winter", locked: true };
+const rainy = { id: "t-rainy", kind: "theme", seasonKey: null, name: "Rainy day", locked: false };
+const labels = [summer, winter, rainy];
+const topSummerWinter = { ...top, labelIds: ["s-summer", "s-winter"] };
+const bottomSummer = { ...bottom, labelIds: ["s-summer"] };
+const shoesSummer = { ...shoes, labelIds: ["s-summer"] };
 
 function dialogRepository(outfits = []) {
   return {
@@ -61,6 +71,7 @@ describe("SaveOutfitDialog", () => {
       name: "Office renamed",
       items: [bottom, top],
       thumbnailBlob: thumbnail,
+      labelIds: [],
     }));
     expect(renderThumbnail).toHaveBeenCalledWith([bottom, top], "/mannequin-photoreal.png");
   });
@@ -88,6 +99,7 @@ describe("SaveOutfitDialog", () => {
       name: "Office day",
       items: [top, shoes],
       thumbnailBlob: thumbnail,
+      labelIds: [],
     }));
     expect(renderThumbnail).toHaveBeenCalledTimes(1);
   });
@@ -106,6 +118,117 @@ describe("SaveOutfitDialog", () => {
     );
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("suggests the intersection of item labels for a new outfit", async () => {
+    const user = userEvent.setup();
+    const repository = dialogRepository();
+    render(
+      <SaveOutfitDialog
+        items={[topSummerWinter, bottomSummer]}
+        repository={repository}
+        renderThumbnail={vi.fn().mockResolvedValue(new Blob())}
+        labels={labels}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Outfit-namn"), "Sommar");
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Sommar" })).toBeChecked());
+    expect(screen.getByRole("checkbox", { name: "Vinter" })).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Spara outfit" }));
+    await waitFor(() => expect(repository.saveOutfit)
+      .toHaveBeenCalledWith(expect.objectContaining({ labelIds: ["s-summer"] })));
+  });
+
+  it("preserves the exact outfit's saved labels on update", async () => {
+    const user = userEvent.setup();
+    const repository = dialogRepository([{ ...office, labelIds: ["s-winter"] }]);
+    render(
+      <SaveOutfitDialog
+        items={[topSummerWinter, bottomSummer]}
+        repository={repository}
+        renderThumbnail={vi.fn().mockResolvedValue(new Blob())}
+        labels={labels}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+
+    await screen.findByText("Den här kombinationen är redan sparad som Office day.");
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Vinter" })).toBeChecked());
+    expect(screen.getByRole("checkbox", { name: "Sommar" })).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Uppdatera outfit" }));
+    await waitFor(() => expect(repository.saveOutfit)
+      .toHaveBeenCalledWith(expect.objectContaining({ id: "outfit-1", labelIds: ["s-winter"] })));
+  });
+
+  it("uses a fresh intersection for a variation and no source ID", async () => {
+    const user = userEvent.setup();
+    const repository = dialogRepository([]);
+    render(
+      <SaveOutfitDialog
+        items={[topSummerWinter, shoesSummer]}
+        sourceOutfit={{ ...office, labelIds: ["t-rainy"] }}
+        repository={repository}
+        renderThumbnail={vi.fn().mockResolvedValue(new Blob())}
+        labels={labels}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Spara som ny variant" }));
+    await waitFor(() => expect(repository.saveOutfit).toHaveBeenCalled());
+    const call = repository.saveOutfit.mock.calls.at(-1)[0];
+    expect(call.labelIds).toEqual(["s-summer"]);
+    expect(call.id).toBeUndefined();
+  });
+
+  it("sends edited label suggestions unchanged", async () => {
+    const user = userEvent.setup();
+    const repository = dialogRepository();
+    render(
+      <SaveOutfitDialog
+        items={[topSummerWinter, bottomSummer]}
+        repository={repository}
+        renderThumbnail={vi.fn().mockResolvedValue(new Blob())}
+        labels={labels}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Outfit-namn"), "Sommar");
+    await user.click(await screen.findByRole("checkbox", { name: "Vinter" }));
+    await user.click(screen.getByRole("button", { name: "Spara outfit" }));
+
+    await waitFor(() => expect(repository.saveOutfit).toHaveBeenCalled());
+    const call = repository.saveOutfit.mock.calls.at(-1)[0];
+    expect([...call.labelIds].sort()).toEqual(["s-summer", "s-winter"]);
+  });
+
+  it("blocks saving when labels could not be loaded", async () => {
+    const user = userEvent.setup();
+    const repository = dialogRepository();
+    render(
+      <SaveOutfitDialog
+        items={[top, bottom]}
+        repository={repository}
+        renderThumbnail={vi.fn()}
+        labels={[]}
+        labelsError="Etiketter nere."
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Outfit-namn"), "X");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Spara outfit" })).toBeDisabled());
+    expect(screen.getByText("Etiketter nere.")).toBeInTheDocument();
   });
 });
 
@@ -136,5 +259,36 @@ describe("OutfitsView", () => {
     const repository = { listOutfits: vi.fn().mockResolvedValue([]) };
     render(<OutfitsView active={false} repository={repository} onLoad={vi.fn()} />);
     expect(repository.listOutfits).not.toHaveBeenCalled();
+  });
+
+  it("shows labeled and unlabeled outfits under All and filters by their saved labels", async () => {
+    const user = userEvent.setup();
+    const summerLook = { ...office, id: "o-summer", name: "Summer look", thumbnailUrl: "/su.webp", labelIds: ["s-summer"] };
+    const plainLook = { ...office, id: "o-plain", name: "Plain look", thumbnailUrl: "/pl.webp", labelIds: [] };
+    const repository = { listOutfits: vi.fn().mockResolvedValue([summerLook, plainLook]) };
+
+    function Harness() {
+      const [labelFilter, setLabelFilter] = useState(emptyLabelFilter());
+      return (
+        <OutfitsView
+          active
+          repository={repository}
+          onLoad={vi.fn()}
+          labels={labels}
+          labelFilter={labelFilter}
+          onLabelFilterChange={setLabelFilter}
+        />
+      );
+    }
+    render(<Harness />);
+
+    await screen.findByRole("img", { name: "Summer look" });
+    expect(screen.getByRole("img", { name: "Plain look" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("checkbox", { name: "Sommar" }));
+
+    expect(screen.getByRole("img", { name: "Summer look" })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Plain look" })).not.toBeInTheDocument();
   });
 });

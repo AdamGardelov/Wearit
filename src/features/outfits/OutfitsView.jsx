@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SLOT_LABELS } from "../../domain/slots.js";
+import { emptyLabelFilter, matchesLabelFilter } from "../../domain/labels.js";
+import { LabelFilter } from "../labels/LabelFilter.jsx";
 import "./outfits.css";
 
 function archivedItems(outfit) {
@@ -12,10 +14,22 @@ export function OutfitsView({
   refreshKey = 0,
   onLoad,
   onWear,
+  labels = [],
+  labelFilter = emptyLabelFilter(),
+  onLabelFilterChange = () => {},
+  labelsLoading = false,
+  labelsError = "",
+  context = "",
 }) {
   const [outfits, setOutfits] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Saved outfits filter by their own saved labels, never by recomputing item labels.
+  const visibleOutfits = useMemo(
+    () => outfits.filter((outfit) => matchesLabelFilter(outfit, labelFilter)),
+    [outfits, labelFilter],
+  );
 
   useEffect(() => {
     if (!active) return undefined;
@@ -41,6 +55,16 @@ export function OutfitsView({
         <p>Outfits</p>
         <h1>Sparade kombinationer</h1>
         <span>{outfits.length} {outfits.length === 1 ? "look" : "looker"}</span>
+        <LabelFilter
+          labels={labels}
+          value={labelFilter}
+          onChange={onLabelFilterChange}
+          loading={labelsLoading}
+          error={labelsError}
+          visibleCount={visibleOutfits.length}
+          totalCount={outfits.length}
+          context={context}
+        />
       </header>
 
       {error && <p className="outfits-status error" role="alert">{error}</p>}
@@ -48,10 +72,13 @@ export function OutfitsView({
       {!error && !loading && !outfits.length && (
         <p className="outfits-status">Inga sparade outfits än. Skapa en under Styla.</p>
       )}
+      {!error && !loading && !!outfits.length && !visibleOutfits.length && (
+        <p className="outfits-status">Inga outfits matchar filtret.</p>
+      )}
 
-      {!!outfits.length && (
+      {!!visibleOutfits.length && (
         <section className="outfits-grid" aria-label="Sparade outfits">
-          {outfits.map((outfit) => {
+          {visibleOutfits.map((outfit) => {
             const archived = archivedItems(outfit);
             const unavailable = outfit.needs_attention || archived.length > 0;
             return (
