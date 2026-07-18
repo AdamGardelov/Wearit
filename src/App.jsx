@@ -8,6 +8,7 @@ import { HistoryView } from "./features/history/HistoryView.jsx";
 import { WearDialog } from "./features/history/WearDialog.jsx";
 import { OutfitsView } from "./features/outfits/OutfitsView.jsx";
 import { SaveOutfitDialog } from "./features/outfits/SaveOutfitDialog.jsx";
+import { WeekPlanner } from "./features/planner/WeekPlanner.jsx";
 import { WardrobeView } from "./features/wardrobe/WardrobeView.jsx";
 import { supabase } from "./lib/supabase.js";
 
@@ -15,6 +16,7 @@ const SECTIONS = [
   { id: "wardrobe", label: "Garderob" },
   { id: "dress", label: "Dressing room" },
   { id: "outfits", label: "Outfits" },
+  { id: "week", label: "Vecka" },
   { id: "history", label: "Historik" },
 ];
 
@@ -314,6 +316,23 @@ export function App({ repository: injectedRepository }) {
           </div>
         )}
       </section>
+      <section className="app-section" hidden={section !== "week"}>
+        {typeof repository.listWeeklyPlan === "function" ? (
+          <WeekPlanner
+            repository={repository}
+            active={section === "week"}
+            onLoad={loadOutfit}
+            onWear={(selection, outfit) => requestWear(selection, outfit)}
+            context="Vecka"
+            {...advancedFilterProps}
+          />
+        ) : (
+          <div className="placeholder-section">
+            <p>Vecka</p>
+            <h1>Veckoplaneraren är inte tillgänglig än.</h1>
+          </div>
+        )}
+      </section>
       <section className="app-section" hidden={section !== "history"}>
         {typeof repository.listWearHistory === "function" ? (
           <HistoryView
@@ -398,6 +417,9 @@ export function App({ repository: injectedRepository }) {
               // The immutable event is saved; a later navigation will retry the refresh.
             }
             setHistoryRefreshKey((current) => current + 1);
+            // Refresh Outfits too so outfit last-worn sorting immediately reflects a planner or
+            // Outfits wear action.
+            setOutfitsRefreshKey((current) => current + 1);
             setActionStatus("Användning registrerad.");
           }}
         />

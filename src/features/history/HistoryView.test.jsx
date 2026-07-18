@@ -186,6 +186,17 @@ describe("HistoryView", () => {
   });
 });
 
+describe("primary navigation", () => {
+  it("exposes exactly five destinations including Vecka between Outfits and Historik", async () => {
+    render(<App repository={appRepository()} />);
+    await screen.findByRole("button", { name: "Visa Blue top" });
+
+    const nav = screen.getByRole("navigation", { name: "Primär" });
+    const destinations = within(nav).getAllByRole("button").map((button) => button.textContent);
+    expect(destinations).toEqual(["Garderob", "Dressing room", "Outfits", "Vecka", "Historik"]);
+  });
+});
+
 describe("wear entry points", () => {
   it("marks one garment worn from its editor", async () => {
     const user = userEvent.setup();
