@@ -129,6 +129,16 @@ button { font: inherit; }
   box-shadow: inset 0 0 0 1px var(--ink);
 }
 
+.category-count {
+  margin-left: 6px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.category-nav button.active .category-count,
+.category-nav button:hover .category-count,
+.category-nav button:focus-visible .category-count { color: inherit; opacity: .7; }
+
 .category-nav button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

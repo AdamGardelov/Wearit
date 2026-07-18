@@ -88,6 +88,14 @@ export function WardrobeView({
     () => new Set(items.map((item) => item.category)),
     [items],
   );
+  // Total garments per category from the complete list; "all" counts everything. Counts are
+  // supplementary and aria-hidden so they never enter the button's accessible name.
+  const categoryCounts = useMemo(() => {
+    const counts = new Map();
+    for (const item of items) counts.set(item.category, (counts.get(item.category) ?? 0) + 1);
+    return counts;
+  }, [items]);
+  const categoryCount = (categoryId) => (categoryId === "all" ? items.length : categoryCounts.get(categoryId) ?? 0);
   // Only offer categories that actually hold garments; "all" is always present.
   const visibleCategories = useMemo(
     () => CATEGORIES.filter((category) => category.id === "all" || availableCategoryIds.has(category.id)),
@@ -210,6 +218,7 @@ export function WardrobeView({
                   aria-pressed={activeCategory === category.id}
                 >
                   {category.label}
+                  <span className="category-count" aria-hidden="true">{categoryCount(category.id)}</span>
                 </button>
               ))}
             </nav>
