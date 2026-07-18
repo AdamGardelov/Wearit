@@ -42,20 +42,20 @@ it("restores outfit A provenance when Undo crosses the later outfit B load", asy
   };
   render(<App repository={repository} />);
 
-  await screen.findByRole("button", { name: "View A top" });
+  await screen.findByRole("button", { name: "Visa A top" });
   await user.click(screen.getByRole("button", { name: "Outfits" }));
-  await user.click(await screen.findByRole("button", { name: "Load Outfit A" }));
+  await user.click(await screen.findByRole("button", { name: "Ladda Outfit A" }));
   await user.click(screen.getByRole("button", { name: "Outfits" }));
-  await user.click(await screen.findByRole("button", { name: "Load Outfit B" }));
+  await user.click(await screen.findByRole("button", { name: "Ladda Outfit B" }));
 
-  await user.click(screen.getByRole("button", { name: "Undo" }));
+  await user.click(screen.getByRole("button", { name: "Ångra" }));
   expect(screen.getByRole("img", { name: "A top" })).toBeInTheDocument();
   expect(screen.queryByRole("img", { name: "B dress" })).not.toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: "Select Shoes" }));
-  await user.click(screen.getByRole("button", { name: "Save outfit" }));
+  await user.click(screen.getByRole("button", { name: "Välj Shoes" }));
+  await user.click(screen.getByRole("button", { name: "Spara outfit" }));
 
-  expect(await screen.findByLabelText("Outfit name")).toHaveValue("Outfit A");
-  expect(screen.getByRole("button", { name: "Update outfit" })).toBeEnabled();
-  expect(screen.getByRole("button", { name: "Save as new variation" })).toBeEnabled();
+  expect(await screen.findByLabelText("Outfit-namn")).toHaveValue("Outfit A");
+  expect(screen.getByRole("button", { name: "Uppdatera outfit" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Spara som ny variant" })).toBeEnabled();
 });

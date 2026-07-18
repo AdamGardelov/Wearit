@@ -4,10 +4,10 @@ import { parseImportBundle } from "./importBundle.js";
 import "./admin.css";
 
 function statusLabel(status) {
-  if (status === "imported") return "Imported";
-  if (status === "already-imported") return "Already imported";
-  if (status === "uploading") return "Uploading…";
-  return "Ready for review";
+  if (status === "imported") return "Importerad";
+  if (status === "already-imported") return "Redan importerad";
+  if (status === "uploading") return "Laddar upp…";
+  return "Redo för granskning";
 }
 
 export function ImportAdminView({ repository, onClose, onImported }) {
@@ -53,7 +53,7 @@ export function ImportAdminView({ repository, onClose, onImported }) {
       bundleRef.current = null;
       setDrafts([]);
       setCurrentId(null);
-      setBundleError(error.message || "The bundle could not be opened.");
+      setBundleError(error.message || "Paketet kunde inte öppnas.");
     }
   };
 
@@ -89,7 +89,7 @@ export function ImportAdminView({ repository, onClose, onImported }) {
       setDrafts((existing) => existing.map((draft) => (
         draft.manifestItem.id === itemId ? { ...draft, importStatus: "failed" } : draft
       )));
-      setImportError(error.message || "The upload was interrupted. Try again.");
+      setImportError(error.message || "Uppladdningen avbröts. Försök igen.");
     }
   };
 
@@ -100,7 +100,7 @@ export function ImportAdminView({ repository, onClose, onImported }) {
     try {
       setReconciliation(await repository.reconcileWardrobeAssets());
     } catch (error) {
-      setReconciliationError(error.message || "Storage could not be checked.");
+      setReconciliationError(error.message || "Lagringen kunde inte kontrolleras.");
     } finally {
       setCheckingStorage(false);
     }
@@ -114,7 +114,7 @@ export function ImportAdminView({ repository, onClose, onImported }) {
       setConfirmCleanup(false);
       await checkStorage();
     } catch (error) {
-      setReconciliationError(error.message || "Orphaned assets could not be deleted.");
+      setReconciliationError(error.message || "Föräldralösa filer kunde inte raderas.");
     }
   };
 
@@ -122,17 +122,17 @@ export function ImportAdminView({ repository, onClose, onImported }) {
     <main className="import-admin">
       <header className="import-admin-header">
         <div>
-          <p>Private admin</p>
-          <h1>Import reviewed clothes</h1>
-          <p>Choose a Codex-prepared bundle, align each cutout, then approve it.</p>
+          <p>Privat admin</p>
+          <h1>Importera granskade plagg</h1>
+          <p>Välj ett Codex-förberett paket, justera varje urklipp och godkänn det.</p>
         </div>
-        {onClose && <button type="button" className="text-action" onClick={onClose}>Close</button>}
+        {onClose && <button type="button" className="text-action" onClick={onClose}>Stäng</button>}
       </header>
 
       <section className="import-bundle-picker" aria-labelledby="bundle-heading">
-        <h2 id="bundle-heading">Review bundle</h2>
+        <h2 id="bundle-heading">Granska paket</h2>
         <label className="bundle-file-label">
-          <span>Choose import bundle</span>
+          <span>Välj importpaket</span>
           <input
             type="file"
             multiple
@@ -141,13 +141,13 @@ export function ImportAdminView({ repository, onClose, onImported }) {
             onChange={chooseBundle}
           />
         </label>
-        <p>Only approved cutouts and referenced detail derivatives are accepted. Raw photos stay local.</p>
+        <p>Endast godkända urklipp och refererade detaljbilder accepteras. Råa foton stannar lokalt.</p>
         {bundleError && <p role="alert" className="admin-error">{bundleError}</p>}
       </section>
 
       {drafts.length > 0 && (
         <div className="import-review-layout">
-          <nav className="review-card-list" aria-label="Bundle items">
+          <nav className="review-card-list" aria-label="Paketets plagg">
             {drafts.map((draft, index) => (
               <button
                 type="button"
@@ -157,7 +157,7 @@ export function ImportAdminView({ repository, onClose, onImported }) {
                   setCurrentId(draft.manifestItem.id);
                   setImportError("");
                 }}
-                aria-label={`Review ${draft.manifestItem.name}`}
+                aria-label={`Granska ${draft.manifestItem.name}`}
               >
                 <span>{index + 1}. {draft.manifestItem.name}</span>
                 <small>{statusLabel(draft.importStatus)}</small>
@@ -186,7 +186,7 @@ export function ImportAdminView({ repository, onClose, onImported }) {
                   || current.importStatus === "already-imported"}
                 onClick={approveCurrent}
               >
-                {current.importStatus === "failed" ? "Retry upload" : "Approve and upload"}
+                {current.importStatus === "failed" ? "Försök igen" : "Godkänn och ladda upp"}
               </button>
             </article>
           )}
@@ -195,39 +195,39 @@ export function ImportAdminView({ repository, onClose, onImported }) {
 
       <section className="reconciliation-panel" aria-labelledby="storage-heading">
         <div>
-          <h2 id="storage-heading">Storage check</h2>
-          <p>Compare private uploaded assets with wardrobe records.</p>
+          <h2 id="storage-heading">Lagringskontroll</h2>
+          <p>Jämför privat uppladdade filer med garderobsposter.</p>
         </div>
         <button type="button" className="text-action" disabled={checkingStorage} onClick={checkStorage}>
-          {checkingStorage ? "Checking…" : "Check storage"}
+          {checkingStorage ? "Kontrollerar…" : "Kontrollera lagring"}
         </button>
         {reconciliationError && <p role="alert" className="admin-error">{reconciliationError}</p>}
         {reconciliation && (
           <div className="reconciliation-results">
             <div>
-              <h3>Orphaned storage paths</h3>
+              <h3>Föräldralösa lagringssökvägar</h3>
               {reconciliation.orphanedStoragePaths.length ? (
                 <ul>{reconciliation.orphanedStoragePaths.map((path) => <li key={path}>{path}</li>)}</ul>
-              ) : <p>None</p>}
+              ) : <p>Inga</p>}
             </div>
             <div>
-              <h3>Items missing assets</h3>
+              <h3>Plagg som saknar filer</h3>
               {reconciliation.missingStorageItemIds.length ? (
                 <ul>{reconciliation.missingStorageItemIds.map((id) => <li key={id}>{id}</li>)}</ul>
-              ) : <p>None</p>}
+              ) : <p>Inga</p>}
             </div>
             {reconciliation.orphanedStoragePaths.length > 0 && !confirmCleanup && (
               <button type="button" className="danger-action" onClick={() => setConfirmCleanup(true)}>
-                Clean up orphaned assets
+                Rensa föräldralösa filer
               </button>
             )}
             {confirmCleanup && (
-              <div className="cleanup-confirmation" role="group" aria-label="Confirm orphan cleanup">
-                <p>This permanently deletes only the exact paths listed above.</p>
+              <div className="cleanup-confirmation" role="group" aria-label="Bekräfta rensning">
+                <p>Detta raderar permanent endast de exakta sökvägar som listas ovan.</p>
                 <button type="button" className="danger-action" onClick={deleteConfirmedOrphans}>
-                  Confirm delete {reconciliation.orphanedStoragePaths.length} {reconciliation.orphanedStoragePaths.length === 1 ? "asset" : "assets"}
+                  Bekräfta radering av {reconciliation.orphanedStoragePaths.length} {reconciliation.orphanedStoragePaths.length === 1 ? "fil" : "filer"}
                 </button>
-                <button type="button" className="text-action" onClick={() => setConfirmCleanup(false)}>Cancel</button>
+                <button type="button" className="text-action" onClick={() => setConfirmCleanup(false)}>Avbryt</button>
               </div>
             )}
           </div>

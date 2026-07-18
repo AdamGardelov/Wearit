@@ -9,7 +9,7 @@ import { GarmentTray } from "./GarmentTray.jsx";
 import { MannequinCanvas } from "./MannequinCanvas.jsx";
 
 function garmentName(item) {
-  return item.name || "Unnamed garment";
+  return item.name || "Namnlöst plagg";
 }
 
 export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, onSave, onWear }) {
@@ -62,26 +62,26 @@ export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, 
 
   return (
     <main className="dressing-room">
-      <section className="dress-canvas-pane" aria-label="Dressing room">
+      <section className="dress-canvas-pane" aria-label="Provrum">
         <div className="dress-heading">
-          <p>Dress</p>
-          <span>{selection.length} selected</span>
+          <p>Styla</p>
+          <span>{selection.length} valda</span>
         </div>
         <MannequinCanvas items={selection} />
-        <div className="composition-controls" aria-label="Composition controls">
+        <div className="composition-controls" aria-label="Kompositionskontroller">
           <button
             type="button"
             onClick={undo}
             disabled={!reconciledState.history.length}
           >
-            Undo
+            Ångra
           </button>
           <button
             type="button"
             onClick={() => dispatch({ type: "clear" })}
             disabled={!selection.length}
           >
-            Clear
+            Rensa
           </button>
         </div>
         <div className="outfit-actions">
@@ -90,21 +90,21 @@ export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, 
             onClick={() => onSave?.(selectedItems(reconciledState))}
             disabled={selection.length < 2}
           >
-            Save outfit
+            Spara outfit
           </button>
           <button
             type="button"
             onClick={() => onWear?.(selectedItems(reconciledState))}
             disabled={!selection.length}
           >
-            Wear outfit
+            Bär outfit
           </button>
         </div>
       </section>
 
-      <aside className="selected-summary" aria-label="Layers">
-        <p className="summary-kicker">Current look</p>
-        <h2>Layers</h2>
+      <aside className="selected-summary" aria-label="Lager">
+        <p className="summary-kicker">Aktuell look</p>
+        <h2>Lager</h2>
         {layerRows.length ? (
           <ol className="layer-list">
             {layerRows.map((item, index) => {
@@ -120,8 +120,8 @@ export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, 
                       className="layer-move"
                       onClick={() => moveLayer(item, "forward")}
                       disabled={isFront}
-                      aria-label={`Move ${name} forward`}
-                      title="Move forward"
+                      aria-label={`Flytta ${name} framåt`}
+                      title="Flytta framåt"
                     >
                       <ArrowLineUp size={18} weight="bold" aria-hidden="true" />
                     </button>
@@ -130,8 +130,8 @@ export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, 
                       className="layer-move"
                       onClick={() => moveLayer(item, "backward")}
                       disabled={isBack}
-                      aria-label={`Move ${name} backward`}
-                      title="Move backward"
+                      aria-label={`Flytta ${name} bakåt`}
+                      title="Flytta bakåt"
                     >
                       <ArrowLineDown size={18} weight="bold" aria-hidden="true" />
                     </button>
@@ -141,7 +141,7 @@ export function DressingRoom({ items, loadRequest = null, onLoadedOutfitChange, 
             })}
           </ol>
         ) : (
-          <p className="summary-empty">Choose pieces from the tray to build an outfit.</p>
+          <p className="summary-empty">Välj plagg från lådan för att bygga en outfit.</p>
         )}
       </aside>
 

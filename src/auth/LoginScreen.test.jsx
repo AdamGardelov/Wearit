@@ -18,8 +18,8 @@ describe("LoginScreen", () => {
 
     render(<LoginScreen client={createClient(signInWithOtp)} />);
 
-    await user.type(screen.getByLabelText("Email"), "  wife@example.com  ");
-    await user.click(screen.getByRole("button", { name: "Email me a sign-in link" }));
+    await user.type(screen.getByLabelText("E-post"), "  wife@example.com  ");
+    await user.click(screen.getByRole("button", { name: "Skicka inloggningslänk" }));
 
     expect(signInWithOtp).toHaveBeenCalledWith({
       email: "wife@example.com",
@@ -29,7 +29,7 @@ describe("LoginScreen", () => {
       },
     });
     expect(
-      await screen.findByText("Check your email for the private sign-in link."),
+      await screen.findByText("Kolla din e-post för inloggningslänken."),
     ).toBeInTheDocument();
   });
 
@@ -41,8 +41,8 @@ describe("LoginScreen", () => {
 
     render(<LoginScreen client={createClient(signInWithOtp)} />);
 
-    await user.type(screen.getByLabelText("Email"), "wife@example.com");
-    const submitButton = screen.getByRole("button", { name: "Email me a sign-in link" });
+    await user.type(screen.getByLabelText("E-post"), "wife@example.com");
+    const submitButton = screen.getByRole("button", { name: "Skicka inloggningslänk" });
     await user.click(submitButton);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -57,8 +57,8 @@ describe("LoginScreen", () => {
 
     render(<LoginScreen client={createClient(signInWithOtp)} />);
 
-    await user.type(screen.getByLabelText("Email"), "wife@example.com");
-    const submitButton = screen.getByRole("button", { name: "Email me a sign-in link" });
+    await user.type(screen.getByLabelText("E-post"), "wife@example.com");
+    const submitButton = screen.getByRole("button", { name: "Skicka inloggningslänk" });
     await user.click(submitButton);
 
     expect(submitButton).toBeDisabled();

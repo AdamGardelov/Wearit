@@ -24,7 +24,7 @@ export function HistoryView({ repository, active = true, refreshKey = 0 }) {
         if (mounted) setEvents(loaded);
       })
       .catch((loadError) => {
-        if (mounted) setError(loadError.message || "Could not load wear history.");
+        if (mounted) setError(loadError.message || "Kunde inte ladda historiken.");
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -42,17 +42,17 @@ export function HistoryView({ repository, active = true, refreshKey = 0 }) {
   return (
     <main className="history-view" aria-busy={loading}>
       <header className="history-header">
-        <p>History</p>
-        <h1>What you wore</h1>
-        <span>{orderedEvents.length} {orderedEvents.length === 1 ? "wear" : "wears"}</span>
+        <p>Historik</p>
+        <h1>Vad du burit</h1>
+        <span>{orderedEvents.length} {orderedEvents.length === 1 ? "gång" : "gånger"}</span>
       </header>
       {error && <p className="history-status error" role="alert">{error}</p>}
-      {!error && loading && <p className="history-status">Loading history</p>}
+      {!error && loading && <p className="history-status">Laddar historik</p>}
       {!error && !loading && !orderedEvents.length && (
-        <p className="history-status">No wear history yet.</p>
+        <p className="history-status">Ingen historik än.</p>
       )}
       {!!orderedEvents.length && (
-        <section className="history-list" aria-label="Wear history">
+        <section className="history-list" aria-label="Historik">
           {orderedEvents.map((event) => (
             <article className="history-entry" key={event.id}>
               <div className="history-date">
@@ -60,12 +60,12 @@ export function HistoryView({ repository, active = true, refreshKey = 0 }) {
                 {event.outfit?.name && <span>{event.outfit.name}</span>}
               </div>
               <div className="history-copy">
-                <h2>{event.items.length} {event.items.length === 1 ? "piece" : "pieces"}</h2>
+                <h2>{event.items.length} plagg</h2>
                 <ul>
                   {event.items.map((item) => (
                     <li key={item.id || item.wardrobe_item_id}>
-                      <span>{item.name || "Unnamed garment"}</span>
-                      {item.status === "archived" && <small>Archived</small>}
+                      <span>{item.name || "Namnlöst plagg"}</span>
+                      {item.status === "archived" && <small>Arkiverat</small>}
                     </li>
                   ))}
                 </ul>

@@ -143,7 +143,7 @@ export function App({ repository: injectedRepository }) {
       sourceOutfit: outfit,
     }));
     setSection("dress");
-    setActionStatus(`Loaded ${outfit.name}.`);
+    setActionStatus(`Laddade ${outfit.name}.`);
   };
 
   const requestWear = (selection, sourceOutfit = null) => {
@@ -197,7 +197,7 @@ export function App({ repository: injectedRepository }) {
         ) : (
           <div className="placeholder-section">
             <p>Outfits</p>
-            <h1>Saved outfits are not available yet.</h1>
+            <h1>Sparade outfits är inte tillgängliga än.</h1>
           </div>
         )}
       </section>
@@ -210,8 +210,8 @@ export function App({ repository: injectedRepository }) {
           />
         ) : (
           <div className="placeholder-section">
-            <p>History</p>
-            <h1>Wear history is not available yet.</h1>
+            <p>Historik</p>
+            <h1>Historiken är inte tillgänglig än.</h1>
           </div>
         )}
       </section>
@@ -233,11 +233,11 @@ export function App({ repository: injectedRepository }) {
 
       {section !== "admin" && typeof repository.importWardrobeItem === "function" && (
         <button type="button" className="admin-launch" onClick={() => setSection("admin")}>
-          Import wardrobe
+          Importera garderob
         </button>
       )}
 
-      <nav className="bottom-nav" aria-label="Primary">
+      <nav className="bottom-nav" aria-label="Primär">
         {SECTIONS.map((entry) => {
           const active = section === entry.id;
           return (
@@ -263,7 +263,7 @@ export function App({ repository: injectedRepository }) {
           onSaved={(savedOutfit) => {
             setLoadedOutfit(savedOutfit);
             setOutfitsRefreshKey((current) => current + 1);
-            setActionStatus(`Saved ${savedOutfit.name}.`);
+            setActionStatus(`Sparade ${savedOutfit.name}.`);
           }}
         />
       )}
@@ -281,7 +281,7 @@ export function App({ repository: injectedRepository }) {
               // The immutable event is saved; a later navigation will retry the refresh.
             }
             setHistoryRefreshKey((current) => current + 1);
-            setActionStatus("Wear recorded.");
+            setActionStatus("Användning registrerad.");
           }}
         />
       )}

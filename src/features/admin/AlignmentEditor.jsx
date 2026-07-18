@@ -1,11 +1,11 @@
 import { MannequinCanvas } from "../dress/MannequinCanvas.jsx";
 
 const CONTROLS = [
-  { key: "anchorX", label: "Anchor X", min: 0, max: 1, step: 0.01 },
-  { key: "anchorY", label: "Anchor Y", min: 0, max: 1, step: 0.01 },
-  { key: "scale", label: "Scale", min: 0.05, max: 2, step: 0.01 },
+  { key: "anchorX", label: "Ankare X", min: 0, max: 1, step: 0.01 },
+  { key: "anchorY", label: "Ankare Y", min: 0, max: 1, step: 0.01 },
+  { key: "scale", label: "Skala", min: 0.05, max: 2, step: 0.01 },
   { key: "rotationDegrees", label: "Rotation", min: -180, max: 180, step: 1 },
-  { key: "layerOrder", label: "Layer order", min: 0, max: 100, step: 1 },
+  { key: "layerOrder", label: "Lagerordning", min: 0, max: 100, step: 1 },
 ];
 
 export function AlignmentEditor({ draft, onChange }) {
@@ -26,7 +26,7 @@ export function AlignmentEditor({ draft, onChange }) {
         <MannequinCanvas items={[previewItem]} />
       </div>
       <fieldset className="alignment-controls">
-        <legend>Placement</legend>
+        <legend>Placering</legend>
         {CONTROLS.map((control) => (
           <label key={control.key}>
             <span>{control.label}</span>

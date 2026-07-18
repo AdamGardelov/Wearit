@@ -11,7 +11,7 @@ describe("validateOutfit", () => {
   it("requires at least two items", () => {
     expect(validateOutfit([{ id: "a", slot: "top" }])).toEqual({
       valid: false,
-      message: "Choose at least two items.",
+      message: "Välj minst två plagg.",
     });
   });
 
@@ -28,7 +28,7 @@ describe("validateOutfit", () => {
       { id: "same", slot: "bottom" },
     ])).toEqual({
       valid: false,
-      message: "Choose each item only once.",
+      message: "Välj varje plagg endast en gång.",
     });
   });
 
@@ -38,7 +38,7 @@ describe("validateOutfit", () => {
       { id: "b", slot: "top" },
     ])).toEqual({
       valid: false,
-      message: "Choose only one item for each slot.",
+      message: "Välj bara ett plagg per plats.",
     });
   });
 
@@ -48,7 +48,7 @@ describe("validateOutfit", () => {
       { id: "top", slot: "top" },
     ])).toEqual({
       valid: false,
-      message: "A dress cannot be combined with a top or bottom.",
+      message: "En klänning kan inte kombineras med en över- eller underdel.",
     });
   });
 });

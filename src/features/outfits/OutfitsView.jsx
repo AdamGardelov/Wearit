@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SLOT_LABELS } from "../../domain/slots.js";
 import "./outfits.css";
 
 function archivedItems(outfit) {
@@ -26,7 +27,7 @@ export function OutfitsView({
         if (mounted) setOutfits(loaded);
       })
       .catch((loadError) => {
-        if (mounted) setError(loadError.message || "Could not load saved outfits.");
+        if (mounted) setError(loadError.message || "Kunde inte ladda sparade outfits.");
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -38,18 +39,18 @@ export function OutfitsView({
     <main className="outfits-view" aria-busy={loading}>
       <header className="outfits-header">
         <p>Outfits</p>
-        <h1>Saved combinations</h1>
-        <span>{outfits.length} {outfits.length === 1 ? "look" : "looks"}</span>
+        <h1>Sparade kombinationer</h1>
+        <span>{outfits.length} {outfits.length === 1 ? "look" : "looker"}</span>
       </header>
 
       {error && <p className="outfits-status error" role="alert">{error}</p>}
-      {!error && loading && <p className="outfits-status">Loading outfits</p>}
+      {!error && loading && <p className="outfits-status">Laddar outfits</p>}
       {!error && !loading && !outfits.length && (
-        <p className="outfits-status">No saved outfits yet. Build one in Dress.</p>
+        <p className="outfits-status">Inga sparade outfits än. Skapa en under Styla.</p>
       )}
 
       {!!outfits.length && (
-        <section className="outfits-grid" aria-label="Saved outfits">
+        <section className="outfits-grid" aria-label="Sparade outfits">
           {outfits.map((outfit) => {
             const archived = archivedItems(outfit);
             const unavailable = outfit.needs_attention || archived.length > 0;
@@ -59,26 +60,29 @@ export function OutfitsView({
                   {outfit.thumbnailUrl ? (
                     <img src={outfit.thumbnailUrl} alt={outfit.name} />
                   ) : (
-                    <span aria-hidden="true">No preview</span>
+                    <span aria-hidden="true">Ingen förhandsvisning</span>
                   )}
                 </div>
                 <div className="outfit-card-copy">
                   <h2>{outfit.name}</h2>
-                  <p>{outfit.items.length} pieces</p>
-                  {archived.map((item) => (
-                    <div className="outfit-attention" role="status" key={item.id}>
-                      <span>Archived garment: {item.name || "Unnamed garment"}</span>
-                      <strong>Missing {item.saved_slot || item.slot}</strong>
-                    </div>
-                  ))}
+                  <p>{outfit.items.length} plagg</p>
+                  {archived.map((item) => {
+                    const slot = item.saved_slot || item.slot;
+                    return (
+                      <div className="outfit-attention" role="status" key={item.id}>
+                        <span>Arkiverat plagg: {item.name || "Namnlöst plagg"}</span>
+                        <strong>Saknar {SLOT_LABELS[slot] || slot}</strong>
+                      </div>
+                    );
+                  })}
                   <div className="outfit-card-actions">
                     <button
                       type="button"
                       onClick={() => onLoad(outfit.items, outfit)}
                       disabled={unavailable}
-                      aria-label={`Load ${outfit.name}`}
+                      aria-label={`Ladda ${outfit.name}`}
                     >
-                      Load outfit
+                      Ladda outfit
                     </button>
                     {onWear && (
                       <button
@@ -86,9 +90,9 @@ export function OutfitsView({
                         className="outfit-wear-action"
                         onClick={() => onWear(outfit.items, outfit)}
                         disabled={unavailable}
-                        aria-label={`Wear ${outfit.name}`}
+                        aria-label={`Bär ${outfit.name}`}
                       >
-                        Wear outfit
+                        Bär outfit
                       </button>
                     )}
                   </div>

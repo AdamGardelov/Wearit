@@ -222,7 +222,7 @@ export function ItemEditorDialog({
       });
       onClose();
     } catch (saveError) {
-      setError(saveError.message || "Could not save this item.");
+      setError(saveError.message || "Kunde inte spara plagget.");
     } finally {
       setBusyAction(null);
     }
@@ -234,7 +234,7 @@ export function ItemEditorDialog({
     try {
       await onArchive(item.id);
     } catch {
-      setError("Changes were not saved. Try again.");
+      setError("Ändringarna sparades inte. Försök igen.");
     } finally {
       setBusyAction(null);
     }
@@ -248,7 +248,7 @@ export function ItemEditorDialog({
           className="viewer editing"
           role="dialog"
           aria-modal="true"
-          aria-label={`Edit ${item.name || "wardrobe item"}`}
+          aria-label={`Redigera ${item.name || "garderobsplagg"}`}
           tabIndex={-1}
           onKeyDown={handleKeyDown}
         >
@@ -256,14 +256,14 @@ export function ItemEditorDialog({
             className="viewer-icon-close"
             type="button"
             onClick={onClose}
-            aria-label="Close editor"
+            aria-label="Stäng redigering"
             disabled={Boolean(busyAction)}
           >
             <X size={24} weight="light" aria-hidden="true" />
           </button>
 
           <div className="viewer-heading">
-            <h2>{draft.name || "Wardrobe item"}</h2>
+            <h2>{draft.name || "Garderobsplagg"}</h2>
           </div>
           <div className="item-gallery">
             {activeImage ? (
@@ -271,13 +271,13 @@ export function ItemEditorDialog({
                 type="button"
                 className="gallery-active"
                 onClick={() => setLightboxOpen(true)}
-                aria-label={`Zoom ${item.name || "wardrobe item"}${
+                aria-label={`Zooma ${item.name || "garderobsplagg"}${
                   activeImage.view ? `, ${viewLabel(activeImage.view)}` : ""
                 }`}
               >
                 <OptimizedImage
                   src={activeImage.url}
-                  alt={item.name || "Wardrobe item"}
+                  alt={item.name || "Garderobsplagg"}
                   sizes="(max-width: 520px) 70vw, 300px"
                   breakpoints={[160, 240, 320, 480, 640]}
                   priority
@@ -297,17 +297,17 @@ export function ItemEditorDialog({
                 )}
               </button>
             ) : (
-              <div className="gallery-empty" aria-hidden="true">No image</div>
+              <div className="gallery-empty" aria-hidden="true">Ingen bild</div>
             )}
             {hasMultiple && (
-              <div className="gallery-thumbs" role="group" aria-label="Product images">
+              <div className="gallery-thumbs" role="group" aria-label="Produktbilder">
                 {galleryImages.map((image, index) => (
                   <button
                     key={image.id}
                     type="button"
                     className={`gallery-thumb${index === safeIndex ? " active" : ""}`}
                     onClick={() => setActiveIndex(index)}
-                    aria-label={`Show ${viewLabel(image.view) || "product"} image ${index + 1}`}
+                    aria-label={`Visa ${viewLabel(image.view) || "produkt"}bild ${index + 1}`}
                     aria-pressed={index === safeIndex}
                   >
                     <OptimizedImage
@@ -324,26 +324,26 @@ export function ItemEditorDialog({
 
           <form className="viewer-details editing" onSubmit={save}>
             <p className="item-last-worn">
-              Last worn: {item.last_worn_at
+              Senast buren: {item.last_worn_at
                 ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium" })
                   .format(new Date(item.last_worn_at))
-                : "Never"}
+                : "Aldrig"}
             </p>
             <div className="item-editor">
               <label className="field">
-                <span>Name</span>
+                <span>Namn</span>
                 <input
                   ref={nameInputRef}
-                  aria-label="Name"
+                  aria-label="Namn"
                   value={draft.name}
                   onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
                   required
                 />
               </label>
               <label className="field">
-                <span>Category</span>
+                <span>Kategori</span>
                 <select
-                  aria-label="Category"
+                  aria-label="Kategori"
                   value={draft.category}
                   onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value }))}
                 >
@@ -353,60 +353,60 @@ export function ItemEditorDialog({
                 </select>
               </label>
               <label className="field">
-                <span>Brand</span>
+                <span>Märke</span>
                 <input
-                  aria-label="Brand"
+                  aria-label="Märke"
                   value={draft.brand}
                   onChange={(event) => setDraft((current) => ({ ...current, brand: event.target.value }))}
                 />
               </label>
               <label className="field">
-                <span>Size</span>
+                <span>Storlek</span>
                 <input
-                  aria-label="Size"
+                  aria-label="Storlek"
                   value={draft.size}
                   onChange={(event) => setDraft((current) => ({ ...current, size: event.target.value }))}
                 />
               </label>
               <label className="field details-field">
-                <span>Notes</span>
+                <span>Anteckningar</span>
                 <textarea
-                  aria-label="Notes"
+                  aria-label="Anteckningar"
                   rows="3"
                   value={draft.notes}
                   onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
                 />
               </label>
               <label className="field details-field">
-                <span>Colors</span>
+                <span>Färger</span>
                 <input
-                  aria-label="Colors"
+                  aria-label="Färger"
                   value={colorsText}
                   onChange={(event) => setColorsText(event.target.value)}
                   placeholder="#112233, #445566"
                 />
               </label>
               {!!palette.length && (
-                <div className="palette details-field" aria-label="Color suggestions from image">
+                <div className="palette details-field" aria-label="Färgförslag från bild">
                   {palette.map((color) => (
                     <button
                       type="button"
                       key={color}
                       style={{ backgroundColor: color }}
                       onClick={() => addPaletteColor(color)}
-                      aria-label={`Add ${color} to colors`}
+                      aria-label={`Lägg till ${color} i färger`}
                       title={color}
                     />
                   ))}
                 </div>
               )}
               <label className="field details-field">
-                <span>Tags</span>
+                <span>Taggar</span>
                 <input
-                  aria-label="Tags"
+                  aria-label="Taggar"
                   value={tagsText}
                   onChange={(event) => setTagsText(event.target.value)}
-                  placeholder="wool, casual"
+                  placeholder="ull, vardag"
                 />
               </label>
             </div>
@@ -420,7 +420,7 @@ export function ItemEditorDialog({
                 disabled={Boolean(busyAction)}
               >
                 <CalendarCheck size={15} weight="regular" aria-hidden="true" />
-                Mark worn
+                Markera buren
               </button>
               <button
                 className="delete-button"
@@ -429,7 +429,7 @@ export function ItemEditorDialog({
                 disabled={Boolean(busyAction)}
               >
                 <Archive size={15} weight="regular" aria-hidden="true" />
-                {busyAction === "archive" ? "Archiving…" : "Archive"}
+                {busyAction === "archive" ? "Arkiverar…" : "Arkivera"}
               </button>
               <span className="action-spacer" />
               <button
@@ -438,11 +438,11 @@ export function ItemEditorDialog({
                 onClick={onClose}
                 disabled={Boolean(busyAction)}
               >
-                Cancel
+                Avbryt
               </button>
               <button className="primary-button" type="submit" disabled={Boolean(busyAction)}>
                 <Check size={15} weight="bold" aria-hidden="true" />
-                {busyAction === "save" ? "Saving…" : "Save"}
+                {busyAction === "save" ? "Sparar…" : "Spara"}
               </button>
             </div>
           </form>
@@ -452,7 +452,7 @@ export function ItemEditorDialog({
         <ImageLightbox
           images={galleryImages}
           index={safeIndex}
-          name={item.name || "Wardrobe item"}
+          name={item.name || "Garderobsplagg"}
           onIndexChange={setActiveIndex}
           onClose={() => setLightboxOpen(false)}
         />

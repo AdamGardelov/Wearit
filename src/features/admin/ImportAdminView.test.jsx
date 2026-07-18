@@ -61,7 +61,7 @@ function repository(overrides = {}) {
 }
 
 async function selectBundle(files = bundleFiles()) {
-  fireEvent.change(screen.getByLabelText("Choose import bundle"), {
+  fireEvent.change(screen.getByLabelText("Välj importpaket"), {
     target: { files },
   });
   await screen.findByRole("heading", { name: "Navy cardigan" });
@@ -90,7 +90,7 @@ describe("AlignmentEditor", () => {
     };
 
     const view = render(<AlignmentEditor draft={draft} onChange={onChange} />);
-    const anchorX = screen.getByLabelText("Anchor X");
+    const anchorX = screen.getByLabelText("Ankare X");
 
     expect(anchorX).toHaveAttribute("min", "0");
     expect(anchorX).toHaveAttribute("max", "1");
@@ -114,7 +114,7 @@ describe("ImportAdminView", () => {
       value: vi.fn(() => new Promise((resolve) => { resolveManifest = resolve; })),
     });
     const view = render(<ImportAdminView repository={repository()} />);
-    fireEvent.change(screen.getByLabelText("Choose import bundle"), {
+    fireEvent.change(screen.getByLabelText("Välj importpaket"), {
       target: { files: [manifest, bundleFile(item().file, "png", "image/png")] },
     });
 
@@ -135,11 +135,11 @@ describe("ImportAdminView", () => {
     ]));
 
     expect(repo.importWardrobeItem).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText("Anchor X"), { target: { value: "0.63" } });
-    await userEvent.click(screen.getByRole("button", { name: /Review Cream trousers/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Review Navy cardigan/i }));
+    fireEvent.change(screen.getByLabelText("Ankare X"), { target: { value: "0.63" } });
+    await userEvent.click(screen.getByRole("button", { name: /Granska Cream trousers/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Granska Navy cardigan/i }));
 
-    expect(screen.getByLabelText("Anchor X")).toHaveValue("0.63");
+    expect(screen.getByLabelText("Ankare X")).toHaveValue("0.63");
     expect(repo.importWardrobeItem).not.toHaveBeenCalled();
   });
 
@@ -150,7 +150,7 @@ describe("ImportAdminView", () => {
     render(<ImportAdminView repository={repo} />);
     await selectBundle();
 
-    await userEvent.click(screen.getByRole("button", { name: "Approve and upload" }));
+    await userEvent.click(screen.getByRole("button", { name: "Godkänn och ladda upp" }));
 
     await waitFor(() => expect(repo.importWardrobeItem).toHaveBeenCalledTimes(1));
     expect(repo.importWardrobeItem).toHaveBeenCalledWith(expect.objectContaining({
@@ -159,7 +159,7 @@ describe("ImportAdminView", () => {
       detailFiles: [],
       placement: PLACEMENT,
     }));
-    expect(await screen.findAllByText("Already imported")).toHaveLength(2);
+    expect(await screen.findAllByText("Redan importerad")).toHaveLength(2);
   });
 
   it("keeps a failed upload retryable", async () => {
@@ -171,12 +171,12 @@ describe("ImportAdminView", () => {
     render(<ImportAdminView repository={repo} />);
     await selectBundle();
 
-    await userEvent.click(screen.getByRole("button", { name: "Approve and upload" }));
+    await userEvent.click(screen.getByRole("button", { name: "Godkänn och ladda upp" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Connection interrupted");
-    await userEvent.click(screen.getByRole("button", { name: "Retry upload" }));
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
 
     await waitFor(() => expect(repo.importWardrobeItem).toHaveBeenCalledTimes(2));
-    expect(await screen.findAllByText("Imported")).toHaveLength(2);
+    expect(await screen.findAllByText("Importerad")).toHaveLength(2);
   });
 
   it("lists exact reconciliation paths and requires a second explicit cleanup confirmation", async () => {
@@ -190,12 +190,12 @@ describe("ImportAdminView", () => {
     });
     render(<ImportAdminView repository={repo} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Check storage" }));
+    await userEvent.click(screen.getByRole("button", { name: "Kontrollera lagring" }));
     expect(await screen.findByText("owner-1/items/orphan.png")).toBeInTheDocument();
     expect(screen.getByText("missing-item")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Clean up orphaned assets" }));
+    await userEvent.click(screen.getByRole("button", { name: "Rensa föräldralösa filer" }));
     expect(repo.removeOrphanedWardrobeAssets).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: "Confirm delete 1 asset" }));
+    await userEvent.click(screen.getByRole("button", { name: "Bekräfta radering av 1 fil" }));
 
     expect(repo.removeOrphanedWardrobeAssets)
       .toHaveBeenCalledWith(["owner-1/items/orphan.png"]);
@@ -203,7 +203,7 @@ describe("ImportAdminView", () => {
 
   it("shows parser refusal for raw source formats", async () => {
     render(<ImportAdminView repository={repository()} />);
-    fireEvent.change(screen.getByLabelText("Choose import bundle"), {
+    fireEvent.change(screen.getByLabelText("Välj importpaket"), {
       target: { files: bundleFiles([item()], [bundleFile("raw/source.heic", "raw", "image/heic")]) },
     });
 
@@ -221,11 +221,11 @@ describe("App Admin entry", () => {
     });
     render(<App repository={repo} />);
 
-    const primary = screen.getByRole("navigation", { name: "Primary" });
-    expect(within(primary).queryByText("Import")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Import wardrobe" }));
+    const primary = screen.getByRole("navigation", { name: "Primär" });
+    expect(within(primary).queryByText("Importera garderob")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Importera garderob" }));
 
-    expect(screen.getByRole("heading", { name: "Import reviewed clothes" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Importera granskade plagg" })).toBeInTheDocument();
   });
 
   it("releases local preview URLs when Admin closes", async () => {
@@ -236,12 +236,12 @@ describe("App Admin entry", () => {
       listWearHistory: vi.fn().mockResolvedValue([]),
     });
     render(<App repository={repo} />);
-    await userEvent.click(screen.getByRole("button", { name: "Import wardrobe" }));
+    await userEvent.click(screen.getByRole("button", { name: "Importera garderob" }));
     await selectBundle();
 
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await userEvent.click(screen.getByRole("button", { name: "Stäng" }));
 
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:cutout-1");
-    expect(screen.queryByRole("heading", { name: "Import reviewed clothes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Importera granskade plagg" })).not.toBeInTheDocument();
   });
 });

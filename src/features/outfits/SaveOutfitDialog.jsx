@@ -45,7 +45,7 @@ export function SaveOutfitDialog({
         }
       })
       .catch((loadError) => {
-        if (mounted) setDuplicateCheckError(loadError.message || "Could not check saved outfits.");
+        if (mounted) setDuplicateCheckError(loadError.message || "Kunde inte kontrollera sparade outfits.");
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -71,7 +71,7 @@ export function SaveOutfitDialog({
     setBusy(true);
     setSaveError("");
     try {
-      const thumbnailBlob = await renderThumbnail(items, "/mannequin.svg");
+      const thumbnailBlob = await renderThumbnail(items, "/mannequin-photoreal.png");
       const id = exactOutfit?.id ?? (mode === "update" ? sourceOutfit?.id : undefined);
       const saved = await repository.saveOutfit({
         ...(id ? { id } : {}),
@@ -82,7 +82,7 @@ export function SaveOutfitDialog({
       onSaved(saved);
       onClose();
     } catch (saveError) {
-      setSaveError(saveError.message || "Could not save this outfit.");
+      setSaveError(saveError.message || "Kunde inte spara outfiten.");
     } finally {
       setBusy(false);
     }
@@ -129,18 +129,18 @@ export function SaveOutfitDialog({
         <header>
           <div>
             <p>Outfit</p>
-            <h2 id="save-outfit-heading">Save this combination</h2>
+            <h2 id="save-outfit-heading">Spara den här kombinationen</h2>
           </div>
-          <button type="button" aria-label="Close save outfit dialog" onClick={onClose} disabled={busy}>×</button>
+          <button type="button" aria-label="Stäng" onClick={onClose} disabled={busy}>×</button>
         </header>
 
         <label className="outfit-name-field">
-          <span>Outfit name</span>
+          <span>Outfit-namn</span>
           <input
             ref={nameRef}
             value={name}
             onChange={(event) => setName(event.target.value)}
-            aria-label="Outfit name"
+            aria-label="Outfit-namn"
             maxLength="120"
             required
           />
@@ -149,30 +149,30 @@ export function SaveOutfitDialog({
         {!validation.valid && <p className="outfit-validation" role="status">{validation.message}</p>}
         {exactOutfit && (
           <p className="outfit-duplicate" role="status">
-            This combination is already saved as {exactOutfit.name}.
+            Den här kombinationen är redan sparad som {exactOutfit.name}.
           </p>
         )}
         {duplicateCheckError && <p className="outfit-error" role="alert">{duplicateCheckError}</p>}
         {saveError && <p className="outfit-error" role="alert">{saveError}</p>}
 
         <div className="outfit-dialog-actions">
-          <button type="button" className="outfit-secondary" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="outfit-secondary" onClick={onClose} disabled={busy}>Avbryt</button>
           {exactOutfit ? (
             <button type="button" className="outfit-primary" onClick={() => save("update")} disabled={disabled}>
-              {busy ? "Saving…" : "Update outfit"}
+              {busy ? "Sparar…" : "Uppdatera outfit"}
             </button>
           ) : sourceOutfit ? (
             <>
               <button type="button" className="outfit-secondary" onClick={() => save("update")} disabled={disabled}>
-                Update outfit
+                Uppdatera outfit
               </button>
               <button type="button" className="outfit-primary" onClick={() => save("variation")} disabled={disabled}>
-                {busy ? "Saving…" : "Save as new variation"}
+                {busy ? "Sparar…" : "Spara som ny variant"}
               </button>
             </>
           ) : (
             <button type="button" className="outfit-primary" onClick={() => save("new")} disabled={disabled}>
-              {busy ? "Saving…" : "Save outfit"}
+              {busy ? "Sparar…" : "Spara outfit"}
             </button>
           )}
         </div>

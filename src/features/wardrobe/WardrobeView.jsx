@@ -4,7 +4,7 @@ import { OptimizedImage } from "../../OptimizedImage.jsx";
 import { ItemEditorDialog } from "./ItemEditorDialog.jsx";
 
 function itemLabel(item) {
-  return item.name || CATEGORY_BY_ID[item.category]?.label || "Wardrobe item";
+  return item.name || CATEGORY_BY_ID[item.category]?.label || "Garderobsplagg";
 }
 
 function GalleryItem({ item, selected, onOpen, buttonRef }) {
@@ -14,7 +14,7 @@ function GalleryItem({ item, selected, onOpen, buttonRef }) {
       className={`gallery-item${selected ? " selected" : ""}`}
       type="button"
       onClick={() => onOpen(item.id)}
-      aria-label={`View ${itemLabel(item)}`}
+      aria-label={`Visa ${itemLabel(item)}`}
       aria-pressed={selected}
       data-testid={`wardrobe-item-${item.id}`}
     >
@@ -49,7 +49,7 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
         if (mounted) setItems(loadedItems);
       })
       .catch((loadError) => {
-        if (mounted) setError(loadError.message || "Could not load the wardrobe.");
+        if (mounted) setError(loadError.message || "Kunde inte ladda garderoben.");
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -128,7 +128,7 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
     onMarkWorn?.([item]);
   };
 
-  const activeLabel = CATEGORY_BY_ID[activeCategory]?.label || "All";
+  const activeLabel = CATEGORY_BY_ID[activeCategory]?.label || "Alla";
 
   return (
     <div className={`app-shell${selectedItem ? " has-selection" : ""}`}>
@@ -141,10 +141,10 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
         <header className="gallery-header">
           <div className="gallery-meta-row">
             <p className="piece-count">
-              {items.length} {items.length === 1 ? "piece" : "pieces"}
+              {items.length} plagg
             </p>
           </div>
-          <nav className="category-nav" aria-label="Filter wardrobe by item type">
+          <nav className="category-nav" aria-label="Filtrera garderob efter typ">
             {CATEGORIES.map((category) => (
               <button
                 key={category.id}
@@ -164,16 +164,16 @@ export function WardrobeView({ repository, active = true, onMarkWorn }) {
         </header>
 
         {error && <p className="status error" role="alert">{error}</p>}
-        {!error && loading && <p className="status">Loading wardrobe</p>}
+        {!error && loading && <p className="status">Laddar garderob</p>}
         {!error && !loading && !items.length && (
-          <p className="status empty">Your wardrobe is empty.</p>
+          <p className="status empty">Din garderob är tom.</p>
         )}
         {!error && !loading && !!items.length && !visibleItems.length && (
-          <p className="status empty">No {activeLabel.toLowerCase()} in your wardrobe.</p>
+          <p className="status empty">Inga {activeLabel.toLowerCase()} i din garderob.</p>
         )}
 
         {!!visibleItems.length && (
-          <section className="gallery-grid" aria-label={`${activeLabel} wardrobe items`}>
+          <section className="gallery-grid" aria-label={`${activeLabel} i garderoben`}>
             {visibleItems.map((item) => (
               <GalleryItem
                 key={item.id}

@@ -55,8 +55,8 @@ describe("WearDialog", () => {
     );
 
     const today = localDateValue();
-    expect(screen.getByLabelText("Worn on")).toHaveValue(today);
-    await user.click(screen.getByRole("button", { name: "Record wear" }));
+    expect(screen.getByLabelText("Buren den")).toHaveValue(today);
+    await user.click(screen.getByRole("button", { name: "Registrera" }));
 
     expect(onRecord).toHaveBeenCalledWith({
       itemIds: ["item-a", "item-b"],
@@ -72,13 +72,13 @@ describe("WearDialog", () => {
     const onRecord = vi.fn().mockRejectedValue(new Error("Offline"));
     render(<WearDialog items={[top, bottom]} onRecord={onRecord} onClose={vi.fn()} />);
 
-    await user.clear(screen.getByLabelText("Worn on"));
-    await user.type(screen.getByLabelText("Worn on"), "2026-06-02");
-    await user.click(screen.getByRole("button", { name: "Record wear" }));
+    await user.clear(screen.getByLabelText("Buren den"));
+    await user.type(screen.getByLabelText("Buren den"), "2026-06-02");
+    await user.click(screen.getByRole("button", { name: "Registrera" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Changes were not saved. Try again.");
-    expect(screen.getByRole("dialog", { name: "Record wear" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Worn on")).toHaveValue("2026-06-02");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ändringarna sparades inte. Försök igen.");
+    expect(screen.getByRole("dialog", { name: "Registrera användning" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Buren den")).toHaveValue("2026-06-02");
     expect(screen.getByText("Blue top")).toBeInTheDocument();
     expect(screen.getByText("Black trousers")).toBeInTheDocument();
   });
@@ -103,10 +103,10 @@ describe("WearDialog", () => {
     render(<Harness />);
     const trigger = screen.getByRole("button", { name: "Open wear" });
     await user.click(trigger);
-    expect(screen.getByLabelText("Worn on")).toHaveFocus();
+    expect(screen.getByLabelText("Buren den")).toHaveFocus();
 
-    const close = screen.getByRole("button", { name: "Close wear dialog" });
-    const record = screen.getByRole("button", { name: "Record wear" });
+    const close = screen.getByRole("button", { name: "Stäng" });
+    const record = screen.getByRole("button", { name: "Registrera" });
     close.focus();
     await user.tab({ shift: true });
     expect(record).toHaveFocus();
@@ -114,7 +114,7 @@ describe("WearDialog", () => {
     expect(close).toHaveFocus();
 
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Record wear" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Registrera användning" })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
   });
 });
@@ -138,7 +138,7 @@ describe("HistoryView", () => {
 
     const entries = await screen.findAllByRole("article");
     expect(within(entries[0]).getByText("Old trousers")).toBeInTheDocument();
-    expect(within(entries[0]).getByText("Archived")).toBeInTheDocument();
+    expect(within(entries[0]).getByText("Arkiverat")).toBeInTheDocument();
     expect(within(entries[0]).getByText("Office day")).toBeInTheDocument();
     expect(within(entries[1]).getByText("Snapshot top")).toBeInTheDocument();
     expect(screen.queryByText("Updated top")).not.toBeInTheDocument();
@@ -151,15 +151,15 @@ describe("wear entry points", () => {
     const repository = appRepository();
     render(<App repository={repository} />);
 
-    await user.click(await screen.findByRole("button", { name: "View Blue top" }));
-    const markWorn = screen.getByRole("button", { name: "Mark worn" });
+    await user.click(await screen.findByRole("button", { name: "Visa Blue top" }));
+    const markWorn = screen.getByRole("button", { name: "Markera buren" });
     await user.click(markWorn);
-    expect(screen.getByRole("dialog", { name: "Edit Blue top", hidden: true }))
+    expect(screen.getByRole("dialog", { name: "Redigera Blue top", hidden: true }))
       .toBeInTheDocument();
     const background = screen.getByTestId("wearit-background");
     expect(background).toHaveAttribute("aria-hidden", "true");
     expect(background).toHaveAttribute("inert");
-    await user.click(screen.getByRole("button", { name: "Record wear" }));
+    await user.click(screen.getByRole("button", { name: "Registrera" }));
 
     expect(repository.recordWear).toHaveBeenCalledWith(expect.objectContaining({
       itemIds: ["item-a"],
@@ -179,11 +179,11 @@ describe("wear entry points", () => {
     });
     render(<App repository={repository} />);
 
-    await screen.findByRole("button", { name: "View Blue top" });
+    await screen.findByRole("button", { name: "Visa Blue top" });
     await user.click(screen.getByRole("button", { name: "Outfits" }));
-    await user.click(await screen.findByRole("button", { name: "Load Office day" }));
-    await user.click(screen.getByRole("button", { name: "Wear outfit" }));
-    await user.click(screen.getByRole("button", { name: "Record wear" }));
+    await user.click(await screen.findByRole("button", { name: "Ladda Office day" }));
+    await user.click(screen.getByRole("button", { name: "Bär outfit" }));
+    await user.click(screen.getByRole("button", { name: "Registrera" }));
 
     expect(repository.recordWear).toHaveBeenCalledWith(expect.objectContaining({
       itemIds: ["item-a", "item-b"],
@@ -197,15 +197,15 @@ describe("wear entry points", () => {
       archiveItem: vi.fn().mockRejectedValue(new Error("network internals")),
     });
     render(<App repository={repository} />);
-    await user.click(await screen.findByRole("button", { name: "View Blue top" }));
+    await user.click(await screen.findByRole("button", { name: "Visa Blue top" }));
 
-    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: "Arkivera" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Changes were not saved. Try again.");
-    expect(screen.getByRole("dialog", { name: "Edit Blue top" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ändringarna sparades inte. Försök igen.");
+    expect(screen.getByRole("dialog", { name: "Redigera Blue top" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Avbryt" }));
     await user.click(screen.getByRole("button", { name: "Dress" }));
-    expect(screen.getByRole("button", { name: "Select Blue top" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Välj Blue top" })).toBeInTheDocument();
   });
 
   it("refreshes wardrobe data after a successful archive", async () => {
@@ -216,11 +216,11 @@ describe("wear entry points", () => {
         .mockResolvedValueOnce([bottom]),
     });
     render(<App repository={repository} />);
-    await user.click(await screen.findByRole("button", { name: "View Blue top" }));
+    await user.click(await screen.findByRole("button", { name: "Visa Blue top" }));
 
-    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: "Arkivera" }));
 
     await waitFor(() => expect(repository.listItemsWithLastWorn).toHaveBeenCalledTimes(2));
-    expect(screen.queryByRole("button", { name: "View Blue top" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Blue top" })).not.toBeInTheDocument();
   });
 });

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { CATEGORY_BY_ID, CATEGORIES } from "../../domain/slots.js";
 
 function garmentName(item) {
-  return item.name || CATEGORY_BY_ID[item.category]?.label || "Wardrobe item";
+  return item.name || CATEGORY_BY_ID[item.category]?.label || "Garderobsplagg";
 }
 
 export function GarmentTray({ items, selectedIds, onSelect }) {
@@ -13,11 +13,11 @@ export function GarmentTray({ items, selectedIds, onSelect }) {
       : items.filter((item) => item.category === activeCategory),
     [activeCategory, items],
   );
-  const activeLabel = CATEGORY_BY_ID[activeCategory]?.label || "Items";
+  const activeLabel = CATEGORY_BY_ID[activeCategory]?.label || "Plagg";
 
   return (
-    <section className="garment-tray" aria-label="Garment tray">
-      <div className="dress-category-chips" aria-label="Filter garments by category">
+    <section className="garment-tray" aria-label="Plagglåda">
+      <div className="dress-category-chips" aria-label="Filtrera plagg efter kategori">
         {CATEGORIES.map((category) => (
           <button
             key={category.id}
@@ -32,14 +32,14 @@ export function GarmentTray({ items, selectedIds, onSelect }) {
       </div>
 
       {visibleItems.length ? (
-        <div className="garment-strip" aria-label={`${activeLabel} garments`}>
+        <div className="garment-strip" aria-label={activeLabel}>
           {visibleItems.map((item) => (
             <button
               key={item.id}
               type="button"
               className="garment-option"
               onClick={() => onSelect(item)}
-              aria-label={`Select ${garmentName(item)}`}
+              aria-label={`Välj ${garmentName(item)}`}
               aria-pressed={selectedIds.has(item.id)}
             >
               {item.cutoutUrl ? <img src={item.cutoutUrl} alt="" /> : <span aria-hidden="true">—</span>}
@@ -48,7 +48,7 @@ export function GarmentTray({ items, selectedIds, onSelect }) {
           ))}
         </div>
       ) : (
-        <p className="garment-empty">No {activeLabel.toLowerCase()} in your wardrobe yet.</p>
+        <p className="garment-empty">Inga {activeLabel.toLowerCase()} i din garderob än.</p>
       )}
     </section>
   );

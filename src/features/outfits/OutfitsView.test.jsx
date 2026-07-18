@@ -31,9 +31,9 @@ describe("SaveOutfitDialog", () => {
       />,
     );
 
-    expect(await screen.findByText("Choose at least two items.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save outfit" })).toBeDisabled();
-    expect(screen.getByLabelText("Outfit name")).toHaveFocus();
+    expect(await screen.findByText("Välj minst två plagg.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Spara outfit" })).toBeDisabled();
+    expect(screen.getByLabelText("Outfit-namn")).toHaveFocus();
   });
 
   it("shows an exact duplicate and updates that outfit ID with a fresh thumbnail", async () => {
@@ -51,10 +51,10 @@ describe("SaveOutfitDialog", () => {
       />,
     );
 
-    expect(await screen.findByText("This combination is already saved as Office day.")).toBeInTheDocument();
-    await user.clear(screen.getByLabelText("Outfit name"));
-    await user.type(screen.getByLabelText("Outfit name"), "Office renamed");
-    await user.click(screen.getByRole("button", { name: "Update outfit" }));
+    expect(await screen.findByText("Den här kombinationen är redan sparad som Office day.")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Outfit-namn"));
+    await user.type(screen.getByLabelText("Outfit-namn"), "Office renamed");
+    await user.click(screen.getByRole("button", { name: "Uppdatera outfit" }));
 
     await waitFor(() => expect(repository.saveOutfit).toHaveBeenCalledWith({
       id: "outfit-1",
@@ -62,7 +62,7 @@ describe("SaveOutfitDialog", () => {
       items: [bottom, top],
       thumbnailBlob: thumbnail,
     }));
-    expect(renderThumbnail).toHaveBeenCalledWith([bottom, top], "/mannequin.svg");
+    expect(renderThumbnail).toHaveBeenCalledWith([bottom, top], "/mannequin-photoreal.png");
   });
 
   it("saves a changed loaded outfit as a new variation without reusing its ID", async () => {
@@ -81,8 +81,8 @@ describe("SaveOutfitDialog", () => {
       />,
     );
 
-    await screen.findByRole("button", { name: "Save as new variation" });
-    await user.click(screen.getByRole("button", { name: "Save as new variation" }));
+    await screen.findByRole("button", { name: "Spara som ny variant" });
+    await user.click(screen.getByRole("button", { name: "Spara som ny variant" }));
 
     await waitFor(() => expect(repository.saveOutfit).toHaveBeenCalledWith({
       name: "Office day",
@@ -117,7 +117,7 @@ describe("OutfitsView", () => {
     render(<OutfitsView active repository={repository} onLoad={onLoad} />);
 
     expect(await screen.findByRole("img", { name: "Office day" })).toHaveAttribute("src", "/office.webp");
-    await user.click(screen.getByRole("button", { name: "Load Office day" }));
+    await user.click(screen.getByRole("button", { name: "Ladda Office day" }));
     expect(onLoad).toHaveBeenCalledWith(office.items, office);
   });
 
@@ -127,9 +127,9 @@ describe("OutfitsView", () => {
     const repository = { listOutfits: vi.fn().mockResolvedValue([attention]) };
     render(<OutfitsView active repository={repository} onLoad={vi.fn()} />);
 
-    expect(await screen.findByText("Archived garment: Old trousers")).toBeInTheDocument();
-    expect(screen.getByText("Missing bottom")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Load Needs a fix" })).toBeDisabled();
+    expect(await screen.findByText("Arkiverat plagg: Old trousers")).toBeInTheDocument();
+    expect(screen.getByText("Saknar underdel")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ladda Needs a fix" })).toBeDisabled();
   });
 
   it("does not fetch while its application section is inactive", () => {

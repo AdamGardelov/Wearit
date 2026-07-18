@@ -1,9 +1,9 @@
 export function MannequinCanvas({ items }) {
   return (
-    <div className="mannequin-stage" aria-label="Outfit preview">
+    <div className="mannequin-stage" aria-label="Outfit-förhandsvisning">
       <img
         className="mannequin-base"
-        src="/mannequin.svg"
+        src="/mannequin-photoreal.png"
         alt=""
         role="presentation"
       />
@@ -12,7 +12,7 @@ export function MannequinCanvas({ items }) {
           key={item.id}
           className="mannequin-garment"
           src={item.cutoutUrl}
-          alt={item.name || "Selected garment"}
+          alt={item.name || "Valt plagg"}
           style={{
             left: `${item.anchor_x * 100}%`,
             top: `${item.anchor_y * 100}%`,

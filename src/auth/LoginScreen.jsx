@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase.js";
 
-const SUCCESS_MESSAGE = "Check your email for the private sign-in link.";
-const FALLBACK_ERROR_MESSAGE = "Unable to send the sign-in link. Please try again.";
+const SUCCESS_MESSAGE = "Kolla din e-post för inloggningslänken.";
+const FALLBACK_ERROR_MESSAGE = "Kunde inte skicka länken. Försök igen.";
 
 export function LoginScreen({ client = supabase }) {
   const [email, setEmail] = useState("");
@@ -39,9 +39,9 @@ export function LoginScreen({ client = supabase }) {
 
   return (
     <main>
-      <h1>Sign in to your wardrobe</h1>
+      <h1>Logga in till din garderob</h1>
       <form onSubmit={handleSubmit}>
-        <label htmlFor="email">Email</label>
+        <label htmlFor="email">E-post</label>
         <input
           id="email"
           name="email"
@@ -52,7 +52,7 @@ export function LoginScreen({ client = supabase }) {
           required
         />
         <button type="submit" disabled={pending}>
-          Email me a sign-in link
+          Skicka inloggningslänk
         </button>
       </form>
       {sent ? <p role="status">{SUCCESS_MESSAGE}</p> : null}

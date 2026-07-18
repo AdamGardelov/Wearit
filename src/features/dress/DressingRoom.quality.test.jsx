@@ -65,7 +65,7 @@ function repository(listItems) {
 }
 
 function selectButton(name) {
-  return screen.getByRole("button", { name: `Select ${name}` });
+  return screen.getByRole("button", { name: `Välj ${name}` });
 }
 
 describe("DressingRoom live reconciliation", () => {
@@ -79,10 +79,10 @@ describe("DressingRoom live reconciliation", () => {
     view.rerender(<DressingRoom items={[bottom]} onWear={onWear} />);
 
     expect(screen.queryByRole("img", { name: "Blue top" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save outfit" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Wear outfit" }));
+    expect(screen.getByRole("button", { name: "Spara outfit" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Bär outfit" }));
     expect(onWear).toHaveBeenLastCalledWith([bottom]);
-    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await user.click(screen.getByRole("button", { name: "Ångra" }));
     expect(screen.queryByRole("img", { name: "Blue top" })).not.toBeInTheDocument();
   });
 
@@ -106,7 +106,7 @@ describe("DressingRoom live reconciliation", () => {
       .toHaveAttribute("src", "/updated-dress.png");
     expect(screen.queryByRole("img", { name: "Black trousers" })).not.toBeInTheDocument();
     await user.click(selectButton("Repository B jacket"));
-    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await user.click(screen.getByRole("button", { name: "Ångra" }));
     expect(screen.getByRole("img", { name: "Updated silk dress" })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "Black trousers" })).not.toBeInTheDocument();
   });
@@ -117,7 +117,7 @@ describe("DressingRoom live reconciliation", () => {
 
     await user.click(selectButton("Blue top"));
     await user.click(selectButton("Blue top"));
-    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await user.click(screen.getByRole("button", { name: "Ångra" }));
 
     expect(screen.queryByRole("img", { name: "Blue top" })).not.toBeInTheDocument();
   });
@@ -134,13 +134,13 @@ describe("App repository isolation", () => {
 
     view.rerender(<App repository={repositoryB} />);
     await act(async () => requestB.resolve([repositoryBItem]));
-    await screen.findByRole("button", { name: "View Repository B jacket" });
+    await screen.findByRole("button", { name: "Visa Repository B jacket" });
     await user.click(screen.getByRole("button", { name: "Dress" }));
     expect(selectButton("Repository B jacket")).toBeInTheDocument();
 
     await act(async () => requestA.resolve([top]));
 
-    expect(screen.queryByRole("button", { name: "Select Blue top" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Välj Blue top" })).not.toBeInTheDocument();
     expect(selectButton("Repository B jacket")).toBeInTheDocument();
   });
 
@@ -154,7 +154,7 @@ describe("App repository isolation", () => {
       </StrictMode>,
     );
 
-    expect(await screen.findByRole("button", { name: "View Blue top" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Visa Blue top" })).toBeInTheDocument();
     expect(listItems).toHaveBeenCalledTimes(1);
   });
 });
@@ -168,15 +168,15 @@ describe("inactive wardrobe cleanup", () => {
 
     try {
       render(<App repository={currentRepository} />);
-      await user.click(await screen.findByRole("button", { name: "View Blue top" }));
-      expect(screen.getByRole("dialog", { name: "Edit Blue top" })).toBeInTheDocument();
+      await user.click(await screen.findByRole("button", { name: "Visa Blue top" }));
+      expect(screen.getByRole("dialog", { name: "Redigera Blue top" })).toBeInTheDocument();
       expect(document.body.style.overflow).toBe("hidden");
 
       await user.click(screen.getByRole("button", { name: "Dress" }));
 
       expect(screen.queryByRole("dialog", { hidden: true })).not.toBeInTheDocument();
       expect(document.body.style.overflow).toBe("clip");
-      expect(screen.getByLabelText("Dressing room")).toBeInTheDocument();
+      expect(screen.getByLabelText("Provrum")).toBeInTheDocument();
     } finally {
       document.body.style.overflow = previousOverflow;
     }
@@ -190,7 +190,7 @@ describe("inactive wardrobe cleanup", () => {
 
     try {
       const view = render(<WardrobeView repository={currentRepository} active />);
-      await user.click(await screen.findByRole("button", { name: "View Blue top" }));
+      await user.click(await screen.findByRole("button", { name: "Visa Blue top" }));
       view.rerender(<WardrobeView repository={currentRepository} active={false} />);
 
       await waitFor(() => {

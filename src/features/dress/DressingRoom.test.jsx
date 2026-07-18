@@ -82,7 +82,7 @@ const accessory = {
 const items = [top, bottom, dress, jacket, shoes, accessory];
 
 function itemButton(name) {
-  return screen.getByRole("button", { name: `Select ${name}` });
+  return screen.getByRole("button", { name: `Välj ${name}` });
 }
 
 describe("DressingRoom", () => {
@@ -118,16 +118,16 @@ describe("DressingRoom", () => {
     expect(dressImage.compareDocumentPosition(jacketImage) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await user.click(screen.getByRole("button", { name: "Ångra" }));
     expect(screen.queryByRole("img", { name: "Brown jacket" })).not.toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Green dress" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await user.click(screen.getByRole("button", { name: "Ångra" }));
     expect(screen.getByRole("img", { name: "Blue top" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Black trousers" })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "Green dress" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Clear" }));
+    await user.click(screen.getByRole("button", { name: "Rensa" }));
     expect(screen.queryByRole("img", { name: "Blue top" })).not.toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "Black trousers" })).not.toBeInTheDocument();
   });
@@ -137,8 +137,8 @@ describe("DressingRoom", () => {
     const onSave = vi.fn();
     const onWear = vi.fn();
     render(<DressingRoom items={items} onSave={onSave} onWear={onWear} />);
-    const saveButton = screen.getByRole("button", { name: "Save outfit" });
-    const wearButton = screen.getByRole("button", { name: "Wear outfit" });
+    const saveButton = screen.getByRole("button", { name: "Spara outfit" });
+    const wearButton = screen.getByRole("button", { name: "Bär outfit" });
 
     expect(saveButton).toBeDisabled();
     expect(wearButton).toBeDisabled();
@@ -163,10 +163,10 @@ describe("DressingRoom", () => {
     await user.click(itemButton("Black trousers"));
     expect(itemButton("Blue top")).toHaveAttribute("aria-pressed", "true");
 
-    await user.click(screen.getByRole("button", { name: "Dresses" }));
+    await user.click(screen.getByRole("button", { name: "Klänningar" }));
 
     expect(itemButton("Green dress")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Select Blue top" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Välj Blue top" })).not.toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Blue top" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Black trousers" })).toBeInTheDocument();
   });
@@ -175,9 +175,9 @@ describe("DressingRoom", () => {
     const user = userEvent.setup();
     render(<DressingRoom items={[top]} />);
 
-    await user.click(screen.getByRole("button", { name: "Shoes" }));
+    await user.click(screen.getByRole("button", { name: "Skor" }));
 
-    expect(screen.getByText("No shoes in your wardrobe yet.")).toBeInTheDocument();
+    expect(screen.getByText("Inga skor i din garderob än.")).toBeInTheDocument();
   });
 });
 
@@ -194,15 +194,15 @@ describe("App dressing-room integration", () => {
     };
     render(<App repository={repository} />);
 
-    await screen.findByRole("button", { name: "View Blue top" });
+    await screen.findByRole("button", { name: "Visa Blue top" });
     await user.click(screen.getByRole("button", { name: "Dress" }));
     await user.click(itemButton("Blue top"));
     await user.click(itemButton("Black trousers"));
     await user.click(screen.getByRole("button", { name: "Wardrobe" }));
-    await user.click(screen.getByRole("button", { name: "View Blue top" }));
-    await user.clear(screen.getByLabelText("Name"));
-    await user.type(screen.getByLabelText("Name"), "Tailored top");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Visa Blue top" }));
+    await user.clear(screen.getByLabelText("Namn"));
+    await user.type(screen.getByLabelText("Namn"), "Tailored top");
+    await user.click(screen.getByRole("button", { name: "Spara" }));
     await user.click(screen.getByRole("button", { name: "Dress" }));
 
     expect(repository.listItems).toHaveBeenCalledTimes(1);
@@ -210,7 +210,7 @@ describe("App dressing-room integration", () => {
     expect(screen.getByRole("img", { name: "Black trousers" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dress" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Dress" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Primär" })).toBeInTheDocument();
   });
 
   it("labels placeholder sections without pretending they are persisted", async () => {
@@ -226,8 +226,8 @@ describe("App dressing-room integration", () => {
 
     await waitFor(() => expect(repository.listItems).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("button", { name: "Outfits" }));
-    expect(screen.getByText("Saved outfits are not available yet.")).toBeInTheDocument();
+    expect(screen.getByText("Sparade outfits är inte tillgängliga än.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "History" }));
-    expect(screen.getByText("Wear history is not available yet.")).toBeInTheDocument();
+    expect(screen.getByText("Historiken är inte tillgänglig än.")).toBeInTheDocument();
   });
 });

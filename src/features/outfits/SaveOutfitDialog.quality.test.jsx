@@ -27,9 +27,9 @@ it("keeps saving disabled when duplicate detection could not be completed", asyn
     />,
   );
 
-  await user.type(screen.getByLabelText("Outfit name"), "Office day");
+  await user.type(screen.getByLabelText("Outfit-namn"), "Office day");
   expect(await screen.findByRole("alert")).toHaveTextContent("duplicate lookup unavailable");
-  expect(screen.getByRole("button", { name: "Save outfit" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Spara outfit" })).toBeDisabled();
   expect(renderThumbnail).not.toHaveBeenCalled();
 });
 
@@ -49,8 +49,8 @@ it("reports a save failure separately after duplicate detection succeeds", async
     />,
   );
 
-  await user.type(screen.getByLabelText("Outfit name"), "Office day");
-  await user.click(await screen.findByRole("button", { name: "Save outfit" }));
+  await user.type(screen.getByLabelText("Outfit-namn"), "Office day");
+  await user.click(await screen.findByRole("button", { name: "Spara outfit" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("save unavailable");
   expect(repository.saveOutfit).toHaveBeenCalledTimes(1);
 });

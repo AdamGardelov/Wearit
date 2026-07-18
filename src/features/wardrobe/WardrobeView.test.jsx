@@ -64,7 +64,7 @@ describe("WardrobeView", () => {
 
     render(<WardrobeView repository={repository} />);
 
-    expect(screen.getByText("Loading wardrobe")).toBeInTheDocument();
+    expect(screen.getByText("Laddar garderob")).toBeInTheDocument();
     expect(screen.getByRole("main")).toHaveAttribute("aria-busy", "true");
   });
 
@@ -81,7 +81,7 @@ describe("WardrobeView", () => {
   it("shows a useful empty state", async () => {
     render(<WardrobeView repository={createRepository()} />);
 
-    expect(await screen.findByText("Your wardrobe is empty.")).toBeInTheDocument();
+    expect(await screen.findByText("Din garderob är tom.")).toBeInTheDocument();
   });
 
   it("filters items by category", async () => {
@@ -90,12 +90,12 @@ describe("WardrobeView", () => {
       listItems: vi.fn().mockResolvedValue([shirt, jacket]),
     });
     render(<WardrobeView repository={repository} />);
-    await screen.findByRole("button", { name: "View Blue shirt" });
+    await screen.findByRole("button", { name: "Visa Blue shirt" });
 
-    await user.click(screen.getByRole("button", { name: "Tops" }));
+    await user.click(screen.getByRole("button", { name: "Överdelar" }));
 
-    expect(screen.getByRole("button", { name: "View Blue shirt" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "View Brown jacket" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visa Blue shirt" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Brown jacket" })).not.toBeInTheDocument();
   });
 
   it("keeps signed asset URLs intact on native images", async () => {
@@ -106,7 +106,7 @@ describe("WardrobeView", () => {
 
     render(<WardrobeView repository={repository} />);
 
-    const itemButton = await screen.findByRole("button", { name: "View Blue shirt" });
+    const itemButton = await screen.findByRole("button", { name: "Visa Blue shirt" });
     expect(itemButton.querySelector("img")).toHaveAttribute("src", signedUrl);
   });
 
@@ -128,20 +128,20 @@ describe("WardrobeView", () => {
       updateItem: vi.fn().mockResolvedValue(savedItem),
     });
     render(<WardrobeView repository={repository} />);
-    await user.click(await screen.findByRole("button", { name: "View Blue shirt" }));
+    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
 
-    expect(screen.getByRole("dialog", { name: "Edit Blue shirt" })).toBeInTheDocument();
-    await user.clear(screen.getByLabelText("Name"));
-    await user.type(screen.getByLabelText("Name"), "Tailored shirt");
-    await user.selectOptions(screen.getByLabelText("Category"), "jacket");
-    await user.type(screen.getByLabelText("Brand"), "Acme");
-    await user.type(screen.getByLabelText("Size"), "M");
-    await user.type(screen.getByLabelText("Notes"), "Dry clean");
-    await user.clear(screen.getByLabelText("Colors"));
-    await user.type(screen.getByLabelText("Colors"), "#112233, #445566");
-    await user.clear(screen.getByLabelText("Tags"));
-    await user.type(screen.getByLabelText("Tags"), "wool, smart");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("dialog", { name: "Redigera Blue shirt" })).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Namn"));
+    await user.type(screen.getByLabelText("Namn"), "Tailored shirt");
+    await user.selectOptions(screen.getByLabelText("Kategori"), "jacket");
+    await user.type(screen.getByLabelText("Märke"), "Acme");
+    await user.type(screen.getByLabelText("Storlek"), "M");
+    await user.type(screen.getByLabelText("Anteckningar"), "Dry clean");
+    await user.clear(screen.getByLabelText("Färger"));
+    await user.type(screen.getByLabelText("Färger"), "#112233, #445566");
+    await user.clear(screen.getByLabelText("Taggar"));
+    await user.type(screen.getByLabelText("Taggar"), "wool, smart");
+    await user.click(screen.getByRole("button", { name: "Spara" }));
 
     await waitFor(() => expect(repository.updateItem).toHaveBeenCalledWith({
       ...shirt,
@@ -153,7 +153,7 @@ describe("WardrobeView", () => {
       colors: ["#112233", "#445566"],
       tags: ["wool", "smart"],
     }));
-    const updatedButton = await screen.findByRole("button", { name: "View Tailored shirt" });
+    const updatedButton = await screen.findByRole("button", { name: "Visa Tailored shirt" });
     expect(updatedButton).toBeInTheDocument();
     expect(updatedButton).toHaveFocus();
   });
@@ -166,20 +166,20 @@ describe("WardrobeView", () => {
       archiveItem: vi.fn(() => archive.promise),
     });
     render(<WardrobeView repository={repository} />);
-    await user.click(await screen.findByRole("button", { name: "View Blue shirt" }));
+    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
 
-    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: "Arkivera" }));
 
     expect(repository.archiveItem).toHaveBeenCalledWith("shirt-1");
-    expect(screen.getByRole("button", { name: "View Blue shirt", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visa Blue shirt", hidden: true })).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
-    expect(screen.getByRole("dialog", { name: "Edit Blue shirt" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Redigera Blue shirt" })).toBeInTheDocument();
 
     await act(async () => archive.resolve({ ...shirt, status: "archived" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "View Blue shirt", hidden: true })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Visa Blue shirt", hidden: true })).not.toBeInTheDocument();
     });
   });
 
@@ -190,13 +190,13 @@ describe("WardrobeView", () => {
       archiveItem: vi.fn().mockRejectedValue(new Error("Archive failed.")),
     });
     render(<WardrobeView repository={repository} />);
-    await user.click(await screen.findByRole("button", { name: "View Blue shirt" }));
+    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
 
-    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: "Arkivera" }));
 
     expect(await screen.findByRole("alert"))
-      .toHaveTextContent("Changes were not saved. Try again.");
-    expect(screen.getByRole("button", { name: "View Blue shirt", hidden: true })).toBeInTheDocument();
+      .toHaveTextContent("Ändringarna sparades inte. Försök igen.");
+    expect(screen.getByRole("button", { name: "Visa Blue shirt", hidden: true })).toBeInTheDocument();
   });
 
   it("moves focus into the editor when it opens", async () => {
@@ -206,9 +206,9 @@ describe("WardrobeView", () => {
     });
     render(<WardrobeView repository={repository} />);
 
-    await user.click(await screen.findByRole("button", { name: "View Blue shirt" }));
+    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
 
-    expect(screen.getByLabelText("Name")).toHaveFocus();
+    expect(screen.getByLabelText("Namn")).toHaveFocus();
   });
 
   it("closes the editor with Escape when no action is pending", async () => {
@@ -217,7 +217,7 @@ describe("WardrobeView", () => {
       listItems: vi.fn().mockResolvedValue([shirt]),
     });
     render(<WardrobeView repository={repository} />);
-    await user.click(await screen.findByRole("button", { name: "View Blue shirt" }));
+    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
 
     await user.keyboard("{Escape}");
 
@@ -230,9 +230,9 @@ describe("WardrobeView", () => {
       listItems: vi.fn().mockResolvedValue([shirt]),
     });
     render(<WardrobeView repository={repository} />);
-    await user.click(await screen.findByRole("button", { name: "View Blue shirt" }));
-    const closeButton = screen.getByRole("button", { name: "Close editor" });
-    const saveButton = screen.getByRole("button", { name: "Save" });
+    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
+    const closeButton = screen.getByRole("button", { name: "Stäng redigering" });
+    const saveButton = screen.getByRole("button", { name: "Spara" });
 
     closeButton.focus();
     await user.tab({ shift: true });
@@ -248,10 +248,10 @@ describe("WardrobeView", () => {
       listItems: vi.fn().mockResolvedValue([shirt]),
     });
     render(<WardrobeView repository={repository} />);
-    const invokingButton = await screen.findByRole("button", { name: "View Blue shirt" });
+    const invokingButton = await screen.findByRole("button", { name: "Visa Blue shirt" });
     await user.click(invokingButton);
 
-    await user.click(screen.getByRole("button", { name: "Close editor" }));
+    await user.click(screen.getByRole("button", { name: "Stäng redigering" }));
 
     expect(invokingButton).toHaveFocus();
   });
@@ -263,16 +263,16 @@ describe("WardrobeView", () => {
     });
     render(<WardrobeView repository={repository} />);
     const gallery = screen.getByRole("main");
-    await user.click(await screen.findByRole("button", { name: "View Blue shirt" }));
+    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
 
     expect(gallery).toHaveAttribute("aria-hidden", "true");
     expect(gallery).toHaveAttribute("inert");
 
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Avbryt" }));
     expect(gallery).not.toHaveAttribute("aria-hidden");
     expect(gallery).not.toHaveAttribute("inert");
-    await user.click(screen.getByRole("button", { name: "Tops" }));
-    expect(screen.getByRole("button", { name: "Tops" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Överdelar" }));
+    expect(screen.getByRole("button", { name: "Överdelar" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("locks body scroll and restores the prior value on StrictMode cleanup", async () => {
@@ -289,7 +289,7 @@ describe("WardrobeView", () => {
           <WardrobeView repository={repository} />
         </StrictMode>,
       );
-      await user.click(await screen.findByRole("button", { name: "View Blue shirt" }));
+      await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
 
       expect(document.body.style.overflow).toBe("hidden");
 
@@ -308,17 +308,17 @@ describe("WardrobeView", () => {
       updateItem: vi.fn(() => saveRequest.promise),
     });
     render(<WardrobeView repository={repository} />);
-    await user.click(await screen.findByRole("button", { name: "View Blue shirt" }));
+    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
 
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Spara" }));
     await waitFor(() => expect(repository.updateItem).toHaveBeenCalled());
     await user.keyboard("{Escape}");
-    expect(screen.getByRole("dialog", { name: "Edit Blue shirt" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Redigera Blue shirt" })).toBeInTheDocument();
 
     await act(async () => saveRequest.reject(new Error("Save failed.")));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Save failed.");
-    expect(screen.getByRole("button", { name: "View Blue shirt", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visa Blue shirt", hidden: true })).toBeInTheDocument();
   });
 
   it.each([
@@ -330,12 +330,12 @@ describe("WardrobeView", () => {
       listItems: vi.fn().mockResolvedValue([shirt, jacket]),
     });
     render(<WardrobeView repository={repository} />);
-    await user.click(await screen.findByRole("button", { name: `View ${selectedName}` }));
+    await user.click(await screen.findByRole("button", { name: `Visa ${selectedName}` }));
 
-    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: "Arkivera" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: `View ${expectedName}` })).toHaveFocus();
+      expect(screen.getByRole("button", { name: `Visa ${expectedName}` })).toHaveFocus();
     });
   });
 
@@ -345,11 +345,11 @@ describe("WardrobeView", () => {
       listItems: vi.fn().mockResolvedValue([shirt]),
     });
     render(<WardrobeView repository={repository} />);
-    const topsFilter = screen.getByRole("button", { name: "Tops" });
+    const topsFilter = screen.getByRole("button", { name: "Överdelar" });
     await user.click(topsFilter);
-    await user.click(await screen.findByRole("button", { name: "View Blue shirt" }));
+    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
 
-    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: "Arkivera" }));
 
     await waitFor(() => expect(topsFilter).toHaveFocus());
   });
@@ -365,11 +365,11 @@ describe("WardrobeView", () => {
     const view = render(<WardrobeView repository={firstRepository} />);
 
     view.rerender(<WardrobeView repository={secondRepository} />);
-    expect(await screen.findByRole("button", { name: "View Brown jacket" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Visa Brown jacket" })).toBeInTheDocument();
 
     await act(async () => staleRequest.resolve([shirt]));
 
-    expect(screen.queryByRole("button", { name: "View Blue shirt" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "View Brown jacket" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Blue shirt" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visa Brown jacket" })).toBeInTheDocument();
   });
 });

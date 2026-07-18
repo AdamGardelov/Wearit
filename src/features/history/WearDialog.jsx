@@ -54,7 +54,7 @@ export function WearDialog({
       });
       onClose();
     } catch {
-      setError("Changes were not saved. Try again.");
+      setError("Ändringarna sparades inte. Försök igen.");
     } finally {
       setSaving(false);
     }
@@ -100,22 +100,22 @@ export function WearDialog({
         className="wear-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Record wear"
+        aria-label="Registrera användning"
         tabIndex={-1}
         onKeyDown={keyDown}
       >
         <header>
           <div>
-            <p>Wear history</p>
-            <h2>Record wear</h2>
+            <p>Historik</p>
+            <h2>Registrera användning</h2>
           </div>
-          <button type="button" onClick={onClose} disabled={saving} aria-label="Close wear dialog">
+          <button type="button" onClick={onClose} disabled={saving} aria-label="Stäng">
             ×
           </button>
         </header>
         <form onSubmit={submit}>
           <label className="wear-field">
-            <span>Worn on</span>
+            <span>Buren den</span>
             <input
               ref={dateRef}
               type="date"
@@ -126,13 +126,13 @@ export function WearDialog({
             />
           </label>
           <div className="wear-selection">
-            <span>Pieces</span>
+            <span>Plagg</span>
             <ul>
-              {items.map((item) => <li key={item.id}>{item.name || "Unnamed garment"}</li>)}
+              {items.map((item) => <li key={item.id}>{item.name || "Namnlöst plagg"}</li>)}
             </ul>
           </div>
           <label className="wear-field">
-            <span>Notes (optional)</span>
+            <span>Anteckningar (valfritt)</span>
             <textarea
               rows="3"
               value={notes}
@@ -142,9 +142,9 @@ export function WearDialog({
           </label>
           {error && <p className="wear-error" role="alert">{error}</p>}
           <div className="wear-dialog-actions">
-            <button type="button" onClick={onClose} disabled={saving}>Cancel</button>
+            <button type="button" onClick={onClose} disabled={saving}>Avbryt</button>
             <button className="wear-primary" type="submit" disabled={saving || !dateValue}>
-              {saving ? "Recording…" : "Record wear"}
+              {saving ? "Registrerar…" : "Registrera"}
             </button>
           </div>
         </form>

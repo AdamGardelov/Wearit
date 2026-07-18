@@ -52,19 +52,19 @@ it("ignores an old repository mutation after the active repository changes", asy
   const repositoryA = repository([repositoryAItem], vi.fn(() => staleSave.promise));
   const repositoryB = repository([repositoryBItem], vi.fn(async (item) => item));
   const view = render(<App repository={repositoryA} />);
-  await user.click(await screen.findByRole("button", { name: "View Repository A top" }));
-  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(await screen.findByRole("button", { name: "Visa Repository A top" }));
+  await user.click(screen.getByRole("button", { name: "Spara" }));
 
   view.rerender(<App repository={repositoryB} />);
-  await screen.findByRole("button", { name: "View Repository B top", hidden: true });
+  await screen.findByRole("button", { name: "Visa Repository B top", hidden: true });
   await act(async () => staleSave.resolve({
     ...repositoryAItem,
     name: "Stale repository A top",
   }));
 
-  expect(await screen.findByRole("button", { name: "View Repository B top" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "View Stale repository A top" }))
+  expect(await screen.findByRole("button", { name: "Visa Repository B top" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Visa Stale repository A top" }))
     .not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Dress" }));
-  expect(screen.getByRole("button", { name: "Select Repository B top" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Välj Repository B top" })).toBeInTheDocument();
 });

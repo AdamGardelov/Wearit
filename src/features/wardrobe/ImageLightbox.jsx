@@ -25,9 +25,9 @@ function clamp(value, min, max) {
 }
 
 export function viewLabel(view) {
-  if (view === "front") return "Front";
-  if (view === "back") return "Back";
-  if (view === "detail") return "Detail";
+  if (view === "front") return "Fram";
+  if (view === "back") return "Bak";
+  if (view === "detail") return "Detalj";
   return "";
 }
 
@@ -108,22 +108,33 @@ export function ImageLightbox({ images, index, name, onIndexChange, onClose }) {
     setRetryToken((token) => token + 1);
   }, []);
 
-  // Keep the latest scale reachable inside the wheel listener without re-binding it.
-  const transformScaleRef = useRef(transform.scale);
-  transformScaleRef.current = transform.scale;
+  // Keep the latest transform reachable inside the wheel listener without re-binding it.
+  const transformRef = useRef(transform);
+  transformRef.current = transform;
 
-  // Wheel zoom needs a non-passive listener to prevent the page from scrolling.
+  // Non-passive wheel listener: a pinch (trackpad) or ctrl/cmd+wheel zooms, while a
+  // plain two-finger scroll pans a zoomed image — the natural "move around" gesture
+  // on a trackpad. The page never scrolls underneath.
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return undefined;
     const onWheel = (event) => {
       event.preventDefault();
-      const delta = event.deltaY < 0 ? 0.3 : -0.3;
-      setScale(transformScaleRef.current + delta);
+      const current = transformRef.current;
+      if (event.ctrlKey || event.metaKey) {
+        const delta = event.deltaY < 0 ? 0.3 : -0.3;
+        setScale(current.scale + delta);
+      } else if (current.scale > 1.01) {
+        setTransform(clampOffset({
+          scale: current.scale,
+          x: current.x - event.deltaX,
+          y: current.y - event.deltaY,
+        }));
+      }
     };
     stage.addEventListener("wheel", onWheel, { passive: false });
     return () => stage.removeEventListener("wheel", onWheel);
-  }, [setScale]);
+  }, [setScale, clampOffset]);
 
   const handleKeyDown = (event) => {
     switch (event.key) {
@@ -297,7 +308,7 @@ export function ImageLightbox({ images, index, name, onIndexChange, onClose }) {
       className="lightbox"
       role="dialog"
       aria-modal="true"
-      aria-label={`${name} image viewer`}
+      aria-label={`${name} bildvisare`}
       onKeyDown={handleKeyDown}
     >
       <div className="lightbox-toolbar">
@@ -308,7 +319,7 @@ export function ImageLightbox({ images, index, name, onIndexChange, onClose }) {
           <button
             type="button"
             onClick={() => setScale(transform.scale - 0.5)}
-            aria-label="Zoom out"
+            aria-label="Zooma ut"
             disabled={transform.scale <= MIN_SCALE}
           >
             <Minus size={20} weight="bold" aria-hidden="true" />
@@ -316,7 +327,7 @@ export function ImageLightbox({ images, index, name, onIndexChange, onClose }) {
           <button
             type="button"
             onClick={() => setScale(transform.scale + 0.5)}
-            aria-label="Zoom in"
+            aria-label="Zooma in"
             disabled={transform.scale >= MAX_SCALE}
           >
             <Plus size={20} weight="bold" aria-hidden="true" />
@@ -324,7 +335,7 @@ export function ImageLightbox({ images, index, name, onIndexChange, onClose }) {
           <button
             type="button"
             onClick={resetZoom}
-            aria-label="Reset zoom"
+            aria-label="Återställ zoom"
             disabled={!zoomed}
           >
             <ArrowsOut size={20} weight="bold" aria-hidden="true" />
@@ -334,7 +345,7 @@ export function ImageLightbox({ images, index, name, onIndexChange, onClose }) {
             type="button"
             className="lightbox-close"
             onClick={onClose}
-            aria-label="Close image viewer"
+            aria-label="Stäng bildvisare"
           >
             <X size={22} weight="bold" aria-hidden="true" />
           </button>
@@ -351,8 +362,8 @@ export function ImageLightbox({ images, index, name, onIndexChange, onClose }) {
       >
         {failed ? (
           <div className="lightbox-error" role="alert">
-            <p>This image could not be loaded.</p>
-            <button type="button" onClick={retry}>Retry</button>
+            <p>Bilden kunde inte laddas.</p>
+            <button type="button" onClick={retry}>Försök igen</button>
           </div>
         ) : image ? (
           <img
@@ -372,10 +383,10 @@ export function ImageLightbox({ images, index, name, onIndexChange, onClose }) {
 
       {count > 1 && (
         <div className="lightbox-nav" aria-hidden={zoomed ? "true" : undefined}>
-          <button type="button" onClick={() => goTo(index - 1)} aria-label="Previous image">
+          <button type="button" onClick={() => goTo(index - 1)} aria-label="Föregående bild">
             <ArrowLeft size={24} weight="bold" aria-hidden="true" />
           </button>
-          <button type="button" onClick={() => goTo(index + 1)} aria-label="Next image">
+          <button type="button" onClick={() => goTo(index + 1)} aria-label="Nästa bild">
             <ArrowRight size={24} weight="bold" aria-hidden="true" />
           </button>
         </div>

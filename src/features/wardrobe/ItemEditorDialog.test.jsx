@@ -49,9 +49,9 @@ describe("ItemEditorDialog gallery", () => {
 
     const active = screen.getByRole("img", { name: "Disco tee" });
     expect(active).toHaveAttribute("src", "https://assets.test/front.webp");
-    expect(screen.getByRole("button", { name: "Show Front image 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visa Frambild 1" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Show Back image 2" }));
+    await user.click(screen.getByRole("button", { name: "Visa Bakbild 2" }));
 
     expect(screen.getByRole("img", { name: "Disco tee" }))
       .toHaveAttribute("src", "https://assets.test/back.webp");
@@ -61,9 +61,9 @@ describe("ItemEditorDialog gallery", () => {
     const user = userEvent.setup();
     renderDialog();
 
-    await user.click(screen.getByRole("button", { name: "Zoom Disco tee, Front" }));
+    await user.click(screen.getByRole("button", { name: "Zooma Disco tee, Fram" }));
 
-    const lightbox = screen.getByRole("dialog", { name: "Disco tee image viewer" });
+    const lightbox = screen.getByRole("dialog", { name: "Disco tee bildvisare" });
     expect(within(lightbox).getByText("1 / 2")).toBeInTheDocument();
     expect(within(lightbox).getByRole("img")).toHaveAttribute("src", "https://assets.test/front.webp");
 
@@ -72,29 +72,29 @@ describe("ItemEditorDialog gallery", () => {
     expect(within(lightbox).getByText("2 / 2")).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Disco tee image viewer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Disco tee bildvisare" })).not.toBeInTheDocument();
   });
 
   it("zooms in and out with the toolbar controls", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await user.click(screen.getByRole("button", { name: "Zoom Disco tee, Front" }));
-    const lightbox = screen.getByRole("dialog", { name: "Disco tee image viewer" });
+    await user.click(screen.getByRole("button", { name: "Zooma Disco tee, Fram" }));
+    const lightbox = screen.getByRole("dialog", { name: "Disco tee bildvisare" });
     const image = within(lightbox).getByRole("img");
 
-    expect(within(lightbox).getByRole("button", { name: "Reset zoom" })).toBeDisabled();
+    expect(within(lightbox).getByRole("button", { name: "Återställ zoom" })).toBeDisabled();
 
-    await user.click(within(lightbox).getByRole("button", { name: "Zoom in" }));
+    await user.click(within(lightbox).getByRole("button", { name: "Zooma in" }));
     expect(image.style.transform).toContain("scale(1.5)");
-    expect(within(lightbox).getByRole("button", { name: "Reset zoom" })).toBeEnabled();
+    expect(within(lightbox).getByRole("button", { name: "Återställ zoom" })).toBeEnabled();
 
-    await user.click(within(lightbox).getByRole("button", { name: "Reset zoom" }));
+    await user.click(within(lightbox).getByRole("button", { name: "Återställ zoom" }));
     expect(image.style.transform).toContain("scale(1)");
   });
 
   async function openZoomableStage(user) {
-    await user.click(screen.getByRole("button", { name: "Zoom Disco tee, Front" }));
-    const lightbox = screen.getByRole("dialog", { name: "Disco tee image viewer" });
+    await user.click(screen.getByRole("button", { name: "Zooma Disco tee, Fram" }));
+    const lightbox = screen.getByRole("dialog", { name: "Disco tee bildvisare" });
     const stage = lightbox.querySelector(".lightbox-stage");
     const image = within(lightbox).getByRole("img");
     Object.defineProperty(stage, "clientWidth", { value: 1000, configurable: true });
@@ -107,8 +107,8 @@ describe("ItemEditorDialog gallery", () => {
     renderDialog();
     const { lightbox, stage, image } = await openZoomableStage(user);
 
-    await user.click(within(lightbox).getByRole("button", { name: "Zoom in" }));
-    await user.click(within(lightbox).getByRole("button", { name: "Zoom in" }));
+    await user.click(within(lightbox).getByRole("button", { name: "Zooma in" }));
+    await user.click(within(lightbox).getByRole("button", { name: "Zooma in" }));
     expect(image.style.transform).toContain("scale(2)");
 
     fireEvent.pointerDown(stage, { pointerId: 1, clientX: 500, clientY: 500, pointerType: "mouse" });
@@ -149,10 +149,10 @@ describe("ItemEditorDialog gallery", () => {
     const legacyItem = { ...multiImageItem, images: [], primaryImageUrl: undefined };
     renderDialog({ item: legacyItem });
 
-    expect(screen.queryByRole("button", { name: /Show .* image/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Zoom Disco tee" }));
+    expect(screen.queryByRole("button", { name: /Visa .*bild/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zooma Disco tee" }));
 
-    const lightbox = screen.getByRole("dialog", { name: "Disco tee image viewer" });
+    const lightbox = screen.getByRole("dialog", { name: "Disco tee bildvisare" });
     expect(within(lightbox).getByRole("img")).toHaveAttribute("src", "https://assets.test/layer.png");
   });
 });

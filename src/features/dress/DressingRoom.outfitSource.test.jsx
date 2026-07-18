@@ -17,7 +17,7 @@ it("detaches loaded-outfit provenance only when Undo crosses the load boundary",
   const view = render(
     <DressingRoom items={items} onLoadedOutfitChange={onLoadedOutfitChange} />,
   );
-  await user.click(screen.getByRole("button", { name: "Select Shoes" }));
+  await user.click(screen.getByRole("button", { name: "Välj Shoes" }));
 
   view.rerender(
     <DressingRoom
@@ -27,13 +27,13 @@ it("detaches loaded-outfit provenance only when Undo crosses the load boundary",
     />,
   );
   expect(await screen.findByRole("img", { name: "Top" })).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Select Jacket" }));
+  await user.click(screen.getByRole("button", { name: "Välj Jacket" }));
 
-  await user.click(screen.getByRole("button", { name: "Undo" }));
+  await user.click(screen.getByRole("button", { name: "Ångra" }));
   expect(onLoadedOutfitChange).not.toHaveBeenCalled();
   expect(screen.getByRole("img", { name: "Top" })).toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: "Undo" }));
+  await user.click(screen.getByRole("button", { name: "Ångra" }));
   expect(onLoadedOutfitChange).toHaveBeenCalledWith(null);
   expect(screen.getByRole("img", { name: "Shoes" })).toBeInTheDocument();
 });
