@@ -12,10 +12,10 @@ import { WardrobeView } from "./features/wardrobe/WardrobeView.jsx";
 import { supabase } from "./lib/supabase.js";
 
 const SECTIONS = [
-  { id: "wardrobe", label: "Wardrobe" },
-  { id: "dress", label: "Dress" },
+  { id: "wardrobe", label: "Garderob" },
+  { id: "dress", label: "Dressing room" },
   { id: "outfits", label: "Outfits" },
-  { id: "history", label: "History" },
+  { id: "history", label: "Historik" },
 ];
 
 // Stable empty fallback so `items` keeps a constant identity while the snapshot belongs to a

@@ -204,7 +204,7 @@ describe("wear entry points", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Ändringarna sparades inte. Försök igen.");
     expect(screen.getByRole("dialog", { name: "Redigera Blue top" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Avbryt" }));
-    await user.click(screen.getByRole("button", { name: "Dress" }));
+    await user.click(screen.getByRole("button", { name: "Dressing room" }));
     expect(screen.getByRole("button", { name: "Välj Blue top" })).toBeInTheDocument();
   });
 

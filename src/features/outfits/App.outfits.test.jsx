@@ -26,7 +26,7 @@ it("loads a saved outfit from Outfits into the persistent dressing-room reducer"
   await user.click(screen.getByRole("button", { name: "Outfits" }));
   await user.click(await screen.findByRole("button", { name: "Ladda Office day" }));
 
-  expect(screen.getByRole("button", { name: "Dress" })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("button", { name: "Dressing room" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("img", { name: "Blue top" })).toBeInTheDocument();
   expect(screen.getByRole("img", { name: "Black trousers" })).toBeInTheDocument();
 });

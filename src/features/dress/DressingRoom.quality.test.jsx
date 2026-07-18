@@ -111,15 +111,20 @@ describe("DressingRoom live reconciliation", () => {
     expect(screen.queryByRole("img", { name: "Black trousers" })).not.toBeInTheDocument();
   });
 
-  it("does not add an Undo step when a selected item is tapped repeatedly", async () => {
+  it("toggles a garment off when its tray item is tapped again, undoably", async () => {
     const user = userEvent.setup();
     render(<DressingRoom items={[top]} />);
 
     await user.click(selectButton("Blue top"));
-    await user.click(selectButton("Blue top"));
-    await user.click(screen.getByRole("button", { name: "Ångra" }));
+    expect(screen.getByRole("img", { name: "Blue top" })).toBeInTheDocument();
 
+    // A second tap removes it from the mannequin...
+    await user.click(selectButton("Blue top"));
     expect(screen.queryByRole("img", { name: "Blue top" })).not.toBeInTheDocument();
+
+    // ...and that removal is undoable.
+    await user.click(screen.getByRole("button", { name: "Ångra" }));
+    expect(screen.getByRole("img", { name: "Blue top" })).toBeInTheDocument();
   });
 });
 
@@ -135,7 +140,7 @@ describe("App repository isolation", () => {
     view.rerender(<App repository={repositoryB} />);
     await act(async () => requestB.resolve([repositoryBItem]));
     await screen.findByRole("button", { name: "Visa Repository B jacket" });
-    await user.click(screen.getByRole("button", { name: "Dress" }));
+    await user.click(screen.getByRole("button", { name: "Dressing room" }));
     expect(selectButton("Repository B jacket")).toBeInTheDocument();
 
     await act(async () => requestA.resolve([top]));
@@ -172,7 +177,7 @@ describe("inactive wardrobe cleanup", () => {
       expect(screen.getByRole("dialog", { name: "Redigera Blue top" })).toBeInTheDocument();
       expect(document.body.style.overflow).toBe("hidden");
 
-      await user.click(screen.getByRole("button", { name: "Dress" }));
+      await user.click(screen.getByRole("button", { name: "Dressing room" }));
 
       expect(screen.queryByRole("dialog", { hidden: true })).not.toBeInTheDocument();
       expect(document.body.style.overflow).toBe("clip");

@@ -62,7 +62,7 @@ export function OutfitsView({
         <p>Outfits</p>
         <h1>Sparade outfits</h1>
         <div className="outfits-toolbar">
-          <span className="outfits-count">{outfits.length} {outfits.length === 1 ? "look" : "looker"}</span>
+          <span className="outfits-count">{outfits.length} {outfits.length === 1 ? "outfit" : "outfits"}</span>
           <UnifiedFilter
             groups={OUTFIT_FILTER_GROUPS}
             colors={colors}

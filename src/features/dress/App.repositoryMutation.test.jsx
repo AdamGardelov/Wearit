@@ -65,6 +65,6 @@ it("ignores an old repository mutation after the active repository changes", asy
   expect(await screen.findByRole("button", { name: "Visa Repository B top" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Visa Stale repository A top" }))
     .not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Dress" }));
+  await user.click(screen.getByRole("button", { name: "Dressing room" }));
   expect(screen.getByRole("button", { name: "Välj Repository B top" })).toBeInTheDocument();
 });

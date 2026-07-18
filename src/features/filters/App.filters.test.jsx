@@ -141,7 +141,7 @@ describe("App unified filter integration", () => {
     expect(screen.queryByRole("button", { name: "Ta bort Grön" })).not.toBeInTheDocument();
 
     // Returning to Wardrobe restores the Green chip and its filtering.
-    await user.click(screen.getByRole("button", { name: "Wardrobe" }));
+    await user.click(screen.getByRole("button", { name: "Garderob" }));
     expect(screen.getByRole("button", { name: "Ta bort Grön" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Visa Red rain top" })).not.toBeInTheDocument();
   });

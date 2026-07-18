@@ -111,10 +111,13 @@ describe("mannequin reconciliation", () => {
   });
 });
 
-describe("mannequin selection no-ops", () => {
-  it("does not record history when the exact selected item is tapped again", () => {
+describe("mannequin selection toggle", () => {
+  it("toggles the exact selected item off when it is tapped again", () => {
     const state = select(EMPTY_MANNEQUIN, top);
 
-    expect(select(state, top)).toBe(state);
+    const result = select(state, top);
+
+    expect(result.selectedBySlot).toEqual({});
+    expect(result.history).toHaveLength(state.history.length + 1);
   });
 });

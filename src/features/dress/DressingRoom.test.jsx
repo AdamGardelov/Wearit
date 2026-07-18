@@ -134,6 +134,23 @@ describe("DressingRoom", () => {
     expect(screen.queryByRole("img", { name: "Black trousers" })).not.toBeInTheDocument();
   });
 
+  it("removes a garment from the mannequin when its tray item is clicked again", async () => {
+    const user = userEvent.setup();
+    render(<DressingRoom items={items} />);
+
+    await user.click(itemButton("Blue top"));
+    await user.click(itemButton("Black trousers"));
+    expect(screen.getByRole("img", { name: "Blue top" })).toBeInTheDocument();
+    expect(itemButton("Blue top")).toHaveAttribute("aria-pressed", "true");
+
+    // Clicking the already-selected top toggles it back off the mannequin.
+    await user.click(itemButton("Blue top"));
+    expect(screen.queryByRole("img", { name: "Blue top" })).not.toBeInTheDocument();
+    expect(itemButton("Blue top")).toHaveAttribute("aria-pressed", "false");
+    // The trousers are untouched.
+    expect(screen.getByRole("img", { name: "Black trousers" })).toBeInTheDocument();
+  });
+
   it("enables outfit actions at sensible thresholds and emits deterministic selections", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
@@ -197,21 +214,21 @@ describe("App dressing-room integration", () => {
     render(<App repository={repository} />);
 
     await screen.findByRole("button", { name: "Visa Blue top" });
-    await user.click(screen.getByRole("button", { name: "Dress" }));
+    await user.click(screen.getByRole("button", { name: "Dressing room" }));
     await user.click(itemButton("Blue top"));
     await user.click(itemButton("Black trousers"));
-    await user.click(screen.getByRole("button", { name: "Wardrobe" }));
+    await user.click(screen.getByRole("button", { name: "Garderob" }));
     await user.click(screen.getByRole("button", { name: "Visa Blue top" }));
     await user.clear(screen.getByLabelText("Namn"));
     await user.type(screen.getByLabelText("Namn"), "Tailored top");
     await user.click(screen.getByRole("button", { name: "Spara" }));
-    await user.click(screen.getByRole("button", { name: "Dress" }));
+    await user.click(screen.getByRole("button", { name: "Dressing room" }));
 
     expect(repository.listItems).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("img", { name: "Tailored top" })).toHaveAttribute("src", top.cutoutUrl);
     expect(screen.getByRole("img", { name: "Black trousers" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Dress" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("button", { name: "Dress" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Dressing room" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Dressing room" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("navigation", { name: "Primär" })).toBeInTheDocument();
   });
 
@@ -229,7 +246,7 @@ describe("App dressing-room integration", () => {
     await waitFor(() => expect(repository.listItems).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("button", { name: "Outfits" }));
     expect(screen.getByText("Sparade outfits är inte tillgängliga än.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "History" }));
+    await user.click(screen.getByRole("button", { name: "Historik" }));
     expect(screen.getByText("Historiken är inte tillgänglig än.")).toBeInTheDocument();
   });
 });
@@ -317,7 +334,7 @@ describe("DressingRoom unified filter", () => {
     await user.click(screen.getByRole("checkbox", { name: "Grön" }));
     await user.click(screen.getByRole("checkbox", { name: "Sommar" }));
 
-    await user.click(screen.getByRole("button", { name: "Dress" }));
+    await user.click(screen.getByRole("button", { name: "Dressing room" }));
     await user.click(screen.getByRole("button", { name: "Filter – Styla" }));
     expect(screen.getByRole("checkbox", { name: "Grön" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Sommar" })).toBeChecked();
@@ -345,11 +362,11 @@ describe("DressingRoom unified filter", () => {
     expect(screen.getByRole("button", { name: "Överdelar" })).toHaveAttribute("aria-pressed", "true");
 
     // Pick Underdelar in Dress; it must not disturb the Wardrobe category.
-    await user.click(screen.getByRole("button", { name: "Dress" }));
+    await user.click(screen.getByRole("button", { name: "Dressing room" }));
     await user.click(screen.getByRole("button", { name: "Underdelar" }));
     expect(screen.getByRole("button", { name: "Underdelar" })).toHaveAttribute("aria-pressed", "true");
 
-    await user.click(screen.getByRole("button", { name: "Wardrobe" }));
+    await user.click(screen.getByRole("button", { name: "Garderob" }));
     expect(screen.getByRole("button", { name: "Överdelar" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Alla" })).toHaveAttribute("aria-pressed", "false");
   });

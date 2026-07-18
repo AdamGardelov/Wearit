@@ -224,8 +224,17 @@ export function mannequinReducer(state, action) {
       if (!isItem(action.item)) {
         return state;
       }
+      // Clicking the garment already occupying its slot toggles it back off the mannequin.
       if (state.selectedBySlot[action.item.slot]?.id === action.item.id) {
-        return state;
+        const selectedBySlot = { ...state.selectedBySlot };
+        delete selectedBySlot[action.item.slot];
+        const layerBySlot = { ...(state.layerBySlot ?? {}) };
+        delete layerBySlot[action.item.slot];
+        return {
+          selectedBySlot,
+          layerBySlot,
+          history: [...state.history, snapshotOf(state)],
+        };
       }
 
       const selectedBySlot = nextSelection(state.selectedBySlot, action.item);

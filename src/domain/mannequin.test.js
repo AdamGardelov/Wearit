@@ -26,6 +26,16 @@ describe("mannequinReducer", () => {
     expect(result.selectedBySlot).toEqual({ top: replacementTop });
   });
 
+  it("toggles the same item off when it is selected again", () => {
+    const withPieces = select(select(EMPTY_MANNEQUIN, top), bottom);
+
+    const result = select(withPieces, top);
+
+    // Re-selecting the top removes only it; the bottom stays and the change is undoable.
+    expect(result.selectedBySlot).toEqual({ bottom });
+    expect(mannequinReducer(result, { type: "undo" }).selectedBySlot).toEqual({ top, bottom });
+  });
+
   it("selecting dress clears top and bottom", () => {
     const withSeparates = select(select(EMPTY_MANNEQUIN, top), bottom);
 
