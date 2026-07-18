@@ -439,7 +439,7 @@ export function ItemEditorDialog({
               </label>
               <div className="field details-field item-labels" role="group" aria-label="Etiketter">
                 <span>Etiketter</span>
-                {labelsLoading && <p className="label-filter-status">Laddar etiketter…</p>}
+                {labelsLoading && <p className="label-status">Laddar etiketter…</p>}
                 {labelsError && <p className="status error" role="alert">{labelsError}</p>}
                 <LabelPicker
                   labels={labels}
