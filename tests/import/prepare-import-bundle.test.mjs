@@ -418,6 +418,13 @@ describe("prepareImportBundle", () => {
   const ITEM_UUID = "96541a13-deb2-51da-bc91-8d0505624551";
   const FRONT_UUID = "11111111-1111-4111-8111-111111111111";
   const BACK_UUID = "22222222-2222-4222-8222-222222222222";
+  const FULL_CANVAS_PLACEMENT = {
+    anchorX: 0.5,
+    anchorY: 0.5,
+    scale: 1,
+    rotationDegrees: 0,
+    layerOrder: 20,
+  };
 
   function acceptedV2(overrides = {}) {
     return {
@@ -426,24 +433,76 @@ describe("prepareImportBundle", () => {
       category: "top",
       wearLayerFile: "wear-layer.png",
       images: [
-        { id: FRONT_UUID, file: "images/front.webp", view: "front", sortOrder: 0, isPrimary: true },
-        { id: BACK_UUID, file: "images/back.webp", view: "back", sortOrder: 1, isPrimary: false },
+        { id: FRONT_UUID, file: "images/front.png", view: "front", sortOrder: 0, isPrimary: true },
+        { id: BACK_UUID, file: "images/back.png", view: "back", sortOrder: 1, isPrimary: false },
       ],
       colors: ["#202020"],
       tags: ["tshirt"],
-      placement: VALID_PLACEMENT,
+      placement: FULL_CANVAS_PLACEMENT,
       status: "accepted",
       ...overrides,
     };
   }
 
   async function writeV2Sources() {
-    await writeRgbaPng(path.join(itemsDir, "wear-layer.png"));
+    await sharp({
+      create: {
+        width: 887,
+        height: 1774,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    }).composite([{
+      input: await sharp({
+        create: {
+          width: 400,
+          height: 700,
+          channels: 4,
+          background: { r: 32, g: 32, b: 32, alpha: 1 },
+        },
+      }).png().toBuffer(),
+      left: 243,
+      top: 500,
+    }]).png().toFile(path.join(itemsDir, "wear-layer.png"));
     await mkdir(path.join(itemsDir, "images"), { recursive: true });
-    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#202020" } })
-      .webp().toFile(path.join(itemsDir, "images", "front.webp"));
-    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#303030" } })
-      .webp().toFile(path.join(itemsDir, "images", "back.webp"));
+    await sharp({
+      create: {
+        width: 1800,
+        height: 900,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    }).composite([{
+      input: await sharp({
+        create: {
+          width: 600,
+          height: 600,
+          channels: 4,
+          background: { r: 32, g: 32, b: 32, alpha: 1 },
+        },
+      }).png().toBuffer(),
+      left: 600,
+      top: 150,
+    }]).png().toFile(path.join(itemsDir, "images", "front.png"));
+    await sharp({
+      create: {
+        width: 800,
+        height: 600,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    }).composite([{
+      input: await sharp({
+        create: {
+          width: 400,
+          height: 400,
+          channels: 4,
+          background: { r: 48, g: 48, b: 48, alpha: 1 },
+        },
+      }).png().toBuffer(),
+      left: 200,
+      top: 100,
+    }]).png().toFile(path.join(itemsDir, "images", "back.png"));
   }
 
   it("turns an accepted v2 item into a wear-layer plus product-image bundle", async () => {
@@ -460,36 +519,146 @@ describe("prepareImportBundle", () => {
       slot: "top",
       wearLayerFile: `assets/${ITEM_UUID}/wear-layer.png`,
       images: [
-        { id: FRONT_UUID, file: `assets/${ITEM_UUID}/images/front.webp`, view: "front", sortOrder: 0, isPrimary: true },
-        { id: BACK_UUID, file: `assets/${ITEM_UUID}/images/back.webp`, view: "back", sortOrder: 1, isPrimary: false },
+        { id: FRONT_UUID, file: `assets/${ITEM_UUID}/images/${FRONT_UUID}.webp`, view: "front", sortOrder: 0, isPrimary: true },
+        { id: BACK_UUID, file: `assets/${ITEM_UUID}/images/${BACK_UUID}.webp`, view: "back", sortOrder: 1, isPrimary: false },
       ],
+      placement: FULL_CANVAS_PLACEMENT,
     });
     expect(await allRelativeFiles(outputDir)).toEqual([
-      `assets/${ITEM_UUID}/images/back.webp`,
-      `assets/${ITEM_UUID}/images/front.webp`,
+      `assets/${ITEM_UUID}/images/${FRONT_UUID}.webp`,
+      `assets/${ITEM_UUID}/images/${BACK_UUID}.webp`,
       `assets/${ITEM_UUID}/wear-layer.png`,
       "manifest.json",
-    ]);
+    ].sort());
+
+    const frontPath = path.join(outputDir, bundle.items[0].images[0].file);
+    const front = sharp(frontPath);
+    expect(await front.metadata()).toMatchObject({
+      format: "webp",
+      width: 1600,
+      height: 800,
+      hasAlpha: true,
+      space: "srgb",
+    });
+    const topLeft = await front.extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer();
+    expect(topLeft[3]).toBe(0);
+
+    const back = await sharp(path.join(outputDir, bundle.items[0].images[1].file)).metadata();
+    expect(back).toMatchObject({ format: "webp", width: 800, height: 600, hasAlpha: true });
+
+    const wearLayer = sharp(path.join(outputDir, bundle.items[0].wearLayerFile));
+    expect(await wearLayer.metadata()).toMatchObject({
+      format: "png",
+      width: 887,
+      height: 1774,
+      channels: 4,
+      hasAlpha: true,
+    });
+    const wearAlpha = (await wearLayer.stats()).channels[3];
+    expect(wearAlpha.min).toBe(0);
+    expect(wearAlpha.max).toBe(255);
+
+    expect(result.bytes).toEqual({
+      wearLayers: expect.any(Number),
+      productImages: expect.any(Number),
+      manifest: expect.any(Number),
+      total: expect.any(Number),
+    });
+    expect(result.bytes.total).toBe(
+      result.bytes.wearLayers + result.bytes.productImages + result.bytes.manifest,
+    );
+  });
+
+  it("rejects an opaque v2 product source instead of baking in a rectangular background", async () => {
+    await writeV2Sources();
+    await sharp({
+      create: {
+        width: 800,
+        height: 600,
+        channels: 3,
+        background: { r: 245, g: 242, b: 236 },
+      },
+    }).png().toFile(path.join(itemsDir, "images", "front.png"));
+    await writeManifest(manifestFile, [acceptedV2()], 2);
+
+    await expect(prepareImportBundle({ itemsDir, manifestFile, outputDir }))
+      .rejects.toThrow(/product image.*transparent and visible pixels/i);
+    await expect(access(outputDir)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects JPEG v2 product sources because they cannot carry a cutout alpha channel", async () => {
+    await writeV2Sources();
+    await sharp({ create: { width: 800, height: 600, channels: 3, background: "#303030" } })
+      .jpeg().toFile(path.join(itemsDir, "images", "front.jpg"));
+    const item = acceptedV2();
+    item.images[0].file = "images/front.jpg";
+    await writeManifest(manifestFile, [item], 2);
+
+    await expect(prepareImportBundle({ itemsDir, manifestFile, outputDir }))
+      .rejects.toThrow(/transparent PNG or WebP cutout/i);
+    await expect(access(outputDir)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("preserves the reviewed UUID and leaves an identical v2 bundle untouched", async () => {
     await writeV2Sources();
     await writeManifest(manifestFile, [acceptedV2()], 2);
-    await prepareImportBundle({ itemsDir, manifestFile, outputDir });
+    const first = await prepareImportBundle({ itemsDir, manifestFile, outputDir });
 
-    const second = await prepareImportBundle({ itemsDir, manifestFile, outputDir });
+    const second = await prepareImportBundle({ itemsDir, manifestFile, outputDir, dryRun: true });
     const bundle = JSON.parse(await readFile(path.join(outputDir, "manifest.json"), "utf8"));
 
+    expect(second.dryRun).toBe(true);
     expect(second.changed).toBe(false);
+    expect(second.bytes).toEqual(first.bytes);
     expect(bundle.items[0].id).toBe(ITEM_UUID);
+  });
+
+  it("normalizes a 16-bit wear layer to metadata-free 8-bit sRGB PNG", async () => {
+    await writeV2Sources();
+    const wearSource = path.join(itemsDir, "wear-layer.png");
+    const sixteenBit = await sharp(wearSource)
+      .toColourspace("rgb16")
+      .withMetadata({ density: 300 })
+      .png()
+      .toBuffer();
+    await writeFile(wearSource, sixteenBit);
+    expect(await sharp(wearSource).metadata()).toMatchObject({
+      space: "rgb16",
+      depth: "ushort",
+      bitsPerSample: 16,
+    });
+    await writeManifest(manifestFile, [acceptedV2()], 2);
+
+    await prepareImportBundle({ itemsDir, manifestFile, outputDir });
+
+    const metadata = await sharp(path.join(
+      outputDir,
+      `assets/${ITEM_UUID}/wear-layer.png`,
+    )).metadata();
+    expect(metadata).toMatchObject({
+      space: "srgb",
+      depth: "uchar",
+      bitsPerSample: 8,
+      hasProfile: false,
+    });
+  });
+
+  it("rejects a v2 wear layer that does not use the mannequin coordinate plane", async () => {
+    await writeV2Sources();
+    await writeRgbaPng(path.join(itemsDir, "wear-layer.png"));
+    await writeManifest(manifestFile, [acceptedV2()], 2);
+
+    await expect(prepareImportBundle({ itemsDir, manifestFile, outputDir }))
+      .rejects.toThrow(/887x1774 RGBA PNG/i);
+    await expect(access(outputDir)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rejects a v2 item whose primary image is not the front", async () => {
     await writeV2Sources();
     await writeManifest(manifestFile, [acceptedV2({
       images: [
-        { id: FRONT_UUID, file: "images/front.webp", view: "front", sortOrder: 0, isPrimary: false },
-        { id: BACK_UUID, file: "images/back.webp", view: "back", sortOrder: 1, isPrimary: true },
+        { id: FRONT_UUID, file: "images/front.png", view: "front", sortOrder: 0, isPrimary: false },
+        { id: BACK_UUID, file: "images/back.png", view: "back", sortOrder: 1, isPrimary: true },
       ],
     })], 2);
 

@@ -48,8 +48,10 @@ images, generated outfit thumbnails, and obsolete Storage objects.
 - 8-bit sRGB WebP, encoder quality `88`, with metadata removed.
 - Maximum longest edge `1600` pixels, with aspect ratio preserved and no
   enlargement of smaller sources.
-- Always opaque. Transparent inputs are deterministically composited over
-  `#f5f2ec` before encoding.
+- Transparent cutout with both fully transparent and visible pixels. Opaque
+  product sources are rejected instead of receiving a baked background.
+- Alpha is preserved through WebP encoding so the garment floats directly on
+  Wearit's current or future page background without a rectangular image field.
 - Exactly one front image is primary. At most one back image is allowed;
   additional images use the detail view.
 - The application displays product images with `object-fit: contain`; their
@@ -76,9 +78,9 @@ The v2 bundle builder owns final derivative creation:
 
 1. Validate the source manifest, stable item/image UUIDs, image roles, and
    canonical wear-layer dimensions.
-2. Auto-orient each product source, flatten transparency over `#f5f2ec`, resize
-   within `1600x1600` without enlargement, remove metadata, and encode WebP at
-   quality `88`.
+2. Require transparent product cutouts, auto-orient them, resize within
+   `1600x1600` without enlargement, remove metadata, and encode WebP at quality
+   `88` with alpha quality `100`.
 3. Strip metadata and losslessly optimize each canonical wear-layer PNG without
    changing its pixels, dimensions, alpha semantics, or coordinate alignment.
 4. Emit product assets under stable `.webp` bundle names and the wear layer as
@@ -129,9 +131,10 @@ current database references immediately before deletion.
 
 ## Verification
 
-- Builder tests prove transparent PNG input becomes opaque WebP over `#f5f2ec`,
-  large sources are reduced without enlargement, output names are `.webp`, and
-  wear layers remain canonical optimized RGBA PNGs.
+- Builder tests prove transparent PNG input becomes transparent WebP, opaque
+  product sources are rejected, large sources are reduced without enlargement,
+  output names are `.webp`, and wear layers remain canonical optimized RGBA
+  PNGs.
 - Builder tests prove build summaries contain bytes by asset class and total.
 - Repository tests prove prior paths are deleted only after a successful RPC,
   are preserved on RPC failure, and cleanup failure returns a warning while the
@@ -141,4 +144,3 @@ current database references immediately before deletion.
 - The seven pants items are regenerated from their reviewed chroma sources,
   deterministically previewed on the canonical mannequin, visually reviewed,
   bundled, and followed by an unchanged dry-run.
-

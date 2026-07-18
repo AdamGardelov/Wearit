@@ -7,3 +7,16 @@ dist/
 *.log
 /data/
 .superpowers/
+
+# Local tooling
+.codex/
+
+# Build and test caches
+.vite/
+coverage/
+*.tsbuildinfo
+playwright-report/
+test-results/
+
+# Local hosting metadata
+.vercel/

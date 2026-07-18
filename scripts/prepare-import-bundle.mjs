@@ -27,7 +27,11 @@ const CATEGORY_SLOTS = Object.freeze({
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DETAIL_FORMATS = new Set(["jpeg", "png", "webp"]);
+const PRODUCT_FORMATS = new Set(["png", "webp"]);
 const IMAGE_VIEWS = new Set(["front", "back", "detail"]);
+const MANNEQUIN_WIDTH = 887;
+const MANNEQUIN_HEIGHT = 1774;
+const PRODUCT_MAX_EDGE = 1600;
 
 function normalizeUuid(value, label) {
   if (typeof value !== "string" || !UUID.test(value)) throw new Error(`${label} must be a UUID`);
@@ -194,6 +198,50 @@ async function validateDetail(file, label) {
   return bytes;
 }
 
+async function prepareWearLayer(file, label) {
+  const bytes = await readFile(file);
+  const image = sharp(bytes);
+  const metadata = await image.metadata();
+  if (
+    metadata.format !== "png"
+    || metadata.width !== MANNEQUIN_WIDTH
+    || metadata.height !== MANNEQUIN_HEIGHT
+    || !metadata.hasAlpha
+    || metadata.channels !== 4
+  ) {
+    throw new Error(`${label} must be an ${MANNEQUIN_WIDTH}x${MANNEQUIN_HEIGHT} RGBA PNG`);
+  }
+  const alpha = (await image.stats()).channels[3];
+  if (!alpha || alpha.min !== 0 || alpha.max === 0) {
+    throw new Error(`${label} must contain transparent and visible pixels`);
+  }
+  return sharp(bytes)
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toBuffer();
+}
+
+async function prepareProductImage(file, label) {
+  const bytes = await readFile(file);
+  const source = sharp(bytes);
+  const metadata = await source.metadata();
+  if (!PRODUCT_FORMATS.has(metadata.format) || !metadata.width || !metadata.height) {
+    throw new Error(`${label} product image must be a transparent PNG or WebP cutout`);
+  }
+  const alpha = metadata.hasAlpha ? (await source.stats()).channels.at(-1) : null;
+  if (!alpha || alpha.min !== 0 || alpha.max === 0) {
+    throw new Error(`${label} product image must contain transparent and visible pixels`);
+  }
+  return sharp(bytes, { failOn: "error" })
+    .autoOrient()
+    .resize(PRODUCT_MAX_EDGE, PRODUCT_MAX_EDGE, {
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .toColorspace("srgb")
+    .webp({ quality: 88, alphaQuality: 100 })
+    .toBuffer();
+}
+
 async function prepareAcceptedItem(raw, index, itemsRoot) {
   const label = `items[${index}]`;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${label} must be an object`);
@@ -263,7 +311,7 @@ async function prepareAcceptedItemV2(raw, index, itemsRoot) {
   }
 
   const wearLayer = await resolveReviewedFile(itemsRoot, raw.wearLayerFile, `${label}.wearLayerFile`);
-  const wearBytes = await validateCutout(wearLayer.absolute, `${label}.wearLayerFile (${raw.wearLayerFile})`);
+  const wearBytes = await prepareWearLayer(wearLayer.absolute, `${label}.wearLayerFile (${raw.wearLayerFile})`);
 
   const rawImages = raw.images;
   if (!Array.isArray(rawImages) || rawImages.length < 1) {
@@ -272,7 +320,6 @@ async function prepareAcceptedItemV2(raw, index, itemsRoot) {
 
   const images = [];
   const imageIds = new Set();
-  const outputNames = new Set();
   const sortOrders = new Set();
   let primaryCount = 0;
   let frontCount = 0;
@@ -301,16 +348,13 @@ async function prepareAcceptedItemV2(raw, index, itemsRoot) {
     if (rawImage.view === "back") backCount += 1;
 
     const source = await resolveReviewedFile(itemsRoot, rawImage.file, `${imageLabel}.file`);
-    const bytes = await validateDetail(source.absolute, `${imageLabel}.file`);
-    const name = path.posix.basename(source.relative);
-    if (outputNames.has(name)) throw new Error(`${label}.images has duplicate output name: ${name}`);
-    outputNames.add(name);
+    const bytes = await prepareProductImage(source.absolute, `${imageLabel}.file`);
     images.push({
       id: imageId,
       view: rawImage.view,
       sortOrder: rawImage.sortOrder,
       isPrimary: rawImage.isPrimary,
-      output: `assets/${id}/images/${name}`,
+      output: `assets/${id}/images/${imageId}.webp`,
       bytes,
     });
   }
@@ -493,6 +537,19 @@ export async function prepareImportBundle({ itemsDir, manifestFile, outputDir, d
 
   const manifest = { version: input.version, items: prepared.map((item) => item.manifest) };
   const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
+  const wearLayers = prepared.reduce(
+    (total, item) => total + item.assets
+      .filter((asset) => asset.output.endsWith("/wear-layer.png") || asset.output.endsWith("/cutout.png"))
+      .reduce((itemTotal, asset) => itemTotal + asset.bytes.length, 0),
+    0,
+  );
+  const productImages = prepared.reduce(
+    (total, item) => total + item.assets
+      .filter((asset) => !asset.output.endsWith("/wear-layer.png") && !asset.output.endsWith("/cutout.png"))
+      .reduce((itemTotal, asset) => itemTotal + asset.bytes.length, 0),
+    0,
+  );
+  const manifestBytes = Buffer.byteLength(manifestText);
   const changed = !(await currentBundleMatches(outputPath, manifestText, prepared));
   const result = {
     dryRun: Boolean(dryRun),
@@ -500,6 +557,12 @@ export async function prepareImportBundle({ itemsDir, manifestFile, outputDir, d
     accepted: prepared.length,
     outputDir: outputPath,
     manifest,
+    bytes: {
+      wearLayers,
+      productImages,
+      manifest: manifestBytes,
+      total: wearLayers + productImages + manifestBytes,
+    },
   };
   if (dryRun || !changed) return result;
 

@@ -22,6 +22,7 @@
 
 .mannequin-stage {
   position: relative;
+  isolation: isolate;
   width: min(64vw, 280px);
   aspect-ratio: 1 / 2;
   margin: 0 auto;

@@ -276,6 +276,198 @@ describe("createWardrobeRepository", () => {
     });
   });
 
+  it("removes prior v2 image versions only after the replacement RPC commits", async () => {
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "ver-new") });
+    const ownerId = "owner-1";
+    const itemId = "96541a13-deb2-51da-bc91-8d0505624551";
+    const frontId = "11111111-1111-4111-8111-111111111111";
+    const oldWearPath = `${ownerId}/items/${itemId}/wear-layer/ver-old.png`;
+    const oldFrontPath = `${ownerId}/items/${itemId}/images/${frontId}-ver-old.webp`;
+    const newWearPath = `${ownerId}/items/${itemId}/wear-layer/ver-new.png`;
+    const newFrontPath = `${ownerId}/items/${itemId}/images/${frontId}-ver-new.webp`;
+    const itemQuery = {
+      select: vi.fn(() => itemQuery),
+      eq: vi.fn(() => itemQuery),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: { id: itemId, cutout_path: oldWearPath },
+        error: null,
+      }),
+    };
+    const imageQuery = {
+      select: vi.fn(() => imageQuery),
+      eq: vi.fn(() => imageQuery),
+      then: (resolve, reject) => Promise.resolve({
+        data: [{ storage_path: oldFrontPath }],
+        error: null,
+      }).then(resolve, reject),
+    };
+    const upload = vi.fn().mockResolvedValue({ data: {}, error: null });
+    const remove = vi.fn().mockResolvedValue({ data: [], error: null });
+    const createSignedUrls = vi.fn().mockResolvedValue({ data: [], error: null });
+    const rpc = vi.fn().mockResolvedValue({ data: itemId, error: null });
+    const client = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: ownerId } }, error: null }) },
+      from: vi.fn((table) => table === "wardrobe_items" ? itemQuery : imageQuery),
+      rpc,
+      storage: { from: vi.fn(() => ({ upload, remove, createSignedUrls })) },
+    };
+
+    const result = await createWardrobeRepository(client).importWardrobeItem({
+      manifestItem: {
+        version: 2, id: itemId, name: "Updated tee", category: "top", slot: "top",
+        colors: ["#202020"], tags: ["tshirt"],
+        images: [{ id: frontId, view: "front", sortOrder: 0, isPrimary: true }],
+      },
+      cutoutFile: new File(["layer"], "wear-layer.png", { type: "image/png" }),
+      imageFiles: [{
+        id: frontId, view: "front", sortOrder: 0, isPrimary: true,
+        file: new File(["front"], "front.webp", { type: "image/webp" }),
+      }],
+      placement: { anchorX: 0.5, anchorY: 0.5, scale: 1, rotationDegrees: 0, layerOrder: 20 },
+    });
+
+    expect(remove).toHaveBeenCalledWith([oldWearPath, oldFrontPath]);
+    expect(rpc.mock.invocationCallOrder[0]).toBeLessThan(remove.mock.invocationCallOrder[0]);
+    expect(result).not.toHaveProperty("cleanupWarning");
+    expect(upload).toHaveBeenNthCalledWith(1, newWearPath, expect.any(File), expect.any(Object));
+    expect(upload).toHaveBeenNthCalledWith(2, newFrontPath, expect.any(File), expect.any(Object));
+  });
+
+  it("keeps prior v2 versions and rolls back new uploads when the RPC fails", async () => {
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "ver-new") });
+    const ownerId = "owner-1";
+    const itemId = "96541a13-deb2-51da-bc91-8d0505624551";
+    const frontId = "11111111-1111-4111-8111-111111111111";
+    const oldWearPath = `${ownerId}/items/${itemId}/wear-layer/ver-old.png`;
+    const oldFrontPath = `${ownerId}/items/${itemId}/images/${frontId}-ver-old.webp`;
+    const newWearPath = `${ownerId}/items/${itemId}/wear-layer/ver-new.png`;
+    const newFrontPath = `${ownerId}/items/${itemId}/images/${frontId}-ver-new.webp`;
+    const itemQuery = {
+      select: vi.fn(() => itemQuery), eq: vi.fn(() => itemQuery),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: itemId, cutout_path: oldWearPath }, error: null }),
+    };
+    const imageQuery = {
+      select: vi.fn(() => imageQuery), eq: vi.fn(() => imageQuery),
+      then: (resolve, reject) => Promise.resolve({ data: [{ storage_path: oldFrontPath }], error: null }).then(resolve, reject),
+    };
+    const upload = vi.fn().mockResolvedValue({ data: {}, error: null });
+    const remove = vi.fn().mockResolvedValue({ data: [], error: null });
+    const rpcError = new Error("RPC failed");
+    const client = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: ownerId } }, error: null }) },
+      from: vi.fn((table) => table === "wardrobe_items" ? itemQuery : imageQuery),
+      rpc: vi.fn().mockResolvedValue({ data: null, error: rpcError }),
+      storage: { from: vi.fn(() => ({ upload, remove })) },
+    };
+
+    await expect(createWardrobeRepository(client).importWardrobeItem({
+      manifestItem: {
+        version: 2, id: itemId, name: "Updated tee", category: "top", slot: "top",
+        colors: ["#202020"], tags: [],
+        images: [{ id: frontId, view: "front", sortOrder: 0, isPrimary: true }],
+      },
+      cutoutFile: new File(["layer"], "wear-layer.png", { type: "image/png" }),
+      imageFiles: [{ id: frontId, file: new File(["front"], "front.webp", { type: "image/webp" }) }],
+      placement: { anchorX: 0.5, anchorY: 0.5, scale: 1, rotationDegrees: 0, layerOrder: 20 },
+    })).rejects.toMatchObject({ cause: rpcError });
+
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith([newWearPath, newFrontPath]);
+    expect(remove).not.toHaveBeenCalledWith(expect.arrayContaining([oldWearPath, oldFrontPath]));
+  });
+
+  it("keeps a committed v2 replacement when obsolete-image cleanup fails", async () => {
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "ver-new") });
+    const ownerId = "owner-1";
+    const itemId = "96541a13-deb2-51da-bc91-8d0505624551";
+    const frontId = "11111111-1111-4111-8111-111111111111";
+    const itemQuery = {
+      select: vi.fn(() => itemQuery), eq: vi.fn(() => itemQuery),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: { id: itemId, cutout_path: `${ownerId}/items/${itemId}/wear-layer/ver-old.png` },
+        error: null,
+      }),
+    };
+    const imageQuery = {
+      select: vi.fn(() => imageQuery), eq: vi.fn(() => imageQuery),
+      then: (resolve, reject) => Promise.resolve({
+        data: [{ storage_path: `${ownerId}/items/${itemId}/images/${frontId}-ver-old.webp` }],
+        error: null,
+      }).then(resolve, reject),
+    };
+    const cleanupError = new Error("Storage unavailable");
+    const client = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: ownerId } }, error: null }) },
+      from: vi.fn((table) => table === "wardrobe_items" ? itemQuery : imageQuery),
+      rpc: vi.fn().mockResolvedValue({ data: itemId, error: null }),
+      storage: { from: vi.fn(() => ({
+        upload: vi.fn().mockResolvedValue({ data: {}, error: null }),
+        remove: vi.fn().mockResolvedValue({ data: null, error: cleanupError }),
+        createSignedUrls: vi.fn().mockResolvedValue({ data: [], error: null }),
+      })) },
+    };
+
+    const result = await createWardrobeRepository(client).importWardrobeItem({
+      manifestItem: {
+        version: 2, id: itemId, name: "Updated tee", category: "top", slot: "top",
+        colors: ["#202020"], tags: [],
+        images: [{ id: frontId, view: "front", sortOrder: 0, isPrimary: true }],
+      },
+      cutoutFile: new File(["layer"], "wear-layer.png", { type: "image/png" }),
+      imageFiles: [{ id: frontId, file: new File(["front"], "front.webp", { type: "image/webp" }) }],
+      placement: { anchorX: 0.5, anchorY: 0.5, scale: 1, rotationDegrees: 0, layerOrder: 20 },
+    });
+
+    expect(result).toMatchObject({
+      committed: true,
+      cleanupWarning: expect.stringMatching(/old.*images/i),
+      stages: { database: true, all: true },
+    });
+  });
+
+  it("returns a committed fallback when v2 asset signing fails after the RPC", async () => {
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "ver-new") });
+    const ownerId = "owner-1";
+    const itemId = "96541a13-deb2-51da-bc91-8d0505624551";
+    const frontId = "11111111-1111-4111-8111-111111111111";
+    const itemQuery = {
+      select: vi.fn(() => itemQuery),
+      eq: vi.fn(() => itemQuery),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    };
+    const signingError = new Error("Signing unavailable");
+    const client = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: ownerId } }, error: null }) },
+      from: vi.fn(() => itemQuery),
+      rpc: vi.fn().mockResolvedValue({ data: itemId, error: null }),
+      storage: { from: vi.fn(() => ({
+        upload: vi.fn().mockResolvedValue({ data: {}, error: null }),
+        createSignedUrls: vi.fn().mockResolvedValue({ data: null, error: signingError }),
+      })) },
+    };
+
+    const result = await createWardrobeRepository(client).importWardrobeItem({
+      manifestItem: {
+        version: 2, id: itemId, name: "Updated tee", category: "top", slot: "top",
+        colors: ["#202020"], tags: [],
+        images: [{ id: frontId, view: "front", sortOrder: 0, isPrimary: true }],
+      },
+      cutoutFile: new File(["layer"], "wear-layer.png", { type: "image/png" }),
+      imageFiles: [{ id: frontId, file: new File(["front"], "front.webp", { type: "image/webp" }) }],
+      placement: { anchorX: 0.5, anchorY: 0.5, scale: 1, rotationDegrees: 0, layerOrder: 20 },
+    });
+
+    expect(result).toMatchObject({
+      item: { id: itemId },
+      committed: true,
+      cutoutUrl: null,
+      primaryImageUrl: null,
+      refreshWarning: expect.stringMatching(/saved.*preview/i),
+      stages: { wearLayer: true, images: true, database: true, all: true },
+    });
+    expect(result.images).toEqual([expect.objectContaining({ id: frontId, url: null })]);
+  });
+
   it("reconciles owner storage objects against database asset paths", async () => {
     const ownerId = "owner-1";
     const list = vi.fn(async (prefix) => ({

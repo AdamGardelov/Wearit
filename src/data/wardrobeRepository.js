@@ -593,12 +593,25 @@ export function createWardrobeRepository(client) {
 
       const existingResult = await client
         .from("wardrobe_items")
-        .select("id")
+        .select("id, cutout_path")
         .eq("id", manifestItem.id)
         .eq("owner_id", ownerId)
         .maybeSingle();
       if (existingResult.error) throw existingResult.error;
       const alreadyImported = Boolean(existingResult.data);
+      const previousPaths = [];
+      if (existingResult.data?.cutout_path) previousPaths.push(existingResult.data.cutout_path);
+      if (alreadyImported) {
+        const previousImagesResult = await client
+          .from("wardrobe_item_images")
+          .select("storage_path")
+          .eq("wardrobe_item_id", manifestItem.id)
+          .eq("owner_id", ownerId);
+        if (previousImagesResult.error) throw previousImagesResult.error;
+        previousPaths.push(
+          ...(previousImagesResult.data || []).map((image) => image.storage_path).filter(Boolean),
+        );
+      }
 
       const storage = client.storage.from("wardrobe-assets");
       dataOrThrow(await storage.upload(wearLayerPath, cutoutFile, {
@@ -640,10 +653,39 @@ export function createWardrobeRepository(client) {
       }));
       stages.database = true;
 
-      const signedAssets = await createSignedAssetUrls([
-        wearLayerPath,
-        ...images.map((image) => image.storagePath),
-      ]);
+      const newPaths = new Set([wearLayerPath, ...images.map((image) => image.storagePath)]);
+      const obsoletePaths = [...new Set(previousPaths)].filter((path) => !newPaths.has(path));
+      const cleanupError = obsoletePaths.length ? await removeAssets(obsoletePaths) : null;
+      const cleanupWarning = cleanupError
+        ? "The replacement was saved, but its old images could not be removed and will need orphan cleanup."
+        : "";
+
+      let signedAssets;
+      try {
+        signedAssets = await createSignedAssetUrls([
+          wearLayerPath,
+          ...images.map((image) => image.storagePath),
+        ]);
+      } catch {
+        stages.all = true;
+        return {
+          item: { id: savedItemId },
+          alreadyImported,
+          committed: true,
+          cutoutUrl: null,
+          images: images.map((image) => ({
+            id: image.id,
+            view: image.view,
+            sortOrder: image.sortOrder,
+            isPrimary: image.isPrimary,
+            url: null,
+          })),
+          primaryImageUrl: null,
+          stages,
+          refreshWarning: "The wardrobe item was saved, but its refreshed image preview could not be loaded.",
+          ...(cleanupWarning ? { cleanupWarning } : {}),
+        };
+      }
       const signedUrlByPath = new Map(
         signedAssets.map((asset) => [asset.path, asset.signedUrl]),
       );
@@ -659,10 +701,12 @@ export function createWardrobeRepository(client) {
       return {
         item: { id: savedItemId },
         alreadyImported,
+        committed: true,
         cutoutUrl: signedUrlByPath.get(wearLayerPath) ?? null,
         images: signedImages,
         primaryImageUrl: primary?.url ?? signedUrlByPath.get(wearLayerPath) ?? null,
         stages,
+        ...(cleanupWarning ? { cleanupWarning } : {}),
       };
     } catch (cause) {
       // A committed import owns its objects; only clean up when the database never
