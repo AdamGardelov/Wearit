@@ -19,6 +19,7 @@ import {
 import { inspectProductImage, inspectWearLayer } from "./image-checks.mjs";
 import { optimizeJacketPlacement } from "./placement.mjs";
 import { decideItem } from "./decision.mjs";
+import { writeBatchReports } from "./report.mjs";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "../..");
@@ -54,6 +55,7 @@ const COMMAND_OPTIONS = {
     flags: [],
   },
   status: { values: ["workspace"], flags: [] },
+  report: { values: ["workspace"], flags: [] },
 };
 
 class UsageError extends Error {}
@@ -615,6 +617,15 @@ async function commandStatus(options) {
     next: nextAction(state),
   };
 }
+async function commandReport(options) {
+  const state = await loadBatch(batchStateFile(options.workspace));
+  const report = await writeBatchReports({
+    state,
+    workspaceDir: state.workspacePath,
+  });
+  return { command: "report", ...report };
+}
+
 
 const COMMANDS = {
   init: commandInit,
@@ -624,6 +635,7 @@ const COMMANDS = {
   optimize: commandOptimize,
   "record-review": commandRecordReview,
   status: commandStatus,
+  report: commandReport,
 };
 
 export async function main(argv = process.argv.slice(2)) {
