@@ -1,0 +1,7 @@
+interface:
+  display_name: "Process Wearit Images"
+  short_description: "Prepare local Wearit garment image batches"
+  default_prompt: "Use $process-wearit-images --path /path/to/raw-garment-photos to prepare a local Wearit v2 package."
+
+policy:
+  allow_implicit_invocation: true
