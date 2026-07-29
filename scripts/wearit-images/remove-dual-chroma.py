@@ -2,6 +2,8 @@
 
 import argparse
 import colorsys
+import os
+import tempfile
 from pathlib import Path
 
 from PIL import Image, ImageFilter
@@ -10,6 +12,29 @@ from PIL import Image, ImageFilter
 GREEN_KEY = (20, 201, 18)
 MAGENTA_KEY = (255, 0, 255)
 ALPHA_NOISE_FLOOR = 8
+
+
+def prepare_immutable_paths(source: Path, output: Path) -> tuple[Path, Path]:
+    canonical_source = source.expanduser().resolve(strict=True)
+    resolved_output = output.expanduser()
+    if not resolved_output.is_absolute():
+        resolved_output = Path.cwd() / resolved_output
+    resolved_output.parent.mkdir(parents=True, exist_ok=True)
+
+    if os.path.lexists(resolved_output):
+        try:
+            if os.path.samefile(canonical_source, resolved_output):
+                raise ValueError("Chroma output aliases the input path")
+        except FileNotFoundError:
+            pass
+        raise ValueError(f"Chroma output already exists: {resolved_output}")
+
+    canonical_output = (
+        resolved_output.parent.resolve(strict=True) / resolved_output.name
+    )
+    if canonical_output == canonical_source:
+        raise ValueError("Chroma output aliases the input path")
+    return canonical_source, canonical_output
 
 
 def is_key_color(red: int, green: int, blue: int) -> bool:
@@ -114,6 +139,7 @@ def apply_soft_key(image: Image.Image, key: tuple[int, int, int]) -> Image.Image
 
 
 def remove_dual_chroma(source: Path, output: Path) -> tuple[int, int]:
+    source, output = prepare_immutable_paths(source, output)
     image = Image.open(source).convert("RGBA")
     width, height = image.size
     if width * height >= 100_000:
@@ -274,8 +300,23 @@ def remove_dual_chroma(source: Path, output: Path) -> tuple[int, int]:
             visible += 1
 
     image.putdata(pixels)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    image.save(output, format="PNG")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=output.parent,
+            prefix=f".{output.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary = Path(temporary_file.name)
+        image.save(temporary, format="PNG")
+        try:
+            os.link(temporary, output)
+        except FileExistsError as error:
+            raise ValueError(f"Chroma output already exists: {output}") from error
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return removed, visible
 
 

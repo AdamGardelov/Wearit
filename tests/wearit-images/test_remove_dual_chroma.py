@@ -16,6 +16,18 @@ SCRIPT = (
 
 
 class RemoveDualChromaTest(unittest.TestCase):
+    @staticmethod
+    def make_small_source(source: Path) -> None:
+        image = Image.new("RGBA", (5, 1))
+        image.putdata([
+            (20, 201, 18, 255),
+            (251, 4, 232, 255),
+            (32, 18, 14, 255),
+            (248, 244, 232, 255),
+            (5, 5, 5, 255),
+        ])
+        image.save(source)
+
     def test_removes_green_and_magenta_without_erasing_brown_white_or_black(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source.png"
@@ -189,6 +201,65 @@ class RemoveDualChromaTest(unittest.TestCase):
             cleaned = Image.open(output).convert("RGBA")
             self.assertEqual(cleaned.getpixel((9, 9))[3], 255)
             self.assertEqual(cleaned.getpixel((0, 0))[3], 0)
+
+    def test_rejects_same_path_and_symlink_alias_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.png"
+            alias = Path(directory) / "source-alias.png"
+            self.make_small_source(source)
+            alias.symlink_to(source)
+            source_before = source.read_bytes()
+
+            same_path = subprocess.run(
+                [sys.executable, str(SCRIPT), "--input", str(source), "--out", str(source)],
+                capture_output=True,
+                text=True,
+            )
+            symlink_alias = subprocess.run(
+                [sys.executable, str(SCRIPT), "--input", str(source), "--out", str(alias)],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(same_path.returncode, 0)
+            self.assertRegex(same_path.stderr, r"(?i)output.*input|same path|alias")
+            self.assertNotEqual(symlink_alias.returncode, 0)
+            self.assertRegex(symlink_alias.stderr, r"(?i)output.*input|same path|alias")
+            self.assertEqual(source.read_bytes(), source_before)
+
+    def test_rejects_existing_output_without_overwriting_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.png"
+            output = Path(directory) / "output.png"
+            self.make_small_source(source)
+            sentinel = b"existing output"
+            output.write_bytes(sentinel)
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--input", str(source), "--out", str(output)],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertRegex(result.stderr, r"(?i)output.*exists")
+            self.assertEqual(output.read_bytes(), sentinel)
+
+    def test_cleans_sibling_temporary_when_chroma_removal_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.png"
+            output = Path(directory) / "output.png"
+            Image.new("RGBA", (5, 1), (32, 18, 14, 255)).save(source)
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--input", str(source), "--out", str(output)],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
+            self.assertEqual(list(Path(directory).glob(".output.png.*.tmp")), [])
 
 
 if __name__ == "__main__":

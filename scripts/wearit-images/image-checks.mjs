@@ -2,6 +2,8 @@ import sharp from "sharp";
 
 const GARMENT_COMPONENT_CANVAS_FRACTION = 0.001;
 const MINIMUM_GARMENT_COMPONENT_PIXELS = 64;
+const GREEN_KEY = [20, 201, 18];
+const MAGENTA_KEY = [255, 0, 255];
 
 function alphaMetrics(data, channels) {
   let transparentPixels = 0;
@@ -24,36 +26,48 @@ function alphaMetrics(data, channels) {
   };
 }
 
-function isVividKeyColor(red, green, blue) {
-  const maximum = Math.max(red, green, blue) / 255;
-  const minimum = Math.min(red, green, blue) / 255;
-  const delta = maximum - minimum;
-  const saturation = maximum === 0 ? 0 : delta / maximum;
-  if (saturation < 0.18 || maximum < 0.12 || delta === 0) return false;
+function spillChannels(key) {
+  const keyMaximum = Math.max(...key);
+  return key
+    .map((value, index) =>
+      value >= keyMaximum - 16 && value >= 128 ? index : -1,
+    )
+    .filter((index) => index !== -1);
+}
 
-  let hue;
-  const normalizedRed = red / 255;
-  const normalizedGreen = green / 255;
-  const normalizedBlue = blue / 255;
-  if (maximum === normalizedRed) {
-    hue = 60 * (((normalizedGreen - normalizedBlue) / delta) % 6);
-  } else if (maximum === normalizedGreen) {
-    hue = 60 * ((normalizedBlue - normalizedRed) / delta + 2);
-  } else {
-    hue = 60 * ((normalizedRed - normalizedGreen) / delta + 4);
-  }
-  if (hue < 0) hue += 360;
+function channelDistance(rgb, key) {
+  return Math.max(...rgb.map((value, index) => Math.abs(value - key[index])));
+}
 
-  return (hue >= 65 && hue <= 175) || (hue >= 280 && hue <= 350);
+function keyChannelDominance(rgb, key) {
+  const keyChannels = spillChannels(key);
+  const nonKeyChannels = [0, 1, 2].filter(
+    (index) => !keyChannels.includes(index),
+  );
+  const keyStrength = Math.min(...keyChannels.map((index) => rgb[index]));
+  const nonKeyStrength = Math.max(
+    ...nonKeyChannels.map((index) => rgb[index]),
+    0,
+  );
+  return keyStrength - nonKeyStrength;
+}
+
+function looksKeyColored(rgb, key) {
+  const distance = channelDistance(rgb, key);
+  return distance <= 32 || keyChannelDominance(rgb, key) >= 16;
 }
 
 function countSuspiciousPixels(data, channels) {
   let suspiciousPixels = 0;
   for (let offset = 0; offset < data.length; offset += channels) {
     const alpha = data[offset + channels - 1];
+    const rgb = [data[offset], data[offset + 1], data[offset + 2]];
     if (
       alpha > 0
-      && isVividKeyColor(data[offset], data[offset + 1], data[offset + 2])
+      && (
+        looksKeyColored(rgb, GREEN_KEY)
+        || looksKeyColored(rgb, MAGENTA_KEY)
+      )
     ) {
       suspiciousPixels += 1;
     }
@@ -123,11 +137,56 @@ function componentMetrics(data, width, height, channels) {
   };
 }
 
-async function readRgba(file) {
-  return sharp(file)
+function sourceMetrics(metadata) {
+  return {
+    format: metadata.format,
+    space: metadata.space,
+    channels: metadata.channels,
+    depth: metadata.depth,
+    hasAlpha: metadata.hasAlpha === true,
+    isPalette: metadata.isPalette === true,
+  };
+}
+
+function hasRgbaColorMode(source) {
+  return (
+    source.space === "srgb"
+    && source.channels === 4
+    && source.depth === "uchar"
+    && source.hasAlpha
+    && !source.isPalette
+  );
+}
+
+function contentMetrics(alpha, components, pixelCount, thresholds) {
+  return {
+    visiblePixels: alpha.visiblePixels,
+    visibleFraction: alpha.visiblePixels / pixelCount,
+    largestComponentPixels: components.largestComponentPixels,
+    largestComponentFraction: components.largestComponentPixels / pixelCount,
+    minimumVisibleFraction: thresholds.minimumVisibleFraction,
+    minimumLargestComponentFraction:
+      thresholds.minimumLargestComponentFraction,
+  };
+}
+
+function hasMeaningfulContent(content) {
+  return (
+    content.visibleFraction >= content.minimumVisibleFraction
+    && content.largestComponentFraction
+      >= content.minimumLargestComponentFraction
+  );
+}
+
+async function readImage(file) {
+  const image = sharp(file);
+  const metadata = await image.metadata();
+  const rgba = await image
+    .clone()
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
+  return { ...rgba, metadata };
 }
 
 export async function inspectWearLayer(
@@ -137,9 +196,12 @@ export async function inspectWearLayer(
     height = 1774,
     maxDetachedPixels = 16,
     maxChromaPixels = 0,
+    minVisibleFraction = 0.05,
+    minLargestComponentFraction = 0.04,
   } = {},
 ) {
-  const { data, info } = await readRgba(file);
+  const { data, info, metadata } = await readImage(file);
+  const source = sourceMetrics(metadata);
   const dimensions = {
     width: info.width,
     height: info.height,
@@ -158,9 +220,23 @@ export async function inspectWearLayer(
     suspiciousPixels: countSuspiciousPixels(data, info.channels),
     maximumPixels: maxChromaPixels,
   };
+  const content = contentMetrics(
+    alpha,
+    components,
+    info.width * info.height,
+    {
+      minimumVisibleFraction: minVisibleFraction,
+      minimumLargestComponentFraction: minLargestComponentFraction,
+    },
+  );
   const failures = [];
+  if (source.format !== "png") failures.push("format");
+  if (!hasRgbaColorMode(source)) failures.push("color-mode");
   if (!dimensions.matches) failures.push("dimensions");
-  if (!alpha.hasTransparent || !alpha.hasVisible) failures.push("alpha");
+  if (!source.hasAlpha || !alpha.hasTransparent || !alpha.hasVisible) {
+    failures.push("alpha");
+  }
+  if (!hasMeaningfulContent(content)) failures.push("content");
   if (
     components.detachedPixels > maxDetachedPixels
     || components.largestDetachedPixels > maxDetachedPixels
@@ -174,8 +250,10 @@ export async function inspectWearLayer(
   return {
     pass: failures.length === 0,
     failures,
+    source,
     dimensions,
     alpha,
+    content,
     components: {
       ...components,
       maximumDetachedPixels: maxDetachedPixels,
@@ -184,16 +262,45 @@ export async function inspectWearLayer(
   };
 }
 
-export async function inspectProductImage(file) {
-  const { data, info } = await readRgba(file);
+export async function inspectProductImage(
+  file,
+  {
+    minVisibleFraction = 0.01,
+    minLargestComponentFraction = 0.01,
+  } = {},
+) {
+  const { data, info, metadata } = await readImage(file);
+  const source = sourceMetrics(metadata);
   const alpha = alphaMetrics(data, info.channels);
+  const components = componentMetrics(
+    data,
+    info.width,
+    info.height,
+    info.channels,
+  );
+  const content = contentMetrics(
+    alpha,
+    components,
+    info.width * info.height,
+    {
+      minimumVisibleFraction: minVisibleFraction,
+      minimumLargestComponentFraction: minLargestComponentFraction,
+    },
+  );
   const failures = [];
-  if (!alpha.hasTransparent || !alpha.hasVisible) failures.push("alpha");
+  if (!["png", "webp"].includes(source.format)) failures.push("format");
+  if (!hasRgbaColorMode(source)) failures.push("color-mode");
+  if (!source.hasAlpha || !alpha.hasTransparent || !alpha.hasVisible) {
+    failures.push("alpha");
+  }
+  if (!hasMeaningfulContent(content)) failures.push("content");
 
   return {
     pass: failures.length === 0,
     failures,
+    source,
     dimensions: { width: info.width, height: info.height },
     alpha,
+    content,
   };
 }
