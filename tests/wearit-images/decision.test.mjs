@@ -40,13 +40,29 @@ function reviewWith(regionOverrides = {}, reviewOverrides = {}) {
   };
 }
 
+function placementWith(metricOverrides = {}, placementOverrides = {}) {
+  return {
+    itemId: "item-1",
+    metrics: {
+      criticalCoverage: {},
+      forbiddenCoverage: {},
+      uncoveredCriticalRegions: [],
+      forbiddenRegionViolations: [],
+      asymmetry: 0,
+      clippingFraction: 0,
+      neutralDistance: 0,
+      anchorNeutralDistance: 0,
+      scaleNeutralDistance: 0,
+      ...metricOverrides,
+    },
+    ...placementOverrides,
+  };
+}
+
 function validInput(overrides = {}) {
   return {
-    structural: { pass: true, itemId: "item-1" },
-    placement: {
-      itemId: "item-1",
-      metrics: { uncoveredCriticalRegions: [] },
-    },
+    structural: { pass: true, failures: [] },
+    placement: placementWith(),
     review: reviewWith(),
     generationAttempts: 1,
     ...overrides,
@@ -190,39 +206,38 @@ describe("conservative item decisions", () => {
     });
   });
 
-  it("maps repairable structural cleanup without consuming generation budget", () => {
-    expect(decideItem(validInput({
-      structural: {
-        pass: false,
-        itemId: "item-1",
-        failure: {
-          kind: "artifacts",
-          repairable: true,
-          reason: "detached pixel island",
+  it.each(["chroma-residue", "detached-components"])(
+    "maps actual inspector failure %s to cleanup without generation",
+    (failure) => {
+      expect(decideItem(validInput({
+        structural: { pass: false, failures: [failure] },
+        generationAttempts: 3,
+      }))).toEqual({
+        decision: "retry",
+        reason: "repairable-structural-failure",
+        correction: {
+          target: "deterministic-cleanup",
+          preserve: ["product-image", "wear-layer"],
+          consumesGenerationAttempt: false,
         },
-      },
-      generationAttempts: 3,
-    }))).toEqual({
-      decision: "retry",
-      reason: "repairable-structural-failure",
-      correction: {
-        target: "deterministic-cleanup",
-        preserve: ["product-image", "wear-layer"],
-        consumesGenerationAttempt: false,
-      },
-    });
-  });
+      });
+    },
+  );
 
   it("quarantines an irreparable structural failure", () => {
     expect(decideItem(validInput({
+      structural: { pass: false, failures: ["dimensions"] },
+    }))).toEqual({
+      decision: "quarantine",
+      reason: "irreparable-structural-failure",
+    });
+  });
+
+  it("does not hide an irreparable failure behind a cleanup failure", () => {
+    expect(decideItem(validInput({
       structural: {
         pass: false,
-        itemId: "item-1",
-        failure: {
-          kind: "dimensions",
-          repairable: false,
-          reason: "wrong coordinate plane",
-        },
+        failures: ["chroma-residue", "dimensions"],
       },
     }))).toEqual({
       decision: "quarantine",
@@ -232,10 +247,9 @@ describe("conservative item decisions", () => {
 
   it("lets uncovered placement regions veto a passing visual review", () => {
     expect(decideItem(validInput({
-      placement: {
-        itemId: "item-1",
-        metrics: { uncoveredCriticalRegions: ["rightShoulder"] },
-      },
+      placement: placementWith({
+        uncoveredCriticalRegions: ["rightShoulder"],
+      }),
     }))).toEqual({
       decision: "retry",
       reason: "targeted-generation-correction",
@@ -251,7 +265,7 @@ describe("conservative item decisions", () => {
     expect(decideItem(validInput({
       structural: {
         pass: false,
-        itemId: "item-1",
+        failures: [],
         infrastructureError: {
           name: "ReferenceUnavailable",
           message: "locked mannequin is missing",
@@ -302,6 +316,65 @@ describe("conservative item decisions", () => {
     });
   });
 
+  it("quarantines repeated visual artifact failures without cleanup retries", () => {
+    const input = validInput({
+      review: reviewWith({
+        artifacts: {
+          status: "fail",
+          confidence: 0.99,
+          reason: "residue remains after cleanup",
+        },
+      }),
+    });
+    const expected = {
+      decision: "quarantine",
+      reason: "unsupported-correction",
+      failedRegions: ["artifacts"],
+    };
+
+    expect(decideItem(input)).toEqual(expected);
+    expect(decideItem(input)).toEqual(expected);
+  });
+
+  it.each([
+    {
+      name: "forbidden-region coverage",
+      metrics: { forbiddenRegionViolations: ["face"] },
+    },
+    {
+      name: "any clipping",
+      metrics: { clippingFraction: Number.EPSILON },
+    },
+  ])("retries placement for $name using actual Task 4 metrics", ({ metrics }) => {
+    expect(decideItem(validInput({
+      placement: placementWith(metrics),
+    }))).toEqual({
+      decision: "retry",
+      reason: "placement-constraint-violation",
+      correction: {
+        target: "placement",
+        preserve: ["product-image", "wear-layer"],
+        consumesGenerationAttempt: false,
+      },
+    });
+  });
+
+  it("quarantines placement violations at the generation budget", () => {
+    expect(decideItem(validInput({
+      placement: placementWith({
+        forbiddenRegionViolations: ["lowerLegs"],
+      }),
+      generationAttempts: 3,
+    }))).toEqual({
+      decision: "quarantine",
+      reason: "generation-budget-exhausted",
+      placementFailures: {
+        forbiddenRegionViolations: ["lowerLegs"],
+        clippingFraction: 0,
+      },
+    });
+  });
+
   it("never requests another generation at or above the attempt limit", () => {
     for (const generationAttempts of [3, 4]) {
       expect(decideItem(validInput({
@@ -330,8 +403,11 @@ describe("correction classification", () => {
     [["torso"], "torso-hem"],
     [["hem"], "torso-hem"],
     [["sourceFidelity"], "source-fidelity"],
-    [["artifacts"], "deterministic-cleanup"],
   ])("maps %j to %s", (regions, target) => {
     expect(classifyCorrection(regions)).toMatchObject({ target });
+  });
+
+  it("does not authorize cleanup from a visual artifact classification", () => {
+    expect(classifyCorrection(["artifacts"])).toBeNull();
   });
 });

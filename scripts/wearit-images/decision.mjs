@@ -16,10 +16,8 @@ export const CRITICAL_REGIONS = Object.freeze([
 const REGION_SET = new Set(CRITICAL_REGIONS);
 const REVIEW_STATUSES = new Set(["pass", "fail", "uncertain"]);
 const CLEANUP_FAILURE_KINDS = new Set([
-  "artifacts",
   "chroma-residue",
-  "cleanup",
-  "detached-pixel-island",
+  "detached-components",
 ]);
 const CORRECTIONS = Object.freeze({
   sourceFidelity: {
@@ -66,11 +64,6 @@ const CORRECTIONS = Object.freeze({
     target: "torso-hem",
     preserve: ["product-image"],
     consumesGenerationAttempt: true,
-  },
-  artifacts: {
-    target: "deterministic-cleanup",
-    preserve: ["product-image", "wear-layer"],
-    consumesGenerationAttempt: false,
   },
 });
 
@@ -131,7 +124,11 @@ function infrastructureDecision(error) {
 }
 
 function cleanupCorrection() {
-  return copyCorrection(CORRECTIONS.artifacts);
+  return {
+    target: "deterministic-cleanup",
+    preserve: ["product-image", "wear-layer"],
+    consumesGenerationAttempt: false,
+  };
 }
 
 export function validateVisualReview(review) {
@@ -246,12 +243,18 @@ export function decideItem({
   const infrastructure = infrastructureError(structural, placement);
   if (infrastructure) return infrastructureDecision(infrastructure);
 
+  if (
+    !Array.isArray(structural.failures)
+    || structural.failures.some((failure) =>
+      typeof failure !== "string" || failure.length === 0)
+  ) {
+    throw new Error("Structural result must contain failure names");
+  }
   if (!structural.pass) {
-    const failure = structural.failure;
     if (
-      isPlainObject(failure)
-      && failure.repairable === true
-      && CLEANUP_FAILURE_KINDS.has(failure.kind)
+      structural.failures.length > 0
+      && structural.failures.every((failure) =>
+        CLEANUP_FAILURE_KINDS.has(failure))
     ) {
       return {
         decision: "retry",
@@ -269,17 +272,53 @@ export function decideItem({
     !isPlainObject(placement)
     || !isPlainObject(placement.metrics)
     || !Array.isArray(placement.metrics.uncoveredCriticalRegions)
+    || !Array.isArray(placement.metrics.forbiddenRegionViolations)
+    || typeof placement.metrics.clippingFraction !== "number"
+    || !Number.isFinite(placement.metrics.clippingFraction)
+    || placement.metrics.clippingFraction < 0
   ) {
     throw new Error(
-      "Placement result must contain uncoveredCriticalRegions",
+      "Placement result must contain valid constraint metrics",
     );
   }
   const placementFailures = placement.metrics.uncoveredCriticalRegions;
   if (placementFailures.some((region) => !REGION_SET.has(region))) {
     throw new Error("Placement contains an unknown critical region");
   }
+  if (placement.metrics.forbiddenRegionViolations.some((region) =>
+    typeof region !== "string" || region.length === 0)) {
+    throw new Error("Placement contains an invalid forbidden region");
+  }
 
   validateVisualReview(review);
+  const globalPlacementFailure = (
+    placement.metrics.forbiddenRegionViolations.length > 0
+    || placement.metrics.clippingFraction > 0
+  );
+  if (globalPlacementFailure) {
+    const failures = {
+      forbiddenRegionViolations: [
+        ...placement.metrics.forbiddenRegionViolations,
+      ],
+      clippingFraction: placement.metrics.clippingFraction,
+    };
+    if (generationAttempts >= maxGenerationAttempts) {
+      return {
+        decision: "quarantine",
+        reason: "generation-budget-exhausted",
+        placementFailures: failures,
+      };
+    }
+    return {
+      decision: "retry",
+      reason: "placement-constraint-violation",
+      correction: {
+        target: "placement",
+        preserve: ["product-image", "wear-layer"],
+        consumesGenerationAttempt: false,
+      },
+    };
+  }
   const reviewFailures = CRITICAL_REGIONS.filter((name) => {
     const result = review.regions[name];
     return (
