@@ -871,6 +871,39 @@ describe("autonomous batch state", () => {
     expect((await initializeBatch(options)).items[0].status).toBe("ready");
   });
 
+  it.each([
+    "run-state.json.lock.reaper.tombstone.4242.11111111-1111-4111-8111-111111111111",
+    "run-state.json.lock.reaper.guard.tombstone.4242.11111111-1111-4111-8111-111111111111",
+  ])("allows orphaned internal lock residue on fresh initialization: %s", async (
+    tombstoneName,
+  ) => {
+    const { options } = await makeOptions();
+    const tombstonePath = path.join(options.workspaceDir, tombstoneName);
+    await mkdir(tombstonePath, { recursive: true });
+    await writeFile(
+      path.join(tombstonePath, "owner.json"),
+      JSON.stringify({ pid: 4242, token: "orphaned" }),
+    );
+
+    expect((await initializeBatch(options)).items[0].status).toBe("ready");
+  });
+
+  it("does not broadly ignore lock-like fresh-workspace files", async () => {
+    const { options } = await makeOptions();
+    await mkdir(options.workspaceDir, { recursive: true });
+    await writeFile(
+      path.join(
+        options.workspaceDir,
+        "run-state.json.lock.reaper.tombstone.not-internal",
+      ),
+      "unexpected",
+    );
+
+    await expect(initializeBatch(options)).rejects.toThrow(
+      /fresh workspace.*unexpected output/i,
+    );
+  });
+
   it.each(["accepted", "quarantined", "failed-infrastructure"])(
     "does not mutate a terminal %s item",
     async (status) => {

@@ -53,6 +53,7 @@ const BATCH_DIRECTORIES = [
 const MANAGED_ROOTS = new Set(
   BATCH_DIRECTORIES.map((directory) => directory.split("/")[0]),
 );
+const INTERNAL_TOMBSTONE_NAME = /^run-state\.json\.lock\.reaper(?:\.guard)?\.tombstone\.[1-9]\d*\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function isContained(parent, candidate) {
   const relative = path.relative(parent, candidate);
@@ -431,6 +432,12 @@ async function assertFreshWorkspace(workspacePath, stateFile) {
   for (const entry of await readdir(workspacePath, { withFileTypes: true })) {
     if (entry.name === lockName && entry.isDirectory()) continue;
     if (entry.name === "intake.json" && entry.isFile()) continue;
+    if (
+      entry.isDirectory()
+      && INTERNAL_TOMBSTONE_NAME.test(entry.name)
+    ) {
+      continue;
+    }
 
     if (MANAGED_ROOTS.has(entry.name)) {
       if (!entry.isDirectory() || entry.isSymbolicLink()) {
