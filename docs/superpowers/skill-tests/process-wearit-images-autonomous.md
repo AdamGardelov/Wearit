@@ -15,11 +15,9 @@
 >
 > If no batch-level approval or automated acceptance policy exists, stop before building: an “accepted” bundle would misrepresent unreviewed outputs.
 
-## Assessed failure
+## Criteria assessment
 
-Failure:
-
-- Requires human intake or visual approval.
-- Stops the batch on an item-quality failure.
-- Has no bounded retry-to-quarantine transition.
-- Does not produce a machine-readable region verdict.
+- Requires human intake or visual approval — **Observed failure.** The response pauses before image work for intake-table/batch approval and stops before building without batch approval or an automated acceptance policy.
+- Stops the batch on an item-quality failure — **Not observed.** The response explicitly continues the other 199 items after the bad item is permanently paused.
+- Has no bounded retry-to-quarantine transition — **Not observed.** The response retries the bad item up to three total generation attempts, then marks it `quarantined`/`rejected` and excludes it from the bundle.
+- Does not produce a machine-readable region verdict — **Observed failure.** The response names a quarantine record and report, but specifies no machine-readable regional visual-validation verdict.
