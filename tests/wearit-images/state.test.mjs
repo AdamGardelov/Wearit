@@ -1,0 +1,290 @@
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  initializeBatch,
+  loadBatch,
+  recordInfrastructureFailure,
+  updateItem,
+} from "../../scripts/wearit-images/state.mjs";
+
+describe("autonomous batch state", () => {
+  const roots = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      roots.splice(0).map((directory) =>
+        rm(directory, { recursive: true, force: true }),
+      ),
+    );
+  });
+
+  async function makeRoot() {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wearit-state-"));
+    roots.push(root);
+    return root;
+  }
+
+  function intake(overrides = {}) {
+    return [{
+      id: "11111111-1111-4111-8111-111111111111",
+      slug: "black-jacket",
+      name: "Black jacket",
+      sources: [{ file: "front.jpg", role: "front" }],
+      ...overrides,
+    }];
+  }
+
+  async function makeOptions() {
+    const root = await makeRoot();
+    const inputDir = path.join(root, "unprocessed", "Jackets");
+    const workspaceDir = path.join(
+      root,
+      "data",
+      "import-work",
+      "jackets-auto",
+    );
+    await mkdir(inputDir, { recursive: true });
+    await writeFile(path.join(inputDir, "front.jpg"), "new source");
+    return {
+      root,
+      options: {
+        inputDir,
+        workspaceDir,
+        batchSlug: "jackets-auto",
+        intake: intake(),
+        now: "2026-07-29T10:00:00.000Z",
+      },
+    };
+  }
+
+  it("builds fresh state only from the explicit Jackets intake", async () => {
+    const { root, options } = await makeOptions();
+    const oldWorkspace = path.join(root, "data", "import-work", "old");
+    await mkdir(oldWorkspace, { recursive: true });
+    await writeFile(path.join(oldWorkspace, "accepted.png"), "old output");
+
+    const state = await initializeBatch(options);
+
+    expect(state).toMatchObject({
+      version: 3,
+      batchSlug: "jackets-auto",
+      inputPath: await realpath(options.inputDir),
+      workspacePath: await realpath(options.workspaceDir),
+      createdAt: "2026-07-29T10:00:00.000Z",
+      updatedAt: "2026-07-29T10:00:00.000Z",
+      stage: "processing",
+      policy: {
+        category: "Jackets",
+        maxGenerationAttempts: 3,
+        acceptanceConfidence: 0.9,
+        auditRate: 0.1,
+        reuseEarlierOutput: false,
+      },
+      infrastructureErrors: [],
+    });
+    expect(state.items).toHaveLength(1);
+    expect(state.items[0]).toMatchObject({
+      id: "11111111-1111-4111-8111-111111111111",
+      slug: "black-jacket",
+      name: "Black jacket",
+      category: "jacket",
+      generationAttempts: 0,
+      status: "ready",
+      acceptedAssets: {},
+      attempts: [],
+      placement: null,
+      review: null,
+      quarantine: null,
+    });
+    expect(state.items[0].sources).toEqual([{
+      path: await realpath(path.join(options.inputDir, "front.jpg")),
+      role: "front",
+      size: Buffer.byteLength("new source"),
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }]);
+    expect(JSON.stringify(state)).not.toContain("accepted.png");
+    expect(await readdir(options.workspaceDir)).toEqual(expect.arrayContaining([
+      "accepted",
+      "attempts",
+      "audit",
+      "quarantine",
+      "reports",
+      "run-state.json",
+    ]));
+    expect((await readdir(oldWorkspace)).sort()).toEqual(["accepted.png"]);
+  });
+
+  it("rejects changed sources when resuming", async () => {
+    const { options } = await makeOptions();
+    await initializeBatch(options);
+    await writeFile(path.join(options.inputDir, "front.jpg"), "changed");
+
+    await expect(initializeBatch(options)).rejects.toThrow(
+      /source drift.*front\.jpg/i,
+    );
+  });
+
+  it("updates one item atomically without losing accepted sibling state", async () => {
+    const root = await makeRoot();
+    const stateFile = path.join(root, "run-state.json");
+    await writeFile(stateFile, JSON.stringify({
+      version: 3,
+      items: [
+        { id: "a", status: "accepted" },
+        { id: "b", status: "ready" },
+      ],
+    }));
+
+    await updateItem(
+      stateFile,
+      "b",
+      (item) => ({ ...item, status: "quarantined" }),
+    );
+
+    const state = await loadBatch(stateFile);
+    expect(state.items).toEqual([
+      { id: "a", status: "accepted" },
+      { id: "b", status: "quarantined" },
+    ]);
+    expect(JSON.parse(await readFile(stateFile, "utf8")).version).toBe(3);
+    expect(
+      (await readdir(root)).filter((name) => name.includes(".tmp")),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ["an absolute filename", "/tmp/front.jpg", /absolute/i],
+    ["an escaping filename", "../front.jpg", /escape/i],
+  ])("rejects %s", async (_description, file, expected) => {
+    const { options } = await makeOptions();
+    options.intake = intake({
+      sources: [{ file, role: "front" }],
+    });
+
+    await expect(initializeBatch(options)).rejects.toThrow(expected);
+  });
+
+  it("rejects a source symlink outside the canonical input directory", async () => {
+    const { root, options } = await makeOptions();
+    const outside = path.join(root, "outside.jpg");
+    await writeFile(outside, "outside");
+    await symlink(outside, path.join(options.inputDir, "linked.jpg"));
+    options.intake = intake({
+      sources: [{ file: "linked.jpg", role: "front" }],
+    });
+
+    await expect(initializeBatch(options)).rejects.toThrow(/outside.*input/i);
+  });
+
+  it("does not create batch directories through workspace symlinks", async () => {
+    const { root, options } = await makeOptions();
+    const outside = path.join(root, "outside-workspace");
+    await mkdir(outside);
+    await mkdir(options.workspaceDir, { recursive: true });
+    await symlink(outside, path.join(options.workspaceDir, "accepted"));
+
+    await expect(initializeBatch(options)).rejects.toThrow(
+      /workspace.*symlink/i,
+    );
+    await expect(
+      lstat(path.join(outside, "product-images")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects duplicate source membership, ids, and slugs", async () => {
+    const { options } = await makeOptions();
+    const baseItem = intake()[0];
+
+    await expect(initializeBatch({
+      ...options,
+      intake: [{
+        ...baseItem,
+        sources: [
+          { file: "front.jpg", role: "front" },
+          { file: "front.jpg", role: "detail" },
+        ],
+      }],
+    })).rejects.toThrow(/duplicate source/i);
+
+    await expect(initializeBatch({
+      ...options,
+      intake: [
+        baseItem,
+        { ...baseItem, slug: "another-jacket" },
+      ],
+    })).rejects.toThrow(/duplicate id/i);
+
+    await expect(initializeBatch({
+      ...options,
+      intake: [
+        baseItem,
+        { ...baseItem, id: "22222222-2222-4222-8222-222222222222" },
+      ],
+    })).rejects.toThrow(/duplicate slug/i);
+  });
+
+  it("rejects input directories outside the Jackets pilot category", async () => {
+    const { options } = await makeOptions();
+    const shirts = path.join(path.dirname(options.inputDir), "Shirts");
+    await mkdir(shirts);
+    await writeFile(path.join(shirts, "front.jpg"), "new source");
+
+    await expect(initializeBatch({
+      ...options,
+      inputDir: shirts,
+    })).rejects.toThrow(/Jackets/);
+  });
+
+  it.each(["accepted", "quarantined"])(
+    "does not mutate a terminal %s item",
+    async (status) => {
+      const root = await makeRoot();
+      const stateFile = path.join(root, "run-state.json");
+      await writeFile(stateFile, JSON.stringify({
+        version: 3,
+        items: [{ id: "a", status }],
+      }));
+
+      await expect(updateItem(
+        stateFile,
+        "a",
+        (item) => ({ ...item, status: "ready" }),
+      )).rejects.toThrow(/terminal item/i);
+
+      expect((await loadBatch(stateFile)).items[0].status).toBe(status);
+    },
+  );
+
+  it("records infrastructure failures through an atomic state update", async () => {
+    const { options } = await makeOptions();
+    await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+
+    await recordInfrastructureFailure(
+      stateFile,
+      new Error("image service unavailable"),
+    );
+
+    const state = await loadBatch(stateFile);
+    expect(state.infrastructureErrors).toHaveLength(1);
+    expect(state.infrastructureErrors[0]).toMatchObject({
+      name: "Error",
+      message: "image service unavailable",
+    });
+    const persistedState = await readFile(stateFile, "utf8");
+    expect(() => JSON.parse(persistedState)).not.toThrow();
+    expect((await lstat(stateFile)).isFile()).toBe(true);
+  });
+});
