@@ -1,0 +1,520 @@
+import { createHash } from "node:crypto";
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  readFile,
+  realpath,
+  unlink,
+} from "node:fs/promises";
+import { constants } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { initializeBatch, loadBatch, updateItem } from "./state.mjs";
+import { inspectProductImage, inspectWearLayer } from "./image-checks.mjs";
+import { optimizeJacketPlacement } from "./placement.mjs";
+import { decideItem } from "./decision.mjs";
+
+const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
+const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "../..");
+const DEFAULT_PROFILE = path.join(SCRIPT_DIRECTORY, "jacket-profile.json");
+const DEFAULT_MANNEQUIN = path.join(
+  REPOSITORY_ROOT,
+  "public",
+  "mannequin-photoreal.png",
+);
+const TERMINAL_STATUSES = new Set([
+  "accepted",
+  "quarantined",
+  "failed-infrastructure",
+]);
+const COMMAND_OPTIONS = {
+  init: { values: ["input", "workspace", "intake"], flags: [] },
+  next: { values: ["workspace"], flags: [] },
+  "record-asset": {
+    values: ["workspace", "item", "kind", "file"],
+    flags: ["generated"],
+  },
+  inspect: { values: ["workspace", "item"], flags: [] },
+  optimize: { values: ["workspace", "item"], flags: [] },
+  "record-review": {
+    values: ["workspace", "item", "review"],
+    flags: [],
+  },
+  status: { values: ["workspace"], flags: [] },
+};
+
+class UsageError extends Error {}
+
+function parseArguments(argv) {
+  const [command, ...tokens] = argv;
+  const contract = COMMAND_OPTIONS[command];
+  if (!contract) {
+    throw new UsageError(`Unknown or missing command: ${command ?? "(none)"}`);
+  }
+  const values = new Set(contract.values);
+  const flags = new Set(contract.flags);
+  const options = {};
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token.startsWith("--") || token === "--") {
+      throw new UsageError(`Unexpected argument: ${token}`);
+    }
+    const name = token.slice(2);
+    if (Object.hasOwn(options, name)) {
+      throw new UsageError(`Duplicate option: --${name}`);
+    }
+    if (flags.has(name)) {
+      options[name] = true;
+      continue;
+    }
+    if (!values.has(name)) {
+      throw new UsageError(`Unknown option for ${command}: --${name}`);
+    }
+    const value = tokens[index + 1];
+    if (!value || value.startsWith("--")) {
+      throw new UsageError(`Option --${name} requires a value`);
+    }
+    options[name] = value;
+    index += 1;
+  }
+  for (const name of values) {
+    if (!Object.hasOwn(options, name)) {
+      throw new UsageError(`Missing required option: --${name}`);
+    }
+  }
+  return { command, options };
+}
+
+function batchStateFile(workspace) {
+  return path.join(path.resolve(workspace), "run-state.json");
+}
+
+function isContained(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (
+    relative !== ".."
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative)
+  );
+}
+
+async function readJson(file, label) {
+  try {
+    return JSON.parse(await readFile(file, "utf8"));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Malformed ${label} JSON at ${file}`, { cause: error });
+    }
+    throw error;
+  }
+}
+
+async function pathExists(file) {
+  try {
+    await lstat(file);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function itemSummary(item) {
+  return {
+    id: item.id,
+    slug: item.slug,
+    name: item.name,
+    sources: item.sources,
+  };
+}
+
+function latestAssets(item) {
+  const selected = { ...item.acceptedAssets };
+  for (const asset of item.attempts) {
+    if (asset?.kind && asset?.path) selected[asset.kind] = asset;
+  }
+  return selected;
+}
+
+function statusCounts(state) {
+  const counts = {
+    total: state.items.length,
+    ready: 0,
+    generating: 0,
+    processing: 0,
+    placing: 0,
+    reviewing: 0,
+    accepted: 0,
+    quarantined: 0,
+    "failed-infrastructure": 0,
+    terminal: 0,
+  };
+  for (const item of state.items) {
+    counts[item.status] += 1;
+    if (TERMINAL_STATUSES.has(item.status)) counts.terminal += 1;
+  }
+  return counts;
+}
+
+function completionAction(state) {
+  const counts = statusCounts(state);
+  return {
+    action: "complete",
+    counts: {
+      total: counts.total,
+      accepted: counts.accepted,
+      quarantined: counts.quarantined,
+      "failed-infrastructure": counts["failed-infrastructure"],
+      terminal: counts.terminal,
+    },
+  };
+}
+
+function nextAction(state) {
+  const item = state.items.find(
+    ({ status }) => !TERMINAL_STATUSES.has(status),
+  );
+  if (!item) return completionAction(state);
+  const base = { item: itemSummary(item) };
+
+  if (item.status === "ready" || item.status === "generating") {
+    return {
+      action: "generate",
+      ...base,
+      generationAttempt: item.generationAttempts + 1,
+      correction: item.requestedCorrection ?? null,
+      preserve: item.requestedCorrection?.preserve ?? [],
+      acceptedAssets: item.acceptedAssets,
+    };
+  }
+  if (item.status === "processing") {
+    return { action: "inspect", ...base, assets: latestAssets(item) };
+  }
+  if (item.status === "placing") {
+    return {
+      action: "optimize",
+      ...base,
+      wearLayer: latestAssets(item)["wear-layer"] ?? null,
+    };
+  }
+  if (item.status === "reviewing") {
+    return {
+      action: "review",
+      ...base,
+      structural: item.structural ?? null,
+      placement: item.placement ?? null,
+    };
+  }
+  throw new Error(`Unsupported resumable item status: ${item.status}`);
+}
+
+async function loadProfile() {
+  return readJson(
+    process.env.WEARIT_BATCH_PROFILE || DEFAULT_PROFILE,
+    "jacket profile",
+  );
+}
+
+async function commandInit(options) {
+  const resumed = await pathExists(batchStateFile(options.workspace));
+  const state = await initializeBatch({
+    inputDir: options.input,
+    workspaceDir: options.workspace,
+    batchSlug: path.basename(path.resolve(options.workspace)),
+    intake: await readJson(path.resolve(options.intake), "intake"),
+  });
+  return {
+    command: "init",
+    version: state.version,
+    batchSlug: state.batchSlug,
+    workspace: state.workspacePath,
+    total: state.items.length,
+    resumed,
+  };
+}
+
+async function commandNext(options) {
+  return nextAction(await loadBatch(batchStateFile(options.workspace)));
+}
+
+async function canonicalWorkspaceFile(workspace, requestedFile) {
+  const workspacePath = await realpath(workspace);
+  const file = await realpath(requestedFile);
+  if (!isContained(workspacePath, file)) {
+    throw new Error(`Asset file must be inside the batch workspace: ${file}`);
+  }
+  const fileStat = await lstat(file);
+  if (!fileStat.isFile()) throw new Error(`Asset is not a regular file: ${file}`);
+  return { workspacePath, file };
+}
+
+function validateKind(kind) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(kind)) {
+    throw new UsageError(`Invalid asset kind: ${kind}`);
+  }
+}
+
+async function commandRecordAsset(options) {
+  validateKind(options.kind);
+  const statePath = batchStateFile(options.workspace);
+  const state = await loadBatch(statePath);
+  const item = state.items.find(({ id }) => id === options.item);
+  if (!item) throw new Error(`Batch item not found: ${options.item}`);
+  if (
+    options.generated
+    && item.generationAttempts >= state.policy.maxGenerationAttempts
+  ) {
+    throw new Error(
+      `Generation attempt limit reached for ${item.id}`
+      + ` (${state.policy.maxGenerationAttempts})`,
+    );
+  }
+
+  const { workspacePath, file } = await canonicalWorkspaceFile(
+    state.workspacePath,
+    options.file,
+  );
+  const version = item.attempts.filter(
+    ({ kind }) => kind === options.kind,
+  ).length + 1;
+  const extension = path.extname(file).toLowerCase() || ".bin";
+  const attemptDirectory = path.join(workspacePath, "attempts", item.slug);
+  await mkdir(attemptDirectory, { recursive: true });
+  const immutablePath = path.join(
+    attemptDirectory,
+    `${options.kind}-v${String(version).padStart(3, "0")}${extension}`,
+  );
+  await copyFile(file, immutablePath, constants.COPYFILE_EXCL);
+  const content = await readFile(immutablePath);
+  const asset = {
+    kind: options.kind,
+    version,
+    path: await realpath(immutablePath),
+    size: content.byteLength,
+    sha256: createHash("sha256").update(content).digest("hex"),
+    generated: options.generated === true,
+    recordedAt: new Date().toISOString(),
+  };
+
+  try {
+    const updated = await updateItem(statePath, item.id, (current) => ({
+      ...current,
+      generationAttempts: current.generationAttempts
+        + (options.generated ? 1 : 0),
+      status: "processing",
+      attempts: [...current.attempts, asset],
+      structural: null,
+      placement: null,
+      review: null,
+    }));
+    const updatedItem = updated.items.find(({ id }) => id === item.id);
+    return {
+      command: "record-asset",
+      item: itemSummary(updatedItem),
+      asset,
+      generationAttempts: updatedItem.generationAttempts,
+    };
+  } catch (error) {
+    await unlink(immutablePath).catch(() => {});
+    throw error;
+  }
+}
+
+function requireSelectedAssets(item) {
+  const assets = latestAssets(item);
+  for (const kind of ["product-image", "wear-layer"]) {
+    if (!assets[kind]) throw new Error(`Item ${item.id} has no recorded ${kind}`);
+  }
+  return assets;
+}
+
+async function commandInspect(options) {
+  const statePath = batchStateFile(options.workspace);
+  const state = await loadBatch(statePath);
+  const item = state.items.find(({ id }) => id === options.item);
+  if (!item) throw new Error(`Batch item not found: ${options.item}`);
+  const assets = requireSelectedAssets(item);
+  const profile = await loadProfile();
+  const [product, wear] = await Promise.all([
+    inspectProductImage(assets["product-image"].path),
+    inspectWearLayer(assets["wear-layer"].path, {
+      width: profile.canvas.width,
+      height: profile.canvas.height,
+    }),
+  ]);
+  const structural = {
+    itemId: item.id,
+    pass: product.pass && wear.pass,
+    failures: [...new Set([...product.failures, ...wear.failures])],
+    product,
+    wear,
+    assets: {
+      "product-image": assets["product-image"],
+      "wear-layer": assets["wear-layer"],
+    },
+  };
+  await updateItem(statePath, item.id, (current) => ({
+    ...current,
+    status: structural.pass ? "placing" : "reviewing",
+    structural,
+    placement: structural.pass ? current.placement : null,
+  }));
+  return { command: "inspect", item: itemSummary(item), structural };
+}
+
+async function commandOptimize(options) {
+  const statePath = batchStateFile(options.workspace);
+  const state = await loadBatch(statePath);
+  const item = state.items.find(({ id }) => id === options.item);
+  if (!item) throw new Error(`Batch item not found: ${options.item}`);
+  if (!item.structural?.pass) {
+    throw new Error(`Item ${item.id} must pass inspection before optimization`);
+  }
+  const assets = requireSelectedAssets(item);
+  const profile = await loadProfile();
+  const version = (item.placements?.length ?? 0) + 1;
+  const outputDir = path.join(
+    state.workspacePath,
+    "attempts",
+    item.slug,
+    `placement-v${String(version).padStart(3, "0")}`,
+  );
+  const result = await optimizeJacketPlacement({
+    wearLayer: assets["wear-layer"].path,
+    mannequin: process.env.WEARIT_BATCH_MANNEQUIN || DEFAULT_MANNEQUIN,
+    profile,
+    outputDir,
+  });
+  const placement = { itemId: item.id, version, ...result };
+  await updateItem(statePath, item.id, (current) => ({
+    ...current,
+    status: "reviewing",
+    placement,
+    placements: [...(current.placements ?? []), placement],
+  }));
+  return { command: "optimize", item: itemSummary(item), placement };
+}
+
+function deterministicAttempts(item) {
+  return item.deterministicAttempts ?? { cleanup: 0, placement: 0 };
+}
+
+function assetsForKinds(item, kinds) {
+  const assets = latestAssets(item);
+  return Object.fromEntries(
+    kinds.filter((kind) => assets[kind]).map((kind) => [kind, assets[kind]]),
+  );
+}
+
+async function commandRecordReview(options) {
+  const statePath = batchStateFile(options.workspace);
+  const state = await loadBatch(statePath);
+  const item = state.items.find(({ id }) => id === options.item);
+  if (!item) throw new Error(`Batch item not found: ${options.item}`);
+  if (!item.structural) {
+    throw new Error(`Item ${item.id} must be inspected before review`);
+  }
+  const review = await readJson(path.resolve(options.review), "review");
+  const attempts = deterministicAttempts(item);
+  const decision = decideItem({
+    structural: item.structural,
+    placement: item.placement,
+    review,
+    deterministicAttempts: attempts,
+    generationAttempts: item.generationAttempts,
+    maxGenerationAttempts: state.policy.maxGenerationAttempts,
+    minimumConfidence: state.policy.acceptanceConfidence,
+  });
+
+  const updated = await updateItem(statePath, item.id, (current) => {
+    const next = {
+      ...current,
+      review,
+      decision,
+      deterministicAttempts: { ...attempts },
+    };
+    if (decision.decision === "accept") {
+      next.status = "accepted";
+      next.acceptedAssets = {
+        ...current.acceptedAssets,
+        ...assetsForKinds(current, ["product-image", "wear-layer"]),
+      };
+      next.requestedCorrection = null;
+    } else if (decision.decision === "retry") {
+      next.status = decision.correction.target === "placement"
+        ? "placing"
+        : decision.correction.target === "deterministic-cleanup"
+          ? "processing"
+          : "ready";
+      next.acceptedAssets = {
+        ...current.acceptedAssets,
+        ...assetsForKinds(current, decision.correction.preserve),
+      };
+      next.requestedCorrection = decision.correction;
+      if (decision.correction.target === "deterministic-cleanup") {
+        next.deterministicAttempts.cleanup += 1;
+      }
+      if (decision.correction.target === "placement") {
+        next.deterministicAttempts.placement += 1;
+      }
+    } else if (decision.decision === "quarantine") {
+      next.status = "quarantined";
+      next.quarantine = { at: new Date().toISOString(), ...decision };
+      next.requestedCorrection = null;
+    } else {
+      next.status = "failed-infrastructure";
+      next.requestedCorrection = null;
+    }
+    return next;
+  });
+  const updatedItem = updated.items.find(({ id }) => id === item.id);
+  return {
+    command: "record-review",
+    item: itemSummary(updatedItem),
+    status: updatedItem.status,
+    decision,
+    deterministicAttempts: updatedItem.deterministicAttempts,
+    acceptedAssets: updatedItem.acceptedAssets,
+    next: nextAction(updated),
+  };
+}
+
+async function commandStatus(options) {
+  const state = await loadBatch(batchStateFile(options.workspace));
+  return {
+    command: "status",
+    version: state.version,
+    batchSlug: state.batchSlug,
+    counts: statusCounts(state),
+    next: nextAction(state),
+  };
+}
+
+const COMMANDS = {
+  init: commandInit,
+  next: commandNext,
+  "record-asset": commandRecordAsset,
+  inspect: commandInspect,
+  optimize: commandOptimize,
+  "record-review": commandRecordReview,
+  status: commandStatus,
+};
+
+export async function main(argv = process.argv.slice(2)) {
+  const { command, options } = parseArguments(argv);
+  return COMMANDS[command](options);
+}
+
+if (
+  process.argv[1]
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  try {
+    process.stdout.write(`${JSON.stringify(await main())}\n`);
+  } catch (error) {
+    process.stderr.write(`${error.name}: ${error.message}\n`);
+    process.exitCode = error instanceof UsageError ? 2 : 1;
+  }
+}
