@@ -28,6 +28,13 @@ const TERMINAL_STATUSES = new Set([
   "quarantined",
   "failed-infrastructure",
 ]);
+const PRODUCT_KINDS = new Set(["product", "product-image"]);
+const PRODUCT_REGENERATION_TARGETS = new Set([
+  "source-fidelity",
+  "product",
+  "product-image",
+  "product-regeneration",
+]);
 const COMMAND_OPTIONS = {
   init: { values: ["input", "workspace", "intake"], flags: [] },
   next: { values: ["workspace"], flags: [] },
@@ -130,11 +137,24 @@ function itemSummary(item) {
   };
 }
 
+function acceptedProduct(item) {
+  return item.acceptedAssets["product-image"] ?? item.acceptedAssets.product;
+}
+
+function permitsProductRegeneration(item) {
+  return PRODUCT_REGENERATION_TARGETS.has(item.requestedCorrection?.target);
+}
+
 function latestAssets(item) {
   const selected = { ...item.acceptedAssets };
+  const preservedProduct = permitsProductRegeneration(item)
+    ? undefined
+    : acceptedProduct(item);
   for (const asset of item.attempts) {
+    if (PRODUCT_KINDS.has(asset?.kind) && preservedProduct) continue;
     if (asset?.kind && asset?.path) selected[asset.kind] = asset;
   }
+  if (preservedProduct) selected["product-image"] = preservedProduct;
   return selected;
 }
 
@@ -173,6 +193,16 @@ function completionAction(state) {
 }
 
 function nextAction(state) {
+  const infrastructureItem = state.items.find(
+    ({ status }) => status === "failed-infrastructure",
+  );
+  if (infrastructureItem) {
+    return {
+      action: "infrastructure-stop",
+      item: itemSummary(infrastructureItem),
+      infrastructureErrors: state.infrastructureErrors,
+    };
+  }
   const item = state.items.find(
     ({ status }) => !TERMINAL_STATUSES.has(status),
   );
@@ -262,6 +292,13 @@ async function commandRecordAsset(options) {
   const state = await loadBatch(statePath);
   const item = state.items.find(({ id }) => id === options.item);
   if (!item) throw new Error(`Batch item not found: ${options.item}`);
+  if (
+    PRODUCT_KINDS.has(options.kind)
+    && acceptedProduct(item)
+    && !permitsProductRegeneration(item)
+  ) {
+    throw new Error(`Accepted product asset is preserved for ${item.id}`);
+  }
   if (
     options.generated
     && item.generationAttempts >= state.policy.maxGenerationAttempts

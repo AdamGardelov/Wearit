@@ -380,6 +380,16 @@ describe("resumable garment batch CLI", () => {
     });
 
     const staging = path.join(workspace, "staging");
+    const unrelatedProduct = path.join(staging, "unrelated-product.png");
+    await makeProduct(unrelatedProduct);
+    runCli([
+      "record-asset",
+      "--workspace", workspace,
+      "--item", ITEM_1,
+      "--kind", "product-image",
+      "--file", unrelatedProduct,
+    ], { expectedStatus: 1 });
+
     const retryWear = path.join(staging, "wear-retry.png");
     await makeWear(retryWear);
     runCli([
@@ -491,6 +501,33 @@ describe("resumable garment batch CLI", () => {
     expect(state.items[0].deterministicAttempts).toEqual({
       cleanup: 1,
       placement: 0,
+    });
+  });
+
+  it("pauses the whole batch when any item has an infrastructure failure", async () => {
+    await init();
+    const stateFile = path.join(workspace, "run-state.json");
+    const { updateItem } = await import(
+      "../../scripts/wearit-images/state.mjs"
+    );
+    await updateItem(stateFile, ITEM_1, (item) => ({
+      ...item,
+      status: "failed-infrastructure",
+    }));
+
+    expect(runCli(["next", "--workspace", workspace])).toMatchObject({
+      action: "infrastructure-stop",
+      item: { id: ITEM_1 },
+    });
+    expect(runCli(["status", "--workspace", workspace])).toMatchObject({
+      counts: {
+        "failed-infrastructure": 1,
+        ready: 1,
+      },
+      next: {
+        action: "infrastructure-stop",
+        item: { id: ITEM_1 },
+      },
     });
   });
 
