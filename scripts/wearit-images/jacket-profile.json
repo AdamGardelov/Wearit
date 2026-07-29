@@ -1,0 +1,131 @@
+{
+  "canvas": {
+    "width": 887,
+    "height": 1774
+  },
+  "search": {
+    "anchorX": {
+      "min": 0.46,
+      "max": 0.54,
+      "coarseStep": 0.02,
+      "fineStep": 0.01
+    },
+    "anchorY": {
+      "min": 0.46,
+      "max": 0.54,
+      "coarseStep": 0.02,
+      "fineStep": 0.01
+    },
+    "scale": {
+      "min": 0.9,
+      "max": 1.1,
+      "coarseStep": 0.05,
+      "fineStep": 0.01
+    },
+    "rotationDegrees": [
+      0
+    ],
+    "keepBest": 5,
+    "previewCount": 2
+  },
+  "criticalRegions": [
+    {
+      "name": "leftShoulder",
+      "x": 205,
+      "y": 300,
+      "width": 150,
+      "height": 150,
+      "minCoverage": 0.42,
+      "seedMinCoverage": 0.72
+    },
+    {
+      "name": "rightShoulder",
+      "x": 532,
+      "y": 300,
+      "width": 150,
+      "height": 150,
+      "minCoverage": 0.4,
+      "seedMinCoverage": 0.72
+    },
+    {
+      "name": "leftSleeve",
+      "x": 135,
+      "y": 430,
+      "width": 145,
+      "height": 330,
+      "minCoverage": 0.36,
+      "seedMinCoverage": 0.68
+    },
+    {
+      "name": "rightSleeve",
+      "x": 607,
+      "y": 430,
+      "width": 145,
+      "height": 330,
+      "minCoverage": 0.3,
+      "seedMinCoverage": 0.68
+    },
+    {
+      "name": "leftCuff",
+      "x": 120,
+      "y": 760,
+      "width": 145,
+      "height": 120,
+      "minCoverage": 0.41,
+      "seedMinCoverage": 0.55
+    },
+    {
+      "name": "rightCuff",
+      "x": 622,
+      "y": 760,
+      "width": 145,
+      "height": 120,
+      "minCoverage": 0.33,
+      "seedMinCoverage": 0.55
+    },
+    {
+      "name": "torso",
+      "x": 270,
+      "y": 390,
+      "width": 347,
+      "height": 520,
+      "minCoverage": 0.75,
+      "seedMinCoverage": 0.78
+    }
+  ],
+  "forbiddenRegions": [
+    {
+      "name": "face",
+      "x": 320,
+      "y": 50,
+      "width": 247,
+      "height": 250,
+      "maxCoverage": 0.02
+    },
+    {
+      "name": "lowerLegs",
+      "x": 250,
+      "y": 1120,
+      "width": 387,
+      "height": 570,
+      "maxCoverage": 0.02
+    }
+  ],
+  "scoring": {
+    "requiredCoverageWeight": 1,
+    "uncoveredCriticalPenalty": 2,
+    "forbiddenCoveragePenalty": 12,
+    "clippingPenalty": 12,
+    "asymmetryPenalty": 1.5,
+    "neutralDistancePenalty": 0.35,
+    "scaleNeutralDistancePenalty": 3
+  },
+  "calibration": {
+    "reason": "The two user-accepted neutral jacket layers establish lower alpha occupancy inside the approved seed rectangles.",
+    "method": "Each active minimum is the lower accepted neutral occupancy rounded down to the nearest 0.01; seedMinCoverage preserves the approved seed value.",
+    "evidence": [
+      "data/import-work/jackets-reprocess-20260728/wear-layers/black-white-boucle-blazer.png",
+      "data/import-work/jackets-reprocess-20260728/wear-layers/black-pinstripe-blazer-v2.png"
+    ]
+  }
+}
