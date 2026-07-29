@@ -215,6 +215,7 @@ export function decideItem({
   structural,
   placement,
   review,
+  deterministicAttempts = { cleanup: 0, placement: 0 },
   generationAttempts,
   maxGenerationAttempts = 3,
   minimumConfidence = 0.9,
@@ -226,6 +227,17 @@ export function decideItem({
     || maxGenerationAttempts < 1
   ) {
     throw new Error("Generation attempts must be non-negative integers");
+  }
+  if (
+    !isPlainObject(deterministicAttempts)
+    || !Number.isInteger(deterministicAttempts.cleanup)
+    || deterministicAttempts.cleanup < 0
+    || !Number.isInteger(deterministicAttempts.placement)
+    || deterministicAttempts.placement < 0
+  ) {
+    throw new Error(
+      "Deterministic attempts must contain non-negative integers",
+    );
   }
   if (
     typeof minimumConfidence !== "number"
@@ -256,6 +268,14 @@ export function decideItem({
       && structural.failures.every((failure) =>
         CLEANUP_FAILURE_KINDS.has(failure))
     ) {
+      if (deterministicAttempts.cleanup >= 1) {
+        return {
+          decision: "quarantine",
+          reason: "deterministic-no-progress",
+          deterministicStage: "cleanup",
+          structuralFailures: [...structural.failures],
+        };
+      }
       return {
         decision: "retry",
         reason: "repairable-structural-failure",
@@ -302,6 +322,14 @@ export function decideItem({
       ],
       clippingFraction: placement.metrics.clippingFraction,
     };
+    if (deterministicAttempts.placement >= 1) {
+      return {
+        decision: "quarantine",
+        reason: "deterministic-no-progress",
+        deterministicStage: "placement",
+        placementFailures: failures,
+      };
+    }
     if (generationAttempts >= maxGenerationAttempts) {
       return {
         decision: "quarantine",

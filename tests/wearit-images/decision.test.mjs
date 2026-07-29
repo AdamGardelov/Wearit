@@ -64,6 +64,7 @@ function validInput(overrides = {}) {
     structural: { pass: true, failures: [] },
     placement: placementWith(),
     review: reviewWith(),
+    deterministicAttempts: { cleanup: 0, placement: 0 },
     generationAttempts: 1,
     ...overrides,
   };
@@ -125,6 +126,29 @@ describe("visual review validation", () => {
     expect(() => decideItem(validInput({
       review: reviewWith({}, { itemId: "item-2" }),
     }))).toThrow(/itemId.*match/i);
+  });
+
+  it.each([
+    { cleanup: -1, placement: 0 },
+    { cleanup: 0.5, placement: 0 },
+    { cleanup: 0, placement: -1 },
+    { cleanup: 0, placement: 0.5 },
+    { cleanup: 0 },
+    null,
+  ])("rejects invalid deterministic attempt state %#", (attempts) => {
+    expect(() => decideItem(validInput({
+      deterministicAttempts: attempts,
+    }))).toThrow(/deterministic attempts.*non-negative integers/i);
+  });
+
+  it("defaults deterministic attempt counts to zero", () => {
+    const input = validInput();
+    delete input.deterministicAttempts;
+
+    expect(decideItem(input)).toEqual({
+      decision: "accept",
+      reason: "all-critical-regions-pass",
+    });
   });
 });
 
@@ -206,12 +230,17 @@ describe("conservative item decisions", () => {
     });
   });
 
-  it.each(["chroma-residue", "detached-components"])(
-    "maps actual inspector failure %s to cleanup without generation",
-    (failure) => {
+  it.each([
+    ["chroma-residue", 1],
+    ["chroma-residue", 2],
+    ["detached-components", 1],
+    ["detached-components", 2],
+  ])(
+    "maps inspector failure %s to first cleanup at generation %i",
+    (failure, generationAttempts) => {
       expect(decideItem(validInput({
         structural: { pass: false, failures: [failure] },
-        generationAttempts: 3,
+        generationAttempts,
       }))).toEqual({
         decision: "retry",
         reason: "repairable-structural-failure",
@@ -220,6 +249,22 @@ describe("conservative item decisions", () => {
           preserve: ["product-image", "wear-layer"],
           consumesGenerationAttempt: false,
         },
+      });
+    },
+  );
+
+  it.each([1, 2])(
+    "quarantines cleanup no-progress at generation %i",
+    (generationAttempts) => {
+      expect(decideItem(validInput({
+        structural: { pass: false, failures: ["chroma-residue"] },
+        deterministicAttempts: { cleanup: 1, placement: 0 },
+        generationAttempts,
+      }))).toEqual({
+        decision: "quarantine",
+        reason: "deterministic-no-progress",
+        deterministicStage: "cleanup",
+        structuralFailures: ["chroma-residue"],
       });
     },
   );
@@ -358,6 +403,44 @@ describe("conservative item decisions", () => {
       },
     });
   });
+
+  it("allows a first placement retry at generation two", () => {
+    expect(decideItem(validInput({
+      placement: placementWith({
+        forbiddenRegionViolations: ["face"],
+      }),
+      generationAttempts: 2,
+    }))).toEqual({
+      decision: "retry",
+      reason: "placement-constraint-violation",
+      correction: {
+        target: "placement",
+        preserve: ["product-image", "wear-layer"],
+        consumesGenerationAttempt: false,
+      },
+    });
+  });
+
+  it.each([1, 2])(
+    "quarantines placement no-progress at generation %i",
+    (generationAttempts) => {
+      expect(decideItem(validInput({
+        placement: placementWith({
+          forbiddenRegionViolations: ["face"],
+        }),
+        deterministicAttempts: { cleanup: 0, placement: 1 },
+        generationAttempts,
+      }))).toEqual({
+        decision: "quarantine",
+        reason: "deterministic-no-progress",
+        deterministicStage: "placement",
+        placementFailures: {
+          forbiddenRegionViolations: ["face"],
+          clippingFraction: 0,
+        },
+      });
+    },
+  );
 
   it("quarantines placement violations at the generation budget", () => {
     expect(decideItem(validInput({
