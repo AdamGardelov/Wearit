@@ -2,7 +2,10 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  readdir,
+  rename,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
@@ -320,6 +323,33 @@ describe("resumable garment batch CLI", () => {
     expect(state.items[0].attempts).toHaveLength(3);
   });
 
+  it("refuses to write an asset through a replaced attempts symlink", async () => {
+    await init();
+    const outside = path.join(root, "outside-attempts");
+    await mkdir(outside);
+    await rm(path.join(workspace, "attempts"), { recursive: true });
+    await symlink(outside, path.join(workspace, "attempts"), "dir");
+    const staging = path.join(workspace, "staging");
+    await mkdir(staging);
+    const product = path.join(staging, "product.png");
+    await makeProduct(product);
+
+    runCli([
+      "record-asset",
+      "--workspace", workspace,
+      "--item", ITEM_1,
+      "--kind", "product-image",
+      "--file", product,
+    ], { expectedStatus: 1 });
+
+    expect(await readdir(outside)).toEqual([]);
+    const state = JSON.parse(
+      await readFile(path.join(workspace, "run-state.json"), "utf8"),
+    );
+    expect(state.items[0].attempts).toEqual([]);
+    expect(state.infrastructureErrors).toEqual([]);
+  });
+
   it("records real inspection metrics and one real optimized preview", async () => {
     await init();
     await stageAssets(ITEM_1);
@@ -504,20 +534,39 @@ describe("resumable garment batch CLI", () => {
     });
   });
 
-  it("pauses the whole batch when any item has an infrastructure failure", async () => {
+  it("persists an optimize infrastructure failure and never writes through an item symlink", async () => {
     await init();
+    await stageAssets(ITEM_1);
+    runCli([
+      "inspect",
+      "--workspace", workspace,
+      "--item", ITEM_1,
+    ], { env: optimizerEnv });
+
+    const itemAttempts = path.join(workspace, "attempts", "first-jacket");
+    const outside = path.join(root, "outside-item-attempts");
+    await rename(itemAttempts, outside);
+    const originalOutsideFiles = (await readdir(outside)).sort();
+    await symlink(outside, itemAttempts, "dir");
+    runCli([
+      "optimize",
+      "--workspace", workspace,
+      "--item", ITEM_1,
+    ], { env: optimizerEnv, expectedStatus: 1 });
+
     const stateFile = path.join(workspace, "run-state.json");
-    const { updateItem } = await import(
-      "../../scripts/wearit-images/state.mjs"
+    const state = JSON.parse(await readFile(stateFile, "utf8"));
+    expect(state.items[0].status).toBe("failed-infrastructure");
+    expect(state.infrastructureErrors).toHaveLength(1);
+    expect(state.infrastructureErrors[0].message).toMatch(
+      /optimize.*first-jacket.*symlink/i,
     );
-    await updateItem(stateFile, ITEM_1, (item) => ({
-      ...item,
-      status: "failed-infrastructure",
-    }));
+    expect((await readdir(outside)).sort()).toEqual(originalOutsideFiles);
 
     expect(runCli(["next", "--workspace", workspace])).toMatchObject({
       action: "infrastructure-stop",
       item: { id: ITEM_1 },
+      infrastructureErrors: [{ message: expect.stringContaining("optimize") }],
     });
     expect(runCli(["status", "--workspace", workspace])).toMatchObject({
       counts: {

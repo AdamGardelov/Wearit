@@ -10,7 +10,12 @@ import {
 import { constants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { initializeBatch, loadBatch, updateItem } from "./state.mjs";
+import {
+  initializeBatch,
+  loadBatch,
+  recordInfrastructureFailure,
+  updateItem,
+} from "./state.mjs";
 import { inspectProductImage, inspectWearLayer } from "./image-checks.mjs";
 import { optimizeJacketPlacement } from "./placement.mjs";
 import { decideItem } from "./decision.mjs";
@@ -196,10 +201,10 @@ function nextAction(state) {
   const infrastructureItem = state.items.find(
     ({ status }) => status === "failed-infrastructure",
   );
-  if (infrastructureItem) {
+  if (infrastructureItem || state.infrastructureErrors.length > 0) {
     return {
       action: "infrastructure-stop",
-      item: itemSummary(infrastructureItem),
+      item: infrastructureItem ? itemSummary(infrastructureItem) : null,
       infrastructureErrors: state.infrastructureErrors,
     };
   }
@@ -280,6 +285,61 @@ async function canonicalWorkspaceFile(workspace, requestedFile) {
   return { workspacePath, file };
 }
 
+async function validateManagedDirectory(workspacePath, directory) {
+  const workspaceCanonical = await realpath(workspacePath);
+  if (workspaceCanonical !== workspacePath) {
+    throw new Error(`Workspace path is no longer canonical: ${workspacePath}`);
+  }
+  const directoryStat = await lstat(directory);
+  if (directoryStat.isSymbolicLink()) {
+    throw new Error(`Managed workspace directory is a symlink: ${directory}`);
+  }
+  if (!directoryStat.isDirectory()) {
+    throw new Error(`Managed workspace path is not a directory: ${directory}`);
+  }
+  const canonical = await realpath(directory);
+  if (!isContained(workspaceCanonical, canonical)) {
+    throw new Error(`Managed directory escapes workspace: ${directory}`);
+  }
+  return canonical;
+}
+
+async function ensureManagedDirectory(workspacePath, segments) {
+  let current = workspacePath;
+  await validateManagedDirectory(workspacePath, current);
+  for (const segment of segments) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(segment)) {
+      throw new Error(`Invalid managed directory segment: ${segment}`);
+    }
+    const candidate = path.join(current, segment);
+    try {
+      await validateManagedDirectory(workspacePath, candidate);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      await validateManagedDirectory(workspacePath, current);
+      await mkdir(candidate);
+      await validateManagedDirectory(workspacePath, candidate);
+    }
+    current = candidate;
+  }
+  return current;
+}
+
+async function failInfrastructure(statePath, item, command, cause) {
+  const error = new Error(
+    `${command} infrastructure failure for ${item.slug} (${item.id}):`
+      + ` ${cause.message}`,
+    { cause },
+  );
+  error.name = cause.name || "InfrastructureError";
+  await updateItem(statePath, item.id, (current) => ({
+    ...current,
+    status: "failed-infrastructure",
+  }));
+  await recordInfrastructureFailure(statePath, error);
+  return error;
+}
+
 function validateKind(kind) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(kind)) {
     throw new UsageError(`Invalid asset kind: ${kind}`);
@@ -317,13 +377,15 @@ async function commandRecordAsset(options) {
     ({ kind }) => kind === options.kind,
   ).length + 1;
   const extension = path.extname(file).toLowerCase() || ".bin";
-  const attemptDirectory = path.join(workspacePath, "attempts", item.slug);
-  await mkdir(attemptDirectory, { recursive: true });
+  const attemptDirectory = await ensureManagedDirectory(
+    workspacePath, ["attempts", item.slug],
+  );
   const immutablePath = path.join(
     attemptDirectory,
     `${options.kind}-v${String(version).padStart(3, "0")}${extension}`,
   );
   await copyFile(file, immutablePath, constants.COPYFILE_EXCL);
+  await ensureManagedDirectory(workspacePath, ["attempts", item.slug]);
   const content = await readFile(immutablePath);
   const asset = {
     kind: options.kind,
@@ -373,14 +435,20 @@ async function commandInspect(options) {
   const item = state.items.find(({ id }) => id === options.item);
   if (!item) throw new Error(`Batch item not found: ${options.item}`);
   const assets = requireSelectedAssets(item);
-  const profile = await loadProfile();
-  const [product, wear] = await Promise.all([
-    inspectProductImage(assets["product-image"].path),
-    inspectWearLayer(assets["wear-layer"].path, {
-      width: profile.canvas.width,
-      height: profile.canvas.height,
-    }),
-  ]);
+  let product;
+  let wear;
+  try {
+    const profile = await loadProfile();
+    [product, wear] = await Promise.all([
+      inspectProductImage(assets["product-image"].path),
+      inspectWearLayer(assets["wear-layer"].path, {
+        width: profile.canvas.width,
+        height: profile.canvas.height,
+      }),
+    ]);
+  } catch (error) {
+    throw await failInfrastructure(statePath, item, "inspect", error);
+  }
   const structural = {
     itemId: item.id,
     pass: product.pass && wear.pass,
@@ -410,20 +478,26 @@ async function commandOptimize(options) {
     throw new Error(`Item ${item.id} must pass inspection before optimization`);
   }
   const assets = requireSelectedAssets(item);
-  const profile = await loadProfile();
   const version = (item.placements?.length ?? 0) + 1;
-  const outputDir = path.join(
-    state.workspacePath,
-    "attempts",
-    item.slug,
-    `placement-v${String(version).padStart(3, "0")}`,
-  );
-  const result = await optimizeJacketPlacement({
-    wearLayer: assets["wear-layer"].path,
-    mannequin: process.env.WEARIT_BATCH_MANNEQUIN || DEFAULT_MANNEQUIN,
-    profile,
-    outputDir,
-  });
+  const placementDirectory = `placement-v${String(version).padStart(3, "0")}`;
+  let result;
+  try {
+    const profile = await loadProfile();
+    const outputDir = await ensureManagedDirectory(
+      state.workspacePath, ["attempts", item.slug, placementDirectory],
+    );
+    await ensureManagedDirectory(
+      state.workspacePath, ["attempts", item.slug, placementDirectory],
+    );
+    result = await optimizeJacketPlacement({
+      wearLayer: assets["wear-layer"].path,
+      mannequin: process.env.WEARIT_BATCH_MANNEQUIN || DEFAULT_MANNEQUIN,
+      profile,
+      outputDir,
+    });
+  } catch (error) {
+    throw await failInfrastructure(statePath, item, "optimize", error);
+  }
   const placement = { itemId: item.id, version, ...result };
   await updateItem(statePath, item.id, (current) => ({
     ...current,
@@ -506,7 +580,20 @@ async function commandRecordReview(options) {
     }
     return next;
   });
-  const updatedItem = updated.items.find(({ id }) => id === item.id);
+  let finalState = updated;
+  if (decision.decision === "stop") {
+    const cause = new Error(decision.error.message);
+    cause.name = decision.error.name;
+    const error = new Error(
+      `record-review infrastructure failure for ${item.slug} (${item.id}):`
+        + ` ${cause.message}`,
+      { cause },
+    );
+    error.name = cause.name;
+    await recordInfrastructureFailure(statePath, error);
+    finalState = await loadBatch(statePath);
+  }
+  const updatedItem = finalState.items.find(({ id }) => id === item.id);
   return {
     command: "record-review",
     item: itemSummary(updatedItem),
@@ -514,7 +601,7 @@ async function commandRecordReview(options) {
     decision,
     deterministicAttempts: updatedItem.deterministicAttempts,
     acceptedAssets: updatedItem.acceptedAssets,
-    next: nextAction(updated),
+    next: nextAction(finalState),
   };
 }
 
