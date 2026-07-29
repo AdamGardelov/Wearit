@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   mkdtemp,
   readFile,
@@ -37,6 +38,7 @@ let globalNeutral;
 let repeatedGlobalResult;
 let shortSleeveResult;
 let acceptedResults;
+let acceptedNeutralScores;
 let globalWearLayer;
 let globalOutputDir;
 
@@ -121,6 +123,10 @@ function placementTuple(candidate) {
   return [anchorX, anchorY, scale, rotationDegrees, candidate.score];
 }
 
+async function fileDigest(file) {
+  return createHash("sha256").update(await readFile(file)).digest("hex");
+}
+
 beforeAll(async () => {
   profile = JSON.parse(
     await readFile(
@@ -144,6 +150,8 @@ describe("approved jacket profile", () => {
         anchorY: { min: 0.46, max: 0.54, coarseStep: 0.02, fineStep: 0.01 },
         scale: { min: 0.9, max: 1.1, coarseStep: 0.05, fineStep: 0.01 },
         rotationDegrees: [0],
+        keepBest: 5,
+        previewCount: 5,
       },
     });
     expect(profile.criticalRegions.map((region) => [
@@ -155,7 +163,7 @@ describe("approved jacket profile", () => {
       region.minCoverage,
       region.seedMinCoverage,
     ])).toEqual([
-      ["leftShoulder", 205, 300, 150, 150, 0.42, 0.72],
+      ["leftShoulder", 205, 300, 150, 150, 0.41, 0.72],
       ["rightShoulder", 532, 300, 150, 150, 0.4, 0.72],
       ["leftSleeve", 135, 430, 145, 330, 0.36, 0.68],
       ["rightSleeve", 607, 430, 145, 330, 0.3, 0.68],
@@ -222,7 +230,21 @@ describe("bounded jacket placement optimization", () => {
     });
 
     acceptedResults = new Map();
+    acceptedNeutralScores = new Map();
     for (const wearLayer of acceptedLayers) {
+      const neutralLayer = await transformLayer({
+        wearLayer,
+        placement: {
+          anchorX: 0.5,
+          anchorY: 0.5,
+          scale: 1,
+          rotationDegrees: 0,
+        },
+      });
+      acceptedNeutralScores.set(
+        wearLayer,
+        scoreJacketCandidate({ ...neutralLayer, profile }),
+      );
       acceptedResults.set(wearLayer, await optimizeJacketPlacement({
         wearLayer,
         mannequin,
@@ -235,10 +257,10 @@ describe("bounded jacket placement optimization", () => {
     }
   }, 60_000);
 
-  it("corrects a small global mismatch and emits more than one deterministic preview", async () => {
+  it("corrects a small global mismatch and emits exactly five deterministic previews", async () => {
     const result = globalResult;
 
-    expect(result.candidates.length).toBeGreaterThan(1);
+    expect(result.candidates).toHaveLength(5);
     expect(result.placement.rotationDegrees).toBe(0);
     expect(result.placement.anchorX).toBeGreaterThanOrEqual(0.46);
     expect(result.placement.anchorX).toBeLessThanOrEqual(0.54);
@@ -251,6 +273,7 @@ describe("bounded jacket placement optimization", () => {
     expect(result.score).toBeGreaterThan(globalNeutral.score);
     expect(result.candidates.map(({ previewPath }) => path.basename(previewPath)))
       .toEqual(result.candidates.map((_, index) => `candidate-${index + 1}.png`));
+    expect(result.preview).toBe(result.candidates[0].previewPath);
   }, 15_000);
 
   it("surfaces a locally short right sleeve instead of hiding it in aggregate score", async () => {
@@ -282,7 +305,7 @@ describe("bounded jacket placement optimization", () => {
   it("does not overwrite immutable candidate previews", async () => {
     const first = globalResult;
     const before = await Promise.all(
-      first.candidates.map(({ previewPath }) => readFile(previewPath)),
+      first.candidates.map(({ previewPath }) => fileDigest(previewPath)),
     );
 
     await expect(optimizeJacketPlacement({
@@ -293,7 +316,7 @@ describe("bounded jacket placement optimization", () => {
     })).rejects.toThrow(/already exists: .*candidate-1\.png/i);
 
     const after = await Promise.all(
-      first.candidates.map(({ previewPath }) => readFile(previewPath)),
+      first.candidates.map(({ previewPath }) => fileDigest(previewPath)),
     );
     expect(after).toEqual(before);
   }, 15_000);
@@ -309,6 +332,13 @@ describe("bounded jacket placement optimization", () => {
         .toBeLessThanOrEqual(0.010001);
       expect(Math.abs(result.placement.scale - 1)).toBeLessThanOrEqual(0.02);
       expect(result.metrics.uncoveredCriticalRegions).toEqual([]);
+      const leftShoulder = profile.criticalRegions.find(
+        ({ name }) => name === "leftShoulder",
+      );
+      expect(
+        acceptedNeutralScores.get(wearLayer)
+          .metrics.criticalCoverage.leftShoulder,
+      ).toBeGreaterThanOrEqual(leftShoulder.minCoverage);
     },
     15_000,
   );

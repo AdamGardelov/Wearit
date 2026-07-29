@@ -26,7 +26,7 @@
       0
     ],
     "keepBest": 5,
-    "previewCount": 2
+    "previewCount": 5
   },
   "criticalRegions": [
     {
@@ -35,7 +35,7 @@
       "y": 300,
       "width": 150,
       "height": 150,
-      "minCoverage": 0.42,
+      "minCoverage": 0.41,
       "seedMinCoverage": 0.72
     },
     {

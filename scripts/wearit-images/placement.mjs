@@ -571,6 +571,7 @@ export async function optimizeJacketPlacement({
 
   return {
     placement: candidates[0].placement,
+    preview: candidates[0].previewPath,
     score: candidates[0].score,
     metrics: candidates[0].metrics,
     candidates,
