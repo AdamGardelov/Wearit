@@ -9,6 +9,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { fork } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,6 +19,10 @@ import {
   recordInfrastructureFailure,
   updateItem,
 } from "../../scripts/wearit-images/state.mjs";
+
+const UPDATE_WORKER = path.resolve(
+  "tests/wearit-images/fixtures/update-worker.mjs",
+);
 
 describe("autonomous batch state", () => {
   const roots = [];
@@ -87,6 +92,60 @@ describe("autonomous batch state", () => {
     return fixture;
   }
 
+  function startUpdateWorker(stateFile, itemId, status) {
+    const child = fork(UPDATE_WORKER, [stateFile, itemId, status], {
+      stdio: ["ignore", "ignore", "inherit", "ipc"],
+    });
+    const queued = [];
+    const waiters = new Map();
+
+    child.on("message", (message) => {
+      const waiter = waiters.get(message.type);
+      if (waiter) {
+        waiters.delete(message.type);
+        waiter.resolve(message);
+      } else {
+        queued.push(message);
+      }
+    });
+
+    const exited = new Promise((resolve, reject) => {
+      child.once("exit", (code, signal) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(
+            `Update worker exited with code ${code} and signal ${signal}`,
+          ));
+        }
+      });
+    });
+
+    return {
+      child,
+      exited,
+      wait(type) {
+        const index = queued.findIndex((message) => message.type === type);
+        if (index !== -1) {
+          return Promise.resolve(queued.splice(index, 1)[0]);
+        }
+        return new Promise((resolve, reject) => {
+          waiters.set(type, { resolve, reject });
+        });
+      },
+    };
+  }
+
+  async function exists(file) {
+    try {
+      await lstat(file);
+      return true;
+    } catch (error) {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    }
+  }
+
   it("builds fresh state only from the explicit Jackets intake", async () => {
     const { root, options } = await makeOptions();
     const oldWorkspace = path.join(root, "data", "import-work", "old");
@@ -147,39 +206,139 @@ describe("autonomous batch state", () => {
   it("rejects changed sources when resuming", async () => {
     const { options } = await makeOptions();
     await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
     await writeFile(path.join(options.inputDir, "front.jpg"), "changed");
 
     await expect(initializeBatch(options)).rejects.toThrow(
-      /source drift.*front\.jpg/i,
+      new RegExp(`source drift.*${path.basename(stateFile)}.*front\\.jpg`, "i"),
+    );
+  });
+
+  it("wraps malformed JSON errors with the state path", async () => {
+    const { options } = await makeOptions();
+    await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    await writeFile(stateFile, "{");
+
+    await expect(loadBatch(stateFile)).rejects.toThrow(
+      new RegExp(`malformed.*${path.basename(stateFile)}`, "i"),
+    );
+  });
+
+  it.each([
+    ["input", async ({ options }) => {
+      await rm(options.inputDir, { recursive: true });
+    }],
+    ["workspace", async ({ root, state }) => {
+      state.workspacePath = path.join(root, "missing-workspace");
+    }],
+  ])("wraps missing canonical %s errors with the state path", async (
+    field,
+    arrange,
+  ) => {
+    const { root, options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    await arrange({ root, options, state });
+    await writeFile(stateFile, JSON.stringify(state));
+
+    await expect(loadBatch(stateFile)).rejects.toThrow(
+      new RegExp(`invalid batch state.*${path.basename(stateFile)}.*${field}`, "i"),
     );
   });
 
   it("updates one item atomically without losing accepted sibling state", async () => {
-    const root = await makeRoot();
-    const stateFile = path.join(root, "run-state.json");
-    await writeFile(stateFile, JSON.stringify({
-      version: 3,
-      items: [
-        { id: "a", status: "accepted" },
-        { id: "b", status: "ready" },
-      ],
-    }));
+    const { options } = await makeTwoItemOptions();
+    const initialized = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    await updateItem(
+      stateFile,
+      initialized.items[0].id,
+      (item) => ({ ...item, status: "accepted" }),
+    );
 
     await updateItem(
       stateFile,
-      "b",
+      initialized.items[1].id,
       (item) => ({ ...item, status: "quarantined" }),
     );
 
     const state = await loadBatch(stateFile);
-    expect(state.items).toEqual([
-      { id: "a", status: "accepted" },
-      { id: "b", status: "quarantined" },
+    expect(state.items.map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: initialized.items[0].id, status: "accepted" },
+      { id: initialized.items[1].id, status: "quarantined" },
     ]);
     expect(JSON.parse(await readFile(stateFile, "utf8")).version).toBe(3);
     expect(
-      (await readdir(root)).filter((name) => name.includes(".tmp")),
+      (await readdir(options.workspaceDir))
+        .filter((name) => name.includes(".tmp")),
     ).toEqual([]);
+  });
+
+  it("preserves concurrent cross-process item updates", async () => {
+    const { options } = await makeTwoItemOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const lockPath = `${stateFile}.lock`;
+    const first = startUpdateWorker(
+      stateFile,
+      state.items[0].id,
+      "reviewing",
+    );
+    await first.wait("started");
+    await first.wait("entered");
+
+    const second = startUpdateWorker(
+      stateFile,
+      state.items[1].id,
+      "reviewing",
+    );
+    await second.wait("started");
+
+    if (await exists(lockPath)) {
+      first.child.send({ type: "continue" });
+      await first.wait("done");
+      await first.exited;
+      await second.wait("entered");
+      second.child.send({ type: "continue" });
+      await second.wait("done");
+      await second.exited;
+    } else {
+      await second.wait("entered");
+      second.child.send({ type: "continue" });
+      await second.wait("done");
+      await second.exited;
+      first.child.send({ type: "continue" });
+      await first.wait("done");
+      await first.exited;
+    }
+
+    expect((await loadBatch(stateFile)).items.map((item) => item.status)).toEqual([
+      "reviewing",
+      "reviewing",
+    ]);
+  });
+
+  it("recovers only an old lock whose owning process is dead", async () => {
+    const { options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const lockPath = `${stateFile}.lock`;
+    await mkdir(lockPath);
+    await writeFile(path.join(lockPath, "owner.json"), JSON.stringify({
+      pid: 2_147_483_647,
+      token: "dead-owner",
+      createdAtMs: Date.now() - 60_000,
+    }));
+
+    await updateItem(
+      stateFile,
+      state.items[0].id,
+      (item) => ({ ...item, status: "reviewing" }),
+    );
+
+    expect((await loadBatch(stateFile)).items[0].status).toBe("reviewing");
+    expect(await exists(lockPath)).toBe(false);
   });
 
   it.each([
@@ -260,6 +419,49 @@ describe("autonomous batch state", () => {
     await expect(loadBatch(stateFile)).rejects.toThrow(
       /source.*outside.*input/i,
     );
+  });
+
+  it.each([
+    ["batchSlug", (state) => { delete state.batchSlug; }],
+    ["inputPath", (state) => { state.inputPath = "Jackets"; }],
+    ["input category", (state) => {
+      state.inputPath = path.dirname(state.inputPath);
+    }],
+    ["workspacePath", (state) => { state.workspacePath = state.inputPath; }],
+    ["createdAt", (state) => { state.createdAt = "not-a-date"; }],
+    ["updatedAt", (state) => { delete state.updatedAt; }],
+    ["stage", (state) => { state.stage = "unknown"; }],
+    ["policy category", (state) => { state.policy.category = "Shirts"; }],
+    ["policy attempts", (state) => { state.policy.maxGenerationAttempts = 0; }],
+    ["policy confidence", (state) => { state.policy.acceptanceConfidence = 1.1; }],
+    ["policy audit rate", (state) => { state.policy.auditRate = -0.1; }],
+    ["policy reuse", (state) => { state.policy.reuseEarlierOutput = true; }],
+    ["policy completeness", (state) => { delete state.policy.auditRate; }],
+    ["infrastructureErrors", (state) => { state.infrastructureErrors = {}; }],
+    ["item id", (state) => { state.items[0].id = ""; }],
+    ["item slug", (state) => { state.items[0].slug = ""; }],
+    ["item name", (state) => { state.items[0].name = ""; }],
+    ["item category", (state) => { state.items[0].category = "shirt"; }],
+    ["item status", (state) => { state.items[0].status = "unknown"; }],
+    ["generationAttempts", (state) => { state.items[0].generationAttempts = -1; }],
+    ["acceptedAssets", (state) => { state.items[0].acceptedAssets = []; }],
+    ["attempts", (state) => { state.items[0].attempts = {}; }],
+    ["placement", (state) => { state.items[0].placement = []; }],
+    ["review", (state) => { state.items[0].review = []; }],
+    ["quarantine", (state) => { state.items[0].quarantine = []; }],
+    ["sources", (state) => { state.items[0].sources = []; }],
+    ["source path", (state) => { state.items[0].sources[0].path = "front.jpg"; }],
+    ["source role", (state) => { state.items[0].sources[0].role = ""; }],
+    ["source size", (state) => { state.items[0].sources[0].size = -1; }],
+    ["source sha256", (state) => { state.items[0].sources[0].sha256 = "nope"; }],
+  ])("rejects invalid version-3 schema: %s", async (_field, corrupt) => {
+    const { options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    corrupt(state);
+    await writeFile(stateFile, JSON.stringify(state));
+
+    await expect(loadBatch(stateFile)).rejects.toThrow();
   });
 
   it("rejects duplicate source membership, ids, and slugs", async () => {
@@ -383,19 +585,73 @@ describe("autonomous batch state", () => {
     })).rejects.toThrow(/Jackets/);
   });
 
-  it.each(["accepted", "quarantined"])(
+  it.each([
+    ["workspace inside input", (options) => {
+      options.workspaceDir = path.join(options.inputDir, "workspace");
+    }],
+    ["input inside workspace", (options, root) => {
+      options.workspaceDir = root;
+    }],
+  ])("rejects %s tree overlap", async (_description, arrange) => {
+    const { root, options } = await makeOptions();
+    arrange(options, root);
+
+    await expect(initializeBatch(options)).rejects.toThrow(/overlap/i);
+  });
+
+  it("rejects stale managed output when creating a fresh batch", async () => {
+    const { options } = await makeOptions();
+    const staleDirectory = path.join(
+      options.workspaceDir,
+      "accepted",
+      "product-images",
+    );
+    await mkdir(staleDirectory, { recursive: true });
+    await writeFile(path.join(staleDirectory, "stale.png"), "old output");
+
+    await expect(initializeBatch(options)).rejects.toThrow(
+      /fresh workspace.*stale\.png/i,
+    );
+  });
+
+  it("rejects stale managed directory structure without assets", async () => {
+    const { options } = await makeOptions();
+    await mkdir(
+      path.join(options.workspaceDir, "accepted", "product-images"),
+      { recursive: true },
+    );
+
+    await expect(initializeBatch(options)).rejects.toThrow(
+      /fresh workspace.*accepted/i,
+    );
+  });
+
+  it("allows intake.json as fresh-workspace bootstrap metadata", async () => {
+    const { options } = await makeOptions();
+    await mkdir(options.workspaceDir, { recursive: true });
+    await writeFile(
+      path.join(options.workspaceDir, "intake.json"),
+      JSON.stringify(options.intake),
+    );
+
+    expect((await initializeBatch(options)).items[0].status).toBe("ready");
+  });
+
+  it.each(["accepted", "quarantined", "failed-infrastructure"])(
     "does not mutate a terminal %s item",
     async (status) => {
-      const root = await makeRoot();
-      const stateFile = path.join(root, "run-state.json");
-      await writeFile(stateFile, JSON.stringify({
-        version: 3,
-        items: [{ id: "a", status }],
-      }));
+      const { options } = await makeOptions();
+      const state = await initializeBatch(options);
+      const stateFile = path.join(options.workspaceDir, "run-state.json");
+      await updateItem(
+        stateFile,
+        state.items[0].id,
+        (item) => ({ ...item, status }),
+      );
 
       await expect(updateItem(
         stateFile,
-        "a",
+        state.items[0].id,
         (item) => ({ ...item, status: "ready" }),
       )).rejects.toThrow(/terminal item/i);
 

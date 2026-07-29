@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
 import {
   lstat,
   mkdir,
+  open,
   readFile,
+  readdir,
   realpath,
   rename,
+  rm,
   stat,
   unlink,
   writeFile,
@@ -14,7 +16,31 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 const STATE_VERSION = 3;
-const TERMINAL_ITEM_STATUSES = new Set(["accepted", "quarantined"]);
+const TERMINAL_ITEM_STATUSES = new Set([
+  "accepted",
+  "quarantined",
+  "failed-infrastructure",
+]);
+const ITEM_STATUSES = new Set([
+  "ready",
+  "generating",
+  "processing",
+  "placing",
+  "reviewing",
+  "accepted",
+  "quarantined",
+  "failed-infrastructure",
+]);
+const LOCK_STALE_MS = 30_000;
+const LOCK_WAIT_MS = 10_000;
+const LOCK_RETRY_MS = 25;
+const POLICY_KEYS = [
+  "acceptanceConfidence",
+  "auditRate",
+  "category",
+  "maxGenerationAttempts",
+  "reuseEarlierOutput",
+];
 const BATCH_DIRECTORIES = [
   "accepted/product-images",
   "accepted/wear-layers",
@@ -24,6 +50,9 @@ const BATCH_DIRECTORIES = [
   "attempts",
   "reports",
 ];
+const MANAGED_ROOTS = new Set(
+  BATCH_DIRECTORIES.map((directory) => directory.split("/")[0]),
+);
 
 function isContained(parent, candidate) {
   const relative = path.relative(parent, candidate);
@@ -43,12 +72,90 @@ function validateIntakeFilename(file) {
   }
 }
 
-async function sha256(file) {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(file)) {
-    hash.update(chunk);
+function isPlainObject(value) {
+  return (
+    value !== null
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isTimestamp(value) {
+  return (
+    typeof value === "string"
+    && Number.isFinite(Date.parse(value))
+    && new Date(value).toISOString() === value
+  );
+}
+
+function stateError(stateFile, reason, cause) {
+  return new Error(`Invalid batch state at ${stateFile}: ${reason}`, {
+    cause,
+  });
+}
+
+async function canonicalStatePath(value, field, stateFile) {
+  try {
+    return await realpath(value);
+  } catch (error) {
+    throw stateError(
+      stateFile,
+      `${field} cannot be resolved canonically: ${value}`,
+      error,
+    );
   }
-  return hash.digest("hex");
+}
+
+function sourceLabel(inputPath, sourcePath) {
+  const relative = path.relative(inputPath, sourcePath);
+  return relative && !relative.startsWith("..")
+    ? relative
+    : path.basename(sourcePath);
+}
+
+function sameFileStat(before, after) {
+  return (
+    before.dev === after.dev
+    && before.ino === after.ino
+    && before.size === after.size
+    && before.mtimeNs === after.mtimeNs
+    && before.ctimeNs === after.ctimeNs
+  );
+}
+
+async function hashStableFile(file) {
+  const handle = await open(file, "r");
+  try {
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile()) {
+      throw new Error(`Source is not a regular file: ${file}`);
+    }
+
+    const hash = createHash("sha256");
+    for await (const chunk of handle.createReadStream({ autoClose: false })) {
+      hash.update(chunk);
+    }
+
+    const after = await handle.stat({ bigint: true });
+    if (!sameFileStat(before, after)) {
+      throw new Error(`Source changed while hashing: ${file}`);
+    }
+    if (before.size > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error(`Source is too large to represent safely: ${file}`);
+    }
+
+    return {
+      size: Number(before.size),
+      sha256: hash.digest("hex"),
+    };
+  } finally {
+    await handle.close();
+  }
 }
 
 async function ensureWorkspaceDirectory(workspacePath, relativePath) {
@@ -79,51 +186,171 @@ async function ensureWorkspaceDirectory(workspacePath, relativePath) {
 }
 
 async function validateBatchState(state, stateFile) {
-  if (state?.version !== STATE_VERSION || !Array.isArray(state.items)) {
-    throw new Error(`Unsupported or invalid batch state: ${stateFile}`);
+  if (!isPlainObject(state) || state.version !== STATE_VERSION) {
+    throw stateError(stateFile, `version must be ${STATE_VERSION}`);
+  }
+  if (!isNonEmptyString(state.batchSlug)) {
+    throw stateError(stateFile, "batchSlug must be a non-empty string");
+  }
+  if (!path.isAbsolute(state.inputPath ?? "")) {
+    throw stateError(stateFile, "inputPath must be absolute");
+  }
+  if (!path.isAbsolute(state.workspacePath ?? "")) {
+    throw stateError(stateFile, "workspacePath must be absolute");
+  }
+  if (!isTimestamp(state.createdAt) || !isTimestamp(state.updatedAt)) {
+    throw stateError(stateFile, "createdAt and updatedAt must be ISO timestamps");
+  }
+  if (state.stage !== "processing") {
+    throw stateError(stateFile, "stage must be processing");
+  }
+  if (!isPlainObject(state.policy)) {
+    throw stateError(stateFile, "policy must be an object");
+  }
+  if (
+    Object.keys(state.policy).sort().join(",") !== POLICY_KEYS.join(",")
+    || state.policy.category !== "Jackets"
+    || state.policy.maxGenerationAttempts !== 3
+    || state.policy.acceptanceConfidence !== 0.9
+    || state.policy.auditRate !== 0.1
+    || state.policy.reuseEarlierOutput !== false
+  ) {
+    throw stateError(
+      stateFile,
+      "policy must match the bounded Jackets pilot policy",
+    );
+  }
+  if (!Array.isArray(state.items)) {
+    throw stateError(stateFile, "items must be an array");
+  }
+  if (!Array.isArray(state.infrastructureErrors)) {
+    throw stateError(stateFile, "infrastructureErrors must be an array");
+  }
+
+  const canonicalInput = await canonicalStatePath(
+    state.inputPath,
+    "inputPath",
+    stateFile,
+  );
+  if (canonicalInput !== state.inputPath) {
+    throw stateError(stateFile, "inputPath must be canonical");
+  }
+  if (path.basename(canonicalInput) !== "Jackets") {
+    throw stateError(stateFile, "inputPath must identify the Jackets category");
+  }
+  const canonicalWorkspace = await canonicalStatePath(
+    state.workspacePath,
+    "workspacePath",
+    stateFile,
+  );
+  if (canonicalWorkspace !== state.workspacePath) {
+    throw stateError(stateFile, "workspacePath must be canonical");
+  }
+  const stateDirectory = await realpath(path.dirname(path.resolve(stateFile)));
+  if (canonicalWorkspace !== stateDirectory) {
+    throw stateError(
+      stateFile,
+      "workspacePath must be the canonical parent of run-state.json",
+    );
+  }
+  if (
+    isContained(canonicalInput, canonicalWorkspace)
+    || isContained(canonicalWorkspace, canonicalInput)
+  ) {
+    throw stateError(stateFile, "input and workspace trees overlap");
+  }
+
+  for (const failure of state.infrastructureErrors) {
+    if (
+      !isPlainObject(failure)
+      || !isTimestamp(failure.at)
+      || !isNonEmptyString(failure.name)
+      || !isNonEmptyString(failure.message)
+      || (
+        failure.stack !== undefined
+        && typeof failure.stack !== "string"
+      )
+    ) {
+      throw stateError(stateFile, "invalid infrastructure error entry");
+    }
   }
 
   const ids = new Set();
   const slugs = new Set();
   const sourcePaths = new Set();
-  const hasSources = state.items.some(
-    (item) => Array.isArray(item?.sources) && item.sources.length > 0,
-  );
-  let canonicalInput;
-
-  if (hasSources) {
-    if (typeof state.inputPath !== "string") {
-      throw new Error(`Batch state with sources requires inputPath: ${stateFile}`);
-    }
-    canonicalInput = await realpath(state.inputPath);
-    if (canonicalInput !== state.inputPath) {
-      throw new Error(`Batch input path is not canonical: ${state.inputPath}`);
-    }
-  }
 
   for (const item of state.items) {
-    if (item === null || typeof item !== "object" || Array.isArray(item)) {
-      throw new Error(`Invalid item in batch state: ${stateFile}`);
+    if (!isPlainObject(item)) {
+      throw stateError(stateFile, "every item must be an object");
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.id ?? "")) {
+      throw stateError(stateFile, "item id must be a version-4 UUID");
+    }
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(item.slug ?? "")) {
+      throw stateError(stateFile, `invalid item slug: ${item.slug}`);
+    }
+    if (!isNonEmptyString(item.name)) {
+      throw stateError(stateFile, `invalid item name: ${item.slug}`);
+    }
+    if (item.category !== "jacket") {
+      throw stateError(stateFile, `invalid item category: ${item.slug}`);
+    }
+    if (!ITEM_STATUSES.has(item.status)) {
+      throw stateError(stateFile, `invalid item status: ${item.slug}`);
+    }
+    if (
+      !Number.isInteger(item.generationAttempts)
+      || item.generationAttempts < 0
+      || item.generationAttempts > state.policy.maxGenerationAttempts
+    ) {
+      throw stateError(
+        stateFile,
+        `invalid generationAttempts for ${item.slug}`,
+      );
+    }
+    if (!isPlainObject(item.acceptedAssets)) {
+      throw stateError(stateFile, `invalid acceptedAssets for ${item.slug}`);
+    }
+    if (
+      !Array.isArray(item.attempts)
+      || item.attempts.some((attempt) => !isPlainObject(attempt))
+    ) {
+      throw stateError(stateFile, `invalid attempts for ${item.slug}`);
+    }
+    for (const [field, value] of [
+      ["placement", item.placement],
+      ["review", item.review],
+      ["quarantine", item.quarantine],
+    ]) {
+      if (value !== null && !isPlainObject(value)) {
+        throw stateError(stateFile, `invalid ${field} for ${item.slug}`);
+      }
+    }
+    if (!Array.isArray(item.sources) || item.sources.length === 0) {
+      throw stateError(stateFile, `item sources are required: ${item.slug}`);
     }
     if (ids.has(item.id)) {
-      throw new Error(`Duplicate id in batch state: ${item.id}`);
+      throw stateError(stateFile, `duplicate id: ${item.id}`);
     }
     ids.add(item.id);
 
-    if (item.slug !== undefined) {
-      if (slugs.has(item.slug)) {
-        throw new Error(`Duplicate slug in batch state: ${item.slug}`);
-      }
-      slugs.add(item.slug);
+    if (slugs.has(item.slug)) {
+      throw stateError(stateFile, `duplicate slug: ${item.slug}`);
     }
+    slugs.add(item.slug);
 
-    if (item.sources !== undefined && !Array.isArray(item.sources)) {
-      throw new Error(`Invalid sources for batch item: ${item.id}`);
-    }
-
-    for (const source of item.sources ?? []) {
+    for (const source of item.sources) {
       if (typeof source?.path !== "string" || !path.isAbsolute(source.path)) {
-        throw new Error(`Invalid source path for batch item: ${item.id}`);
+        throw stateError(stateFile, `invalid source path for ${item.slug}`);
+      }
+      if (!isNonEmptyString(source.role)) {
+        throw stateError(stateFile, `invalid source role for ${item.slug}`);
+      }
+      if (!Number.isSafeInteger(source.size) || source.size < 0) {
+        throw stateError(stateFile, `invalid source size for ${item.slug}`);
+      }
+      if (!/^[a-f0-9]{64}$/.test(source.sha256 ?? "")) {
+        throw stateError(stateFile, `invalid source sha256 for ${item.slug}`);
       }
 
       let canonicalSource;
@@ -131,27 +358,229 @@ async function validateBatchState(state, stateFile) {
         canonicalSource = await realpath(source.path);
       } catch (error) {
         if (error?.code === "ENOENT") {
-          throw new Error(
-            `Source drift detected for ${path.basename(source.path)}: source is missing`,
-            { cause: error },
+          throw stateError(
+            stateFile,
+            `source drift for ${sourceLabel(canonicalInput, source.path)}: source is missing`,
+            error,
           );
         }
-        throw error;
+        throw stateError(
+          stateFile,
+          `cannot resolve source ${source.path}: ${error.message}`,
+          error,
+        );
       }
 
       if (canonicalSource !== source.path) {
-        throw new Error(`Source path is not canonical: ${source.path}`);
+        throw stateError(stateFile, `source path is not canonical: ${source.path}`);
       }
       if (!isContained(canonicalInput, canonicalSource)) {
-        throw new Error(
-          `Source is outside canonical input directory: ${source.path}`,
+        throw stateError(
+          stateFile,
+          `source is outside canonical input directory: ${source.path}`,
         );
       }
       if (sourcePaths.has(canonicalSource)) {
-        throw new Error(`Duplicate source membership: ${source.path}`);
+        throw stateError(
+          stateFile,
+          `duplicate source membership: ${source.path}`,
+        );
       }
       sourcePaths.add(canonicalSource);
     }
+  }
+}
+
+async function canonicalizeProspectivePath(requestedPath) {
+  let existingAncestor = path.resolve(requestedPath);
+  const missingSegments = [];
+
+  while (true) {
+    try {
+      const canonicalAncestor = await realpath(existingAncestor);
+      return path.join(canonicalAncestor, ...missingSegments.reverse());
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      const parent = path.dirname(existingAncestor);
+      if (parent === existingAncestor) throw error;
+      missingSegments.push(path.basename(existingAncestor));
+      existingAncestor = parent;
+    }
+  }
+}
+
+async function findManagedArtifact(directory, relative = "") {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const entryRelative = path.join(relative, entry.name);
+    if (entry.isDirectory() && !entry.isSymbolicLink()) {
+      return (
+        await findManagedArtifact(
+          path.join(directory, entry.name),
+          entryRelative,
+        )
+      ) ?? entryRelative;
+    }
+    return entryRelative;
+  }
+  return null;
+}
+
+async function assertFreshWorkspace(workspacePath, stateFile) {
+  const lockName = path.basename(`${stateFile}.lock`);
+
+  for (const entry of await readdir(workspacePath, { withFileTypes: true })) {
+    if (entry.name === lockName && entry.isDirectory()) continue;
+    if (entry.name === "intake.json" && entry.isFile()) continue;
+
+    if (MANAGED_ROOTS.has(entry.name)) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) {
+        throw new Error(
+          `Fresh workspace contains managed output symlink or file: ${entry.name}`,
+        );
+      }
+      const artifact = await findManagedArtifact(
+        path.join(workspacePath, entry.name),
+        entry.name,
+      );
+      if (artifact) {
+        throw new Error(`Fresh workspace contains stale output: ${artifact}`);
+      }
+      continue;
+    }
+
+    throw new Error(`Fresh workspace contains unexpected output: ${entry.name}`);
+  }
+}
+
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    return true;
+  }
+}
+
+async function readLockOwner(lockPath) {
+  try {
+    const owner = JSON.parse(
+      await readFile(path.join(lockPath, "owner.json"), "utf8"),
+    );
+    return (
+      Number.isInteger(owner.pid)
+      && isNonEmptyString(owner.token)
+      && Number.isFinite(owner.createdAtMs)
+    ) ? owner : null;
+  } catch (error) {
+    if (error?.code === "ENOENT" || error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+async function reapStaleLock(lockPath) {
+  const owner = await readLockOwner(lockPath);
+  if (
+    !owner
+    || Date.now() - owner.createdAtMs < LOCK_STALE_MS
+    || processIsAlive(owner.pid)
+  ) {
+    return false;
+  }
+
+  const reaperPath = `${lockPath}.reaper`;
+  try {
+    await mkdir(reaperPath);
+  } catch (error) {
+    if (error?.code === "EEXIST") return false;
+    throw error;
+  }
+
+  try {
+    const confirmedOwner = await readLockOwner(lockPath);
+    if (
+      !confirmedOwner
+      || confirmedOwner.token !== owner.token
+      || Date.now() - confirmedOwner.createdAtMs < LOCK_STALE_MS
+      || processIsAlive(confirmedOwner.pid)
+    ) {
+      return false;
+    }
+    await rm(lockPath, { recursive: true });
+    return true;
+  } finally {
+    await rm(reaperPath, { recursive: true, force: true });
+  }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function acquireStateLock(stateFile) {
+  const lockPath = `${stateFile}.lock`;
+  const reaperPath = `${lockPath}.reaper`;
+  const deadline = Date.now() + LOCK_WAIT_MS;
+
+  while (true) {
+    let reaperPresent = false;
+    try {
+      await lstat(reaperPath);
+      reaperPresent = true;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+
+    if (!reaperPresent) {
+      try {
+        await mkdir(lockPath);
+        const owner = {
+          pid: process.pid,
+          token: randomUUID(),
+          createdAtMs: Date.now(),
+        };
+        try {
+          await writeFile(
+            path.join(lockPath, "owner.json"),
+            JSON.stringify(owner),
+            { flag: "wx" },
+          );
+        } catch (error) {
+          await rm(lockPath, { recursive: true, force: true });
+          throw error;
+        }
+
+        return async () => {
+          const currentOwner = await readLockOwner(lockPath);
+          if (currentOwner?.token !== owner.token) {
+            throw new Error(`State lock ownership changed: ${lockPath}`);
+          }
+          await rm(lockPath, { recursive: true });
+        };
+      } catch (error) {
+        if (error?.code !== "EEXIST") throw error;
+      }
+    }
+
+    if (await reapStaleLock(lockPath)) continue;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      const owner = await readLockOwner(lockPath);
+      throw new Error(
+        `Timed out waiting for state lock ${lockPath}`
+        + (owner ? ` held by live or unconfirmed pid ${owner.pid}` : ""),
+      );
+    }
+    await delay(Math.min(LOCK_RETRY_MS, remaining));
+  }
+}
+
+async function withStateLock(stateFile, operation) {
+  const release = await acquireStateLock(stateFile);
+  try {
+    return await operation();
+  } finally {
+    await release();
   }
 }
 
@@ -190,44 +619,34 @@ async function sourceMetadata(inputPath, source, claimedSources) {
     throw new Error(`Duplicate source membership: ${source.file}`);
   }
 
-  const sourceStat = await stat(sourcePath);
-  if (!sourceStat.isFile()) {
-    throw new Error(`Intake source is not a file: ${source.file}`);
-  }
-
   claimedSources.add(sourcePath);
+  const metadata = await hashStableFile(sourcePath);
   return {
     path: sourcePath,
     role: source.role,
-    size: sourceStat.size,
-    sha256: await sha256(sourcePath),
+    ...metadata,
   };
 }
 
-async function validateResumeSources(state) {
-  const canonicalInput = await realpath(state.inputPath);
-
+async function validateResumeSources(state, stateFile) {
   for (const item of state.items) {
     for (const source of item.sources) {
-      const displayName = path.basename(source.path);
+      const displayName = sourceLabel(state.inputPath, source.path);
       try {
-        const canonicalSource = await realpath(source.path);
-        if (
-          canonicalSource !== source.path
-          || !isContained(canonicalInput, canonicalSource)
-        ) {
-          throw new Error("canonical source path changed");
+        const current = await hashStableFile(source.path);
+        if (current.size !== source.size) {
+          throw new Error("size changed");
         }
-
-        const sourceStat = await stat(canonicalSource);
-        const digest = await sha256(canonicalSource);
-        if (sourceStat.size !== source.size || digest !== source.sha256) {
-          throw new Error("source content changed");
+        if (current.sha256 !== source.sha256) {
+          throw new Error("content hash changed");
         }
       } catch (error) {
-        throw new Error(`Source drift detected for ${displayName}`, {
+        throw new Error(
+          `Source drift in ${stateFile} for ${displayName}: ${error.message}`,
+          {
           cause: error,
-        });
+          },
+        );
       }
     }
   }
@@ -245,164 +664,193 @@ export async function initializeBatch({
     throw new Error(`Only the Jackets input category is supported: ${inputPath}`);
   }
 
+  const prospectiveWorkspace = await canonicalizeProspectivePath(workspaceDir);
+  if (
+    isContained(inputPath, prospectiveWorkspace)
+    || isContained(prospectiveWorkspace, inputPath)
+  ) {
+    throw new Error("Input and workspace trees overlap");
+  }
+
   await mkdir(workspaceDir, { recursive: true });
   const workspacePath = await realpath(workspaceDir);
+  if (
+    isContained(inputPath, workspacePath)
+    || isContained(workspacePath, inputPath)
+  ) {
+    throw new Error("Input and workspace trees overlap");
+  }
   const stateFile = path.join(workspacePath, "run-state.json");
 
-  let stateExists = true;
-  try {
-    await stat(stateFile);
-  } catch (error) {
-    if (error?.code === "ENOENT") {
-      stateExists = false;
-    } else {
-      throw error;
-    }
-  }
-
-  if (stateExists) {
-    const existingState = await loadBatch(stateFile);
-    if (existingState.inputPath !== inputPath) {
-      throw new Error("Existing batch input path does not match requested input");
-    }
-    if (existingState.workspacePath !== workspacePath) {
-      throw new Error("Existing batch workspace path is invalid");
-    }
-    if (existingState.batchSlug !== batchSlug) {
-      throw new Error("Existing batch slug does not match requested batch");
-    }
-    await validateResumeSources(existingState);
-    return existingState;
-  }
-
-  if (!Array.isArray(intake)) {
-    throw new Error("Batch intake must be an array");
-  }
-
-  const ids = new Set();
-  const slugs = new Set();
-  const claimedSources = new Set();
-  const items = [];
-
-  for (const item of intake) {
-    if (ids.has(item.id)) {
-      throw new Error(`Duplicate id: ${item.id}`);
-    }
-    if (slugs.has(item.slug)) {
-      throw new Error(`Duplicate slug: ${item.slug}`);
-    }
-    if (!Array.isArray(item.sources) || item.sources.length === 0) {
-      throw new Error(`Item must have at least one source: ${item.slug}`);
+  return withStateLock(stateFile, async () => {
+    let stateExists = true;
+    try {
+      await stat(stateFile);
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        stateExists = false;
+      } else {
+        throw error;
+      }
     }
 
-    ids.add(item.id);
-    slugs.add(item.slug);
-
-    const sources = [];
-    for (const source of item.sources) {
-      sources.push(await sourceMetadata(inputPath, source, claimedSources));
+    if (stateExists) {
+      const existingState = await loadBatch(stateFile);
+      if (existingState.inputPath !== inputPath) {
+        throw new Error(
+          "Existing batch input path does not match requested input",
+        );
+      }
+      if (existingState.workspacePath !== workspacePath) {
+        throw new Error("Existing batch workspace path is invalid");
+      }
+      if (existingState.batchSlug !== batchSlug) {
+        throw new Error("Existing batch slug does not match requested batch");
+      }
+      await validateResumeSources(existingState, stateFile);
+      return existingState;
     }
 
-    items.push({
-      id: item.id,
-      slug: item.slug,
-      name: item.name,
-      category: "jacket",
-      sources,
-      generationAttempts: 0,
-      status: "ready",
-      acceptedAssets: {},
-      attempts: [],
-      placement: null,
-      review: null,
-      quarantine: null,
-    });
-  }
+    await assertFreshWorkspace(workspacePath, stateFile);
+    if (!Array.isArray(intake)) {
+      throw new Error("Batch intake must be an array");
+    }
 
-  for (const directory of BATCH_DIRECTORIES) {
-    await ensureWorkspaceDirectory(workspacePath, directory);
-  }
+    const ids = new Set();
+    const slugs = new Set();
+    const claimedSources = new Set();
+    const items = [];
 
-  const state = {
-    version: STATE_VERSION,
-    batchSlug,
-    inputPath,
-    workspacePath,
-    createdAt: now,
-    updatedAt: now,
-    stage: "processing",
-    policy: {
-      category: "Jackets",
-      maxGenerationAttempts: 3,
-      acceptanceConfidence: 0.9,
-      auditRate: 0.1,
-      reuseEarlierOutput: false,
-    },
-    items,
-    infrastructureErrors: [],
-  };
+    for (const item of intake) {
+      if (ids.has(item.id)) {
+        throw new Error(`Duplicate id: ${item.id}`);
+      }
+      if (slugs.has(item.slug)) {
+        throw new Error(`Duplicate slug: ${item.slug}`);
+      }
+      if (!Array.isArray(item.sources) || item.sources.length === 0) {
+        throw new Error(`Item must have at least one source: ${item.slug}`);
+      }
 
-  await atomicWriteJson(stateFile, state);
-  return state;
+      ids.add(item.id);
+      slugs.add(item.slug);
+
+      const sources = [];
+      for (const source of item.sources) {
+        sources.push(await sourceMetadata(inputPath, source, claimedSources));
+      }
+
+      items.push({
+        id: item.id,
+        slug: item.slug,
+        name: item.name,
+        category: "jacket",
+        sources,
+        generationAttempts: 0,
+        status: "ready",
+        acceptedAssets: {},
+        attempts: [],
+        placement: null,
+        review: null,
+        quarantine: null,
+      });
+    }
+
+    const state = {
+      version: STATE_VERSION,
+      batchSlug,
+      inputPath,
+      workspacePath,
+      createdAt: now,
+      updatedAt: now,
+      stage: "processing",
+      policy: {
+        category: "Jackets",
+        maxGenerationAttempts: 3,
+        acceptanceConfidence: 0.9,
+        auditRate: 0.1,
+        reuseEarlierOutput: false,
+      },
+      items,
+      infrastructureErrors: [],
+    };
+
+    await validateBatchState(state, stateFile);
+    for (const directory of BATCH_DIRECTORIES) {
+      await ensureWorkspaceDirectory(workspacePath, directory);
+    }
+    await atomicWriteJson(stateFile, state);
+    return state;
+  });
 }
 
 export async function loadBatch(stateFile) {
-  const state = JSON.parse(await readFile(stateFile, "utf8"));
+  let state;
+  try {
+    state = JSON.parse(await readFile(stateFile, "utf8"));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Malformed batch state JSON at ${stateFile}`, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
   await validateBatchState(state, stateFile);
   return state;
 }
 
 export async function updateItem(stateFile, itemId, mutate) {
-  const state = await loadBatch(stateFile);
-  const index = state.items.findIndex((item) => item.id === itemId);
-  if (index === -1) {
-    throw new Error(`Batch item not found: ${itemId}`);
-  }
-  if (TERMINAL_ITEM_STATUSES.has(state.items[index].status)) {
-    throw new Error(
-      `Cannot mutate terminal item ${itemId} (${state.items[index].status})`,
-    );
-  }
+  return withStateLock(stateFile, async () => {
+    const state = await loadBatch(stateFile);
+    const index = state.items.findIndex((item) => item.id === itemId);
+    if (index === -1) {
+      throw new Error(`Batch item not found: ${itemId}`);
+    }
+    if (TERMINAL_ITEM_STATUSES.has(state.items[index].status)) {
+      throw new Error(
+        `Cannot mutate terminal item ${itemId} (${state.items[index].status})`,
+      );
+    }
 
-  const itemCopy = structuredClone(state.items[index]);
-  const mutatedItem = await mutate(itemCopy);
-  const nextItem = mutatedItem ?? itemCopy;
-  if (
-    nextItem === null
-    || typeof nextItem !== "object"
-    || Array.isArray(nextItem)
-  ) {
-    throw new Error(`Item mutation must return an object: ${itemId}`);
-  }
-  if (nextItem.id !== itemId) {
-    throw new Error(`Item mutation cannot change item id: ${itemId}`);
-  }
-  if (nextItem.slug !== state.items[index].slug) {
-    throw new Error(`Item slug is immutable: ${itemId}`);
-  }
-  if (!isDeepStrictEqual(nextItem.sources, state.items[index].sources)) {
-    throw new Error(`Item source metadata is immutable: ${itemId}`);
-  }
+    const itemCopy = structuredClone(state.items[index]);
+    const mutatedItem = await mutate(itemCopy);
+    const nextItem = mutatedItem ?? itemCopy;
+    if (!isPlainObject(nextItem)) {
+      throw new Error(`Item mutation must return an object: ${itemId}`);
+    }
+    if (nextItem.id !== itemId) {
+      throw new Error(`Item mutation cannot change item id: ${itemId}`);
+    }
+    if (nextItem.slug !== state.items[index].slug) {
+      throw new Error(`Item slug is immutable: ${itemId}`);
+    }
+    if (!isDeepStrictEqual(nextItem.sources, state.items[index].sources)) {
+      throw new Error(`Item source metadata is immutable: ${itemId}`);
+    }
 
-  state.items[index] = nextItem;
-  state.updatedAt = new Date().toISOString();
-  await atomicWriteJson(stateFile, state);
-  return state;
+    state.items[index] = nextItem;
+    state.updatedAt = new Date().toISOString();
+    await atomicWriteJson(stateFile, state);
+    return state;
+  });
 }
 
 export async function recordInfrastructureFailure(stateFile, error) {
-  const state = await loadBatch(stateFile);
-  const failure = {
-    at: new Date().toISOString(),
-    name: error instanceof Error ? error.name : "Error",
-    message: error instanceof Error ? error.message : String(error),
-  };
-  if (error instanceof Error && error.stack) {
-    failure.stack = error.stack;
-  }
+  return withStateLock(stateFile, async () => {
+    const state = await loadBatch(stateFile);
+    const failure = {
+      at: new Date().toISOString(),
+      name: error instanceof Error ? error.name : "Error",
+      message: error instanceof Error ? error.message : String(error),
+    };
+    if (error instanceof Error && error.stack) {
+      failure.stack = error.stack;
+    }
 
-  state.infrastructureErrors = [...(state.infrastructureErrors ?? []), failure];
-  state.updatedAt = failure.at;
-  await atomicWriteJson(stateFile, state);
-  return state;
+    state.infrastructureErrors = [...state.infrastructureErrors, failure];
+    state.updatedAt = failure.at;
+    await atomicWriteJson(stateFile, state);
+    return state;
+  });
 }
