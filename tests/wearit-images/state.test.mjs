@@ -69,6 +69,24 @@ describe("autonomous batch state", () => {
     };
   }
 
+  async function makeTwoItemOptions() {
+    const fixture = await makeOptions();
+    await writeFile(
+      path.join(fixture.options.inputDir, "detail.jpg"),
+      "second source",
+    );
+    fixture.options.intake = [
+      ...fixture.options.intake,
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        slug: "navy-jacket",
+        name: "Navy jacket",
+        sources: [{ file: "detail.jpg", role: "detail" }],
+      },
+    ];
+    return fixture;
+  }
+
   it("builds fresh state only from the explicit Jackets intake", async () => {
     const { root, options } = await makeOptions();
     const oldWorkspace = path.join(root, "data", "import-work", "old");
@@ -203,6 +221,47 @@ describe("autonomous batch state", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it.each([
+    ["ids", "id", /duplicate id/i],
+    ["slugs", "slug", /duplicate slug/i],
+  ])("rejects persisted state with duplicate %s on resume", async (
+    _description,
+    field,
+    expected,
+  ) => {
+    const { options } = await makeTwoItemOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    state.items[1][field] = state.items[0][field];
+    await writeFile(stateFile, JSON.stringify(state));
+
+    await expect(initializeBatch(options)).rejects.toThrow(expected);
+  });
+
+  it("rejects persisted duplicate source membership on resume", async () => {
+    const { options } = await makeTwoItemOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    state.items[1].sources = structuredClone(state.items[0].sources);
+    await writeFile(stateFile, JSON.stringify(state));
+
+    await expect(initializeBatch(options)).rejects.toThrow(/duplicate source/i);
+  });
+
+  it("rejects persisted sources outside the canonical input on load", async () => {
+    const { root, options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const outside = path.join(root, "outside.jpg");
+    await writeFile(outside, "outside");
+    state.items[0].sources[0].path = await realpath(outside);
+    await writeFile(stateFile, JSON.stringify(state));
+
+    await expect(loadBatch(stateFile)).rejects.toThrow(
+      /source.*outside.*input/i,
+    );
+  });
+
   it("rejects duplicate source membership, ids, and slugs", async () => {
     const { options } = await makeOptions();
     const baseItem = intake()[0];
@@ -233,6 +292,83 @@ describe("autonomous batch state", () => {
         { ...baseItem, id: "22222222-2222-4222-8222-222222222222" },
       ],
     })).rejects.toThrow(/duplicate slug/i);
+  });
+
+  it("does not let updateItem duplicate a sibling slug", async () => {
+    const { options } = await makeTwoItemOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const persistedBefore = await readFile(stateFile, "utf8");
+
+    await expect(updateItem(
+      stateFile,
+      state.items[1].id,
+      (item) => ({ ...item, slug: state.items[0].slug }),
+    )).rejects.toThrow(/slug.*immutable|duplicate slug/i);
+
+    expect(await readFile(stateFile, "utf8")).toBe(persistedBefore);
+  });
+
+  it("does not let updateItem duplicate sibling source membership", async () => {
+    const { options } = await makeTwoItemOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const persistedBefore = await readFile(stateFile, "utf8");
+
+    await expect(updateItem(
+      stateFile,
+      state.items[1].id,
+      (item) => ({ ...item, sources: structuredClone(state.items[0].sources) }),
+    )).rejects.toThrow(/source.*immutable|duplicate source/i);
+
+    expect(await readFile(stateFile, "utf8")).toBe(persistedBefore);
+  });
+
+  it("does not let updateItem move source metadata outside the input", async () => {
+    const { root, options } = await makeTwoItemOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const persistedBefore = await readFile(stateFile, "utf8");
+    const outside = path.join(root, "outside.jpg");
+    await writeFile(outside, "outside");
+
+    await expect(updateItem(
+      stateFile,
+      state.items[1].id,
+      (item) => ({
+        ...item,
+        sources: [{
+          ...item.sources[0],
+          path: outside,
+        }],
+      }),
+    )).rejects.toThrow(/source.*immutable|outside.*input/i);
+
+    expect(await readFile(stateFile, "utf8")).toBe(persistedBefore);
+  });
+
+  it("lets updateItem preserve identity while changing processing state", async () => {
+    const { options } = await makeTwoItemOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const target = state.items[1];
+
+    await updateItem(stateFile, target.id, (item) => ({
+      ...item,
+      status: "reviewing",
+      attempts: [{ attempt: 1, outcome: "generated" }],
+      review: { confidence: 0.94 },
+    }));
+
+    const updated = await loadBatch(stateFile);
+    expect(updated.items[1]).toMatchObject({
+      id: target.id,
+      slug: target.slug,
+      sources: target.sources,
+      status: "reviewing",
+      attempts: [{ attempt: 1, outcome: "generated" }],
+      review: { confidence: 0.94 },
+    });
   });
 
   it("rejects input directories outside the Jackets pilot category", async () => {

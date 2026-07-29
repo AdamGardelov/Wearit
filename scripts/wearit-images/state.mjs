@@ -11,6 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 const STATE_VERSION = 3;
 const TERMINAL_ITEM_STATUSES = new Set(["accepted", "quarantined"]);
@@ -77,7 +78,85 @@ async function ensureWorkspaceDirectory(workspacePath, relativePath) {
   }
 }
 
+async function validateBatchState(state, stateFile) {
+  if (state?.version !== STATE_VERSION || !Array.isArray(state.items)) {
+    throw new Error(`Unsupported or invalid batch state: ${stateFile}`);
+  }
+
+  const ids = new Set();
+  const slugs = new Set();
+  const sourcePaths = new Set();
+  const hasSources = state.items.some(
+    (item) => Array.isArray(item?.sources) && item.sources.length > 0,
+  );
+  let canonicalInput;
+
+  if (hasSources) {
+    if (typeof state.inputPath !== "string") {
+      throw new Error(`Batch state with sources requires inputPath: ${stateFile}`);
+    }
+    canonicalInput = await realpath(state.inputPath);
+    if (canonicalInput !== state.inputPath) {
+      throw new Error(`Batch input path is not canonical: ${state.inputPath}`);
+    }
+  }
+
+  for (const item of state.items) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`Invalid item in batch state: ${stateFile}`);
+    }
+    if (ids.has(item.id)) {
+      throw new Error(`Duplicate id in batch state: ${item.id}`);
+    }
+    ids.add(item.id);
+
+    if (item.slug !== undefined) {
+      if (slugs.has(item.slug)) {
+        throw new Error(`Duplicate slug in batch state: ${item.slug}`);
+      }
+      slugs.add(item.slug);
+    }
+
+    if (item.sources !== undefined && !Array.isArray(item.sources)) {
+      throw new Error(`Invalid sources for batch item: ${item.id}`);
+    }
+
+    for (const source of item.sources ?? []) {
+      if (typeof source?.path !== "string" || !path.isAbsolute(source.path)) {
+        throw new Error(`Invalid source path for batch item: ${item.id}`);
+      }
+
+      let canonicalSource;
+      try {
+        canonicalSource = await realpath(source.path);
+      } catch (error) {
+        if (error?.code === "ENOENT") {
+          throw new Error(
+            `Source drift detected for ${path.basename(source.path)}: source is missing`,
+            { cause: error },
+          );
+        }
+        throw error;
+      }
+
+      if (canonicalSource !== source.path) {
+        throw new Error(`Source path is not canonical: ${source.path}`);
+      }
+      if (!isContained(canonicalInput, canonicalSource)) {
+        throw new Error(
+          `Source is outside canonical input directory: ${source.path}`,
+        );
+      }
+      if (sourcePaths.has(canonicalSource)) {
+        throw new Error(`Duplicate source membership: ${source.path}`);
+      }
+      sourcePaths.add(canonicalSource);
+    }
+  }
+}
+
 async function atomicWriteJson(file, value) {
+  await validateBatchState(value, file);
   const directory = path.dirname(file);
   const temporaryFile = path.join(
     directory,
@@ -170,7 +249,18 @@ export async function initializeBatch({
   const workspacePath = await realpath(workspaceDir);
   const stateFile = path.join(workspacePath, "run-state.json");
 
+  let stateExists = true;
   try {
+    await stat(stateFile);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      stateExists = false;
+    } else {
+      throw error;
+    }
+  }
+
+  if (stateExists) {
     const existingState = await loadBatch(stateFile);
     if (existingState.inputPath !== inputPath) {
       throw new Error("Existing batch input path does not match requested input");
@@ -183,10 +273,6 @@ export async function initializeBatch({
     }
     await validateResumeSources(existingState);
     return existingState;
-  } catch (error) {
-    if (error?.code !== "ENOENT") {
-      throw error;
-    }
   }
 
   if (!Array.isArray(intake)) {
@@ -262,9 +348,7 @@ export async function initializeBatch({
 
 export async function loadBatch(stateFile) {
   const state = JSON.parse(await readFile(stateFile, "utf8"));
-  if (state?.version !== STATE_VERSION || !Array.isArray(state.items)) {
-    throw new Error(`Unsupported or invalid batch state: ${stateFile}`);
-  }
+  await validateBatchState(state, stateFile);
   return state;
 }
 
@@ -292,6 +376,12 @@ export async function updateItem(stateFile, itemId, mutate) {
   }
   if (nextItem.id !== itemId) {
     throw new Error(`Item mutation cannot change item id: ${itemId}`);
+  }
+  if (nextItem.slug !== state.items[index].slug) {
+    throw new Error(`Item slug is immutable: ${itemId}`);
+  }
+  if (!isDeepStrictEqual(nextItem.sources, state.items[index].sources)) {
+    throw new Error(`Item source metadata is immutable: ${itemId}`);
   }
 
   state.items[index] = nextItem;
