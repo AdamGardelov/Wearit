@@ -105,8 +105,8 @@ describe("autonomous batch state", () => {
     return fixture;
   }
 
-  function startUpdateWorker(stateFile, itemId, status) {
-    const child = fork(UPDATE_WORKER, [stateFile, itemId, status], {
+  function startWorker(arguments_) {
+    const child = fork(UPDATE_WORKER, arguments_, {
       stdio: ["ignore", "ignore", "inherit", "ipc"],
     });
     children.add(child);
@@ -153,6 +153,10 @@ describe("autonomous batch state", () => {
         });
       },
     };
+  }
+
+  function startUpdateWorker(stateFile, itemId, status) {
+    return startWorker([stateFile, itemId, status]);
   }
 
   async function exists(file) {
@@ -476,6 +480,70 @@ describe("autonomous batch state", () => {
       items: [{ status: "reviewing" }],
     });
     expect(await exists(reaperPath)).toBe(false);
+  });
+
+  it("recovers after a child dies with an old ownerless reaper guard", async () => {
+    vi.useFakeTimers();
+    const { options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const reaperPath = `${stateFile}.lock.reaper`;
+    const guardPath = `${reaperPath}.guard`;
+    const worker = startWorker(["--hold-reaper", reaperPath]);
+    await worker.wait("started");
+    await worker.wait("entered");
+    worker.child.kill("SIGKILL");
+    await expect(worker.exited).rejects.toThrow(/SIGKILL/);
+
+    const ownerFile = path.join(reaperPath, "owner.json");
+    const owner = JSON.parse(await readFile(ownerFile, "utf8"));
+    owner.createdAtMs = Date.now() - 60_000;
+    await writeFile(ownerFile, JSON.stringify(owner));
+    await makeOld(guardPath);
+
+    await expect(settleLockTimeout(updateItem(
+      stateFile,
+      state.items[0].id,
+      (item) => ({ ...item, status: "reviewing" }),
+    ))).resolves.toMatchObject({
+      items: [{ status: "reviewing" }],
+    });
+    expect(await exists(reaperPath)).toBe(false);
+    expect(await exists(guardPath)).toBe(false);
+  });
+
+  it("removes an old ownerless guard without touching a fresh live reaper", async () => {
+    vi.useFakeTimers();
+    const { options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const reaperPath = `${stateFile}.lock.reaper`;
+    const guardPath = `${reaperPath}.guard`;
+    const owner = {
+      pid: process.pid,
+      token: "fresh-live-reaper",
+      createdAtMs: Date.now(),
+    };
+    await mkdir(reaperPath);
+    await writeFile(
+      path.join(reaperPath, "owner.json"),
+      JSON.stringify(owner),
+    );
+    const reaperInode = (await lstat(reaperPath)).ino;
+    await mkdir(guardPath);
+    await makeOld(guardPath);
+
+    await expect(settleLockTimeout(updateItem(
+      stateFile,
+      state.items[0].id,
+      (item) => ({ ...item, status: "reviewing" }),
+    ))).rejects.toThrow(/timed out.*lock/i);
+
+    expect(await exists(guardPath)).toBe(false);
+    expect((await lstat(reaperPath)).ino).toBe(reaperInode);
+    expect(JSON.parse(
+      await readFile(path.join(reaperPath, "owner.json"), "utf8"),
+    )).toEqual(owner);
   });
 
   it("resumes after a child is terminated while holding the state lock", async () => {

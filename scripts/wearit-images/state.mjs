@@ -591,6 +591,61 @@ async function recoverStaleLock(lockPath, reaperPath) {
   }
 }
 
+async function restoreTombstone(lockPath, tombstonePath) {
+  try {
+    await mkdir(lockPath);
+  } catch (error) {
+    if (error?.code === "EEXIST") {
+      throw new Error(
+        `Lock recovery race preserved moved lock at ${tombstonePath}`,
+      );
+    }
+    throw error;
+  }
+
+  try {
+    await rename(tombstonePath, lockPath);
+  } catch (error) {
+    await rm(lockPath, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function recoverStaleAuxiliaryLock(lockPath) {
+  const observed = await snapshotLock(lockPath);
+  if (!lockIsRecoverable(observed)) return false;
+
+  const tombstonePath = `${lockPath}.tombstone.${process.pid}.${randomUUID()}`;
+  try {
+    await rename(lockPath, tombstonePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+
+  const moved = await snapshotLock(tombstonePath);
+  if (
+    sameLockIdentity(observed, moved)
+    && lockIsRecoverable(moved)
+  ) {
+    await rm(tombstonePath, { recursive: true });
+    return true;
+  }
+
+  await restoreTombstone(lockPath, tombstonePath);
+  return false;
+}
+
+async function lockPathExists(lockPath) {
+  try {
+    await lstat(lockPath);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -601,19 +656,15 @@ async function acquireStateLock(stateFile) {
   const deadline = Date.now() + LOCK_WAIT_MS;
 
   while (true) {
-    if (
-      await recoverStaleLock(reaperPath, `${reaperPath}.guard`)
-    ) {
-      continue;
-    }
+    const guardPath = `${reaperPath}.guard`;
+    await recoverStaleAuxiliaryLock(guardPath);
+    const guardPresent = await lockPathExists(guardPath);
+    if (!guardPresent && await recoverStaleAuxiliaryLock(reaperPath)) continue;
 
-    let reaperPresent = false;
-    try {
-      await lstat(reaperPath);
-      reaperPresent = true;
-    } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
-    }
+    const reaperPresent = (
+      guardPresent
+      || await lockPathExists(reaperPath)
+    );
 
     if (!reaperPresent) {
       try {
