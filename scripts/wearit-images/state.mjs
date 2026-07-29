@@ -94,6 +94,41 @@ function isTimestamp(value) {
   );
 }
 
+function validateItemMetadata(metadata, slug, stateFile) {
+  if (!isPlainObject(metadata)) {
+    throw stateError(stateFile, `invalid metadata for ${slug}`);
+  }
+  const expectedKeys = ["colors", "productImageId", "tags"];
+  if (Object.keys(metadata).sort().join(",") !== expectedKeys.join(",")) {
+    throw stateError(stateFile, `invalid metadata shape for ${slug}`);
+  }
+  if (
+    !Array.isArray(metadata.colors)
+    || metadata.colors.length === 0
+    || metadata.colors.some(
+      (color) => typeof color !== "string" || !/^#[0-9a-f]{6}$/i.test(color),
+    )
+  ) {
+    throw stateError(stateFile, `invalid metadata colors for ${slug}`);
+  }
+  if (
+    !Array.isArray(metadata.tags)
+    || metadata.tags.length > 12
+    || metadata.tags.some((tag) => (
+      typeof tag !== "string"
+      || tag.length === 0
+      || tag.length > 40
+      || tag.trim() !== tag
+      || tag.toLowerCase() !== tag
+    ))
+  ) {
+    throw stateError(stateFile, `invalid metadata tags for ${slug}`);
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(metadata.productImageId ?? "")) {
+    throw stateError(stateFile, `invalid metadata productImageId for ${slug}`);
+  }
+}
+
 function stateError(stateFile, reason, cause) {
   return new Error(`Invalid batch state at ${stateFile}: ${reason}`, {
     cause,
@@ -311,6 +346,9 @@ async function validateBatchState(state, stateFile) {
     }
     if (!isPlainObject(item.acceptedAssets)) {
       throw stateError(stateFile, `invalid acceptedAssets for ${item.slug}`);
+    }
+    if (item.metadata !== undefined) {
+      validateItemMetadata(item.metadata, item.slug, stateFile);
     }
     if (
       !Array.isArray(item.attempts)
@@ -869,6 +907,9 @@ export async function initializeBatch({
         slug: item.slug,
         name: item.name,
         category: "jacket",
+        ...(item.metadata === undefined
+          ? {}
+          : { metadata: structuredClone(item.metadata) }),
         sources,
         generationAttempts: 0,
         status: "ready",

@@ -20,6 +20,7 @@ import { inspectProductImage, inspectWearLayer } from "./image-checks.mjs";
 import { optimizeJacketPlacement } from "./placement.mjs";
 import { decideItem } from "./decision.mjs";
 import { writeBatchReports } from "./report.mjs";
+import { finalizeBatch } from "./finalize.mjs";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "../..");
@@ -56,6 +57,7 @@ const COMMAND_OPTIONS = {
   },
   status: { values: ["workspace"], flags: [] },
   report: { values: ["workspace"], flags: [] },
+  finalize: { values: ["workspace", "repo", "bundle"], flags: [] },
 };
 
 class UsageError extends Error {}
@@ -626,6 +628,21 @@ async function commandReport(options) {
   return { command: "report", ...report };
 }
 
+async function commandFinalize(options) {
+  const result = await finalizeBatch({
+    stateFile: batchStateFile(options.workspace),
+    repositoryRoot: options.repo,
+    bundleDir: options.bundle,
+  });
+  return {
+    command: "finalize",
+    bundle: result.outputDir,
+    accepted: result.accepted,
+    bytes: result.bytes,
+    uploaded: false,
+  };
+}
+
 
 const COMMANDS = {
   init: commandInit,
@@ -636,6 +653,7 @@ const COMMANDS = {
   "record-review": commandRecordReview,
   status: commandStatus,
   report: commandReport,
+  finalize: commandFinalize,
 };
 
 export async function main(argv = process.argv.slice(2)) {

@@ -236,6 +236,63 @@ describe("autonomous batch state", () => {
     expect((await readdir(oldWorkspace)).sort()).toEqual(["accepted.png"]);
   });
 
+  it("preserves complete optional import metadata from intake", async () => {
+    const { options } = await makeOptions();
+    options.intake = intake({
+      metadata: {
+        colors: ["#172033", "#f2efe6"],
+        tags: ["jacket", "navy-blue"],
+        productImageId: "33333333-3333-4333-8333-333333333333",
+      },
+    });
+
+    const state = await initializeBatch(options);
+
+    expect(state.items[0].metadata).toEqual({
+      colors: ["#172033", "#f2efe6"],
+      tags: ["jacket", "navy-blue"],
+      productImageId: "33333333-3333-4333-8333-333333333333",
+    });
+    expect((await loadBatch(
+      path.join(options.workspaceDir, "run-state.json"),
+    )).items[0].metadata).toEqual(state.items[0].metadata);
+  });
+
+  it.each([
+    ["empty colors", { colors: [], tags: [], productImageId: "33333333-3333-4333-8333-333333333333" }],
+    ["invalid color", { colors: ["navy"], tags: [], productImageId: "33333333-3333-4333-8333-333333333333" }],
+    ["uppercase tag", { colors: ["#172033"], tags: ["Jacket"], productImageId: "33333333-3333-4333-8333-333333333333" }],
+    ["empty tag", { colors: ["#172033"], tags: [""], productImageId: "33333333-3333-4333-8333-333333333333" }],
+    ["long tag", { colors: ["#172033"], tags: ["x".repeat(41)], productImageId: "33333333-3333-4333-8333-333333333333" }],
+    ["too many tags", { colors: ["#172033"], tags: Array.from({ length: 13 }, (_, index) => `tag-${index}`), productImageId: "33333333-3333-4333-8333-333333333333" }],
+    ["non-v4 product image id", { colors: ["#172033"], tags: [], productImageId: "33333333-3333-5333-8333-333333333333" }],
+  ])("rejects invalid optional import metadata: %s", async (
+    _description,
+    metadata,
+  ) => {
+    const { options } = await makeOptions();
+    options.intake = intake({ metadata });
+
+    await expect(initializeBatch(options)).rejects.toThrow(/metadata/i);
+  });
+
+  it("validates optional import metadata when loading full state", async () => {
+    const { options } = await makeOptions();
+    options.intake = intake({
+      metadata: {
+        colors: ["#172033"],
+        tags: ["jacket"],
+        productImageId: "33333333-3333-4333-8333-333333333333",
+      },
+    });
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    state.items[0].metadata.tags = ["Jacket"];
+    await writeFile(stateFile, JSON.stringify(state));
+
+    await expect(loadBatch(stateFile)).rejects.toThrow(/metadata/i);
+  });
+
   it("rejects changed sources when resuming", async () => {
     const { options } = await makeOptions();
     await initializeBatch(options);
