@@ -442,15 +442,31 @@ describe("conservative item decisions", () => {
     },
   );
 
-  it("quarantines placement violations at the generation budget", () => {
-    expect(decideItem(validInput({
+  it("allows candidate three one placement attempt, then quarantines no progress", () => {
+    const input = validInput({
       placement: placementWith({
         forbiddenRegionViolations: ["lowerLegs"],
       }),
       generationAttempts: 3,
-    }))).toEqual({
+    });
+
+    expect(decideItem(input)).toEqual({
+      decision: "retry",
+      reason: "placement-constraint-violation",
+      correction: {
+        target: "placement",
+        preserve: ["product-image", "wear-layer"],
+        consumesGenerationAttempt: false,
+      },
+    });
+
+    expect(decideItem({
+      ...input,
+      deterministicAttempts: { cleanup: 0, placement: 1 },
+    })).toEqual({
       decision: "quarantine",
-      reason: "generation-budget-exhausted",
+      reason: "deterministic-no-progress",
+      deterministicStage: "placement",
       placementFailures: {
         forbiddenRegionViolations: ["lowerLegs"],
         clippingFraction: 0,

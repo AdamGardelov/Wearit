@@ -330,13 +330,6 @@ export function decideItem({
         placementFailures: failures,
       };
     }
-    if (generationAttempts >= maxGenerationAttempts) {
-      return {
-        decision: "quarantine",
-        reason: "generation-budget-exhausted",
-        placementFailures: failures,
-      };
-    }
     return {
       decision: "retry",
       reason: "placement-constraint-violation",
