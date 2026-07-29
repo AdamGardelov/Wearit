@@ -7,12 +7,13 @@ import {
   realpath,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { fork } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   initializeBatch,
   loadBatch,
@@ -26,8 +27,20 @@ const UPDATE_WORKER = path.resolve(
 
 describe("autonomous batch state", () => {
   const roots = [];
+  const children = new Set();
 
   afterEach(async () => {
+    vi.useRealTimers();
+    const activeChildren = [...children];
+    const exits = activeChildren.map((child) =>
+      child.exitCode !== null || child.signalCode !== null
+        ? Promise.resolve()
+        : new Promise((resolve) => child.once("exit", resolve)),
+    );
+    for (const child of activeChildren) {
+      child.kill("SIGKILL");
+    }
+    await Promise.all(exits);
     await Promise.all(
       roots.splice(0).map((directory) =>
         rm(directory, { recursive: true, force: true }),
@@ -96,6 +109,7 @@ describe("autonomous batch state", () => {
     const child = fork(UPDATE_WORKER, [stateFile, itemId, status], {
       stdio: ["ignore", "ignore", "inherit", "ipc"],
     });
+    children.add(child);
     const queued = [];
     const waiters = new Map();
 
@@ -111,15 +125,20 @@ describe("autonomous batch state", () => {
 
     const exited = new Promise((resolve, reject) => {
       child.once("exit", (code, signal) => {
+        children.delete(child);
+        const error = new Error(
+          `Update worker exited with code ${code} and signal ${signal}`,
+        );
+        for (const waiter of waiters.values()) waiter.reject(error);
+        waiters.clear();
         if (code === 0) {
           resolve();
         } else {
-          reject(new Error(
-            `Update worker exited with code ${code} and signal ${signal}`,
-          ));
+          reject(error);
         }
       });
     });
+    exited.catch(() => {});
 
     return {
       child,
@@ -144,6 +163,16 @@ describe("autonomous batch state", () => {
       if (error?.code === "ENOENT") return false;
       throw error;
     }
+  }
+
+  async function makeOld(file) {
+    const old = new Date(Date.now() - 60_000);
+    await utimes(file, old, old);
+  }
+
+  async function settleLockTimeout(promise) {
+    await vi.advanceTimersByTimeAsync(11_000);
+    return promise;
   }
 
   it("builds fresh state only from the explicit Jackets intake", async () => {
@@ -337,6 +366,143 @@ describe("autonomous batch state", () => {
       (item) => ({ ...item, status: "reviewing" }),
     );
 
+    expect((await loadBatch(stateFile)).items[0].status).toBe("reviewing");
+    expect(await exists(lockPath)).toBe(false);
+  });
+
+  it("recovers an old ownerless lock after an identity recheck", async () => {
+    vi.useFakeTimers();
+    const { options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const lockPath = `${stateFile}.lock`;
+    await mkdir(lockPath);
+    await makeOld(lockPath);
+
+    await expect(settleLockTimeout(updateItem(
+      stateFile,
+      state.items[0].id,
+      (item) => ({ ...item, status: "reviewing" }),
+    ))).resolves.toMatchObject({
+      items: [{ status: "reviewing" }],
+    });
+    expect(await exists(lockPath)).toBe(false);
+  });
+
+  it("recovers malformed lock ownership only after the lock is old", async () => {
+    vi.useFakeTimers();
+    const { options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const lockPath = `${stateFile}.lock`;
+    const ownerFile = path.join(lockPath, "owner.json");
+    await mkdir(lockPath);
+    await writeFile(ownerFile, "{");
+    await makeOld(ownerFile);
+    await makeOld(lockPath);
+
+    await expect(settleLockTimeout(updateItem(
+      stateFile,
+      state.items[0].id,
+      (item) => ({ ...item, status: "reviewing" }),
+    ))).resolves.toMatchObject({
+      items: [{ status: "reviewing" }],
+    });
+    expect(await exists(lockPath)).toBe(false);
+  });
+
+  it("does not recover a recent malformed lock", async () => {
+    vi.useFakeTimers();
+    const { options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const lockPath = `${stateFile}.lock`;
+    await mkdir(lockPath);
+    await writeFile(path.join(lockPath, "owner.json"), "{");
+
+    await expect(settleLockTimeout(updateItem(
+      stateFile,
+      state.items[0].id,
+      (item) => ({ ...item, status: "reviewing" }),
+    ))).rejects.toThrow(/timed out.*lock/i);
+    expect(await exists(lockPath)).toBe(true);
+  });
+
+  it("never recovers an old lock owned by a live process", async () => {
+    vi.useFakeTimers();
+    const { options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const lockPath = `${stateFile}.lock`;
+    const owner = {
+      pid: process.pid,
+      token: "live-owner",
+      createdAtMs: Date.now() - 60_000,
+    };
+    await mkdir(lockPath);
+    await writeFile(
+      path.join(lockPath, "owner.json"),
+      JSON.stringify(owner),
+    );
+
+    await expect(settleLockTimeout(updateItem(
+      stateFile,
+      state.items[0].id,
+      (item) => ({ ...item, status: "reviewing" }),
+    ))).rejects.toThrow(/timed out.*live.*pid/i);
+    expect(JSON.parse(
+      await readFile(path.join(lockPath, "owner.json"), "utf8"),
+    )).toEqual(owner);
+  });
+
+  it("recovers an old reaper owned by a dead process", async () => {
+    vi.useFakeTimers();
+    const { options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const reaperPath = `${stateFile}.lock.reaper`;
+    await mkdir(reaperPath);
+    await writeFile(path.join(reaperPath, "owner.json"), JSON.stringify({
+      pid: 2_147_483_647,
+      token: "dead-reaper",
+      createdAtMs: Date.now() - 60_000,
+    }));
+
+    await expect(settleLockTimeout(updateItem(
+      stateFile,
+      state.items[0].id,
+      (item) => ({ ...item, status: "reviewing" }),
+    ))).resolves.toMatchObject({
+      items: [{ status: "reviewing" }],
+    });
+    expect(await exists(reaperPath)).toBe(false);
+  });
+
+  it("resumes after a child is terminated while holding the state lock", async () => {
+    const { options } = await makeOptions();
+    const state = await initializeBatch(options);
+    const stateFile = path.join(options.workspaceDir, "run-state.json");
+    const lockPath = `${stateFile}.lock`;
+    const worker = startUpdateWorker(
+      stateFile,
+      state.items[0].id,
+      "reviewing",
+    );
+    await worker.wait("started");
+    await worker.wait("entered");
+    worker.child.kill("SIGKILL");
+    await expect(worker.exited).rejects.toThrow(/SIGKILL/);
+
+    const ownerFile = path.join(lockPath, "owner.json");
+    const owner = JSON.parse(await readFile(ownerFile, "utf8"));
+    owner.createdAtMs = Date.now() - 60_000;
+    await writeFile(ownerFile, JSON.stringify(owner));
+
+    await updateItem(
+      stateFile,
+      state.items[0].id,
+      (item) => ({ ...item, status: "reviewing" }),
+    );
     expect((await loadBatch(stateFile)).items[0].status).toBe("reviewing");
     expect(await exists(lockPath)).toBe(false);
   });

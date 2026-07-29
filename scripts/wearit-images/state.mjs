@@ -462,54 +462,132 @@ function processIsAlive(pid) {
   }
 }
 
-async function readLockOwner(lockPath) {
+async function readLockOwnerState(lockPath) {
   try {
-    const owner = JSON.parse(
-      await readFile(path.join(lockPath, "owner.json"), "utf8"),
-    );
-    return (
+    let owner;
+    try {
+      owner = JSON.parse(
+        await readFile(path.join(lockPath, "owner.json"), "utf8"),
+      );
+    } catch (error) {
+      if (error?.code === "ENOENT") return { kind: "missing" };
+      if (error instanceof SyntaxError) return { kind: "malformed" };
+      throw error;
+    }
+
+    if (
       Number.isInteger(owner.pid)
       && isNonEmptyString(owner.token)
       && Number.isFinite(owner.createdAtMs)
-    ) ? owner : null;
+    ) {
+      return { kind: "valid", owner };
+    }
+    return { kind: "malformed" };
   } catch (error) {
-    if (error?.code === "ENOENT" || error instanceof SyntaxError) return null;
+    if (error?.code === "ENOENT") return { kind: "missing" };
     throw error;
   }
 }
 
-async function reapStaleLock(lockPath) {
-  const owner = await readLockOwner(lockPath);
+async function snapshotLock(lockPath) {
+  let lockStat;
+  try {
+    lockStat = await lstat(lockPath, { bigint: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+  if (!lockStat.isDirectory()) {
+    throw new Error(`State lock is not a directory: ${lockPath}`);
+  }
+
+  return {
+    dev: lockStat.dev,
+    ino: lockStat.ino,
+    modifiedAtMs: Number(lockStat.mtimeMs),
+    ownerState: await readLockOwnerState(lockPath),
+  };
+}
+
+function sameLockIdentity(first, second) {
+  return (
+    first !== null
+    && second !== null
+    && first.dev === second.dev
+    && first.ino === second.ino
+  );
+}
+
+function lockIsRecoverable(snapshot) {
+  if (!snapshot) return false;
+  const owner = snapshot.ownerState.kind === "valid"
+    ? snapshot.ownerState.owner
+    : null;
+  const ageMs = Date.now() - (owner?.createdAtMs ?? snapshot.modifiedAtMs);
   if (
-    !owner
-    || Date.now() - owner.createdAtMs < LOCK_STALE_MS
-    || processIsAlive(owner.pid)
+    ageMs < LOCK_STALE_MS
+    || (owner && processIsAlive(owner.pid))
   ) {
     return false;
   }
+  return true;
+}
 
-  const reaperPath = `${lockPath}.reaper`;
+async function createOwnedLockDirectory(lockPath) {
+  await mkdir(lockPath);
+  const owner = {
+    pid: process.pid,
+    token: randomUUID(),
+    createdAtMs: Date.now(),
+  };
   try {
-    await mkdir(reaperPath);
+    await writeFile(
+      path.join(lockPath, "owner.json"),
+      JSON.stringify(owner),
+      { flag: "wx" },
+    );
+  } catch (error) {
+    await rm(lockPath, { recursive: true, force: true });
+    throw error;
+  }
+  return owner;
+}
+
+async function releaseOwnedLockDirectory(lockPath, owner) {
+  const currentOwnerState = await readLockOwnerState(lockPath);
+  if (
+    currentOwnerState.kind !== "valid"
+    || currentOwnerState.owner.token !== owner.token
+  ) {
+    throw new Error(`State lock ownership changed: ${lockPath}`);
+  }
+  await rm(lockPath, { recursive: true });
+}
+
+async function recoverStaleLock(lockPath, reaperPath) {
+  const observed = await snapshotLock(lockPath);
+  if (!lockIsRecoverable(observed)) return false;
+
+  let reaperOwner;
+  try {
+    reaperOwner = await createOwnedLockDirectory(reaperPath);
   } catch (error) {
     if (error?.code === "EEXIST") return false;
     throw error;
   }
 
   try {
-    const confirmedOwner = await readLockOwner(lockPath);
+    const confirmed = await snapshotLock(lockPath);
     if (
-      !confirmedOwner
-      || confirmedOwner.token !== owner.token
-      || Date.now() - confirmedOwner.createdAtMs < LOCK_STALE_MS
-      || processIsAlive(confirmedOwner.pid)
+      !sameLockIdentity(observed, confirmed)
+      || !lockIsRecoverable(confirmed)
     ) {
       return false;
     }
     await rm(lockPath, { recursive: true });
     return true;
   } finally {
-    await rm(reaperPath, { recursive: true, force: true });
+    await releaseOwnedLockDirectory(reaperPath, reaperOwner);
   }
 }
 
@@ -523,6 +601,12 @@ async function acquireStateLock(stateFile) {
   const deadline = Date.now() + LOCK_WAIT_MS;
 
   while (true) {
+    if (
+      await recoverStaleLock(reaperPath, `${reaperPath}.guard`)
+    ) {
+      continue;
+    }
+
     let reaperPresent = false;
     try {
       await lstat(reaperPath);
@@ -533,39 +617,21 @@ async function acquireStateLock(stateFile) {
 
     if (!reaperPresent) {
       try {
-        await mkdir(lockPath);
-        const owner = {
-          pid: process.pid,
-          token: randomUUID(),
-          createdAtMs: Date.now(),
-        };
-        try {
-          await writeFile(
-            path.join(lockPath, "owner.json"),
-            JSON.stringify(owner),
-            { flag: "wx" },
-          );
-        } catch (error) {
-          await rm(lockPath, { recursive: true, force: true });
-          throw error;
-        }
+        const owner = await createOwnedLockDirectory(lockPath);
 
         return async () => {
-          const currentOwner = await readLockOwner(lockPath);
-          if (currentOwner?.token !== owner.token) {
-            throw new Error(`State lock ownership changed: ${lockPath}`);
-          }
-          await rm(lockPath, { recursive: true });
+          await releaseOwnedLockDirectory(lockPath, owner);
         };
       } catch (error) {
         if (error?.code !== "EEXIST") throw error;
       }
     }
 
-    if (await reapStaleLock(lockPath)) continue;
+    if (await recoverStaleLock(lockPath, reaperPath)) continue;
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
-      const owner = await readLockOwner(lockPath);
+      const ownerState = await readLockOwnerState(lockPath);
+      const owner = ownerState.kind === "valid" ? ownerState.owner : null;
       throw new Error(
         `Timed out waiting for state lock ${lockPath}`
         + (owner ? ` held by live or unconfirmed pid ${owner.pid}` : ""),
