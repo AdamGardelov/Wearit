@@ -354,7 +354,17 @@ function sectionHtml(title, items, mediaById, htmlFile) {
   return `<section><h2>${escapeHtml(title)}</h2>${content || "<p>None.</p>"}</section>`;
 }
 
+function formatRate(count, total) {
+  if (total === 0) return "0%";
+  return `${Number(((count / total) * 100).toFixed(1))}%`;
+}
+
 function reviewHtml({ state, accepted, audit, quarantined, mediaById, htmlFile }) {
+  const total = state.items?.length ?? 0;
+  const failed = (state.items ?? []).filter(
+    ({ status }) => status === "failed-infrastructure",
+  ).length;
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -373,7 +383,15 @@ function reviewHtml({ state, accepted, audit, quarantined, mediaById, htmlFile }
   </style>
 </head>
 <body>
-  <header><h1>${escapeHtml(state.batchSlug)} image batch review</h1><p>State updated ${escapeHtml(state.updatedAt ?? "unknown")}.</p></header>
+  <header>
+    <h1>${escapeHtml(state.batchSlug)} image batch review</h1>
+    <p>State updated ${escapeHtml(state.updatedAt ?? "unknown")}.</p>
+    <ul>
+      <li>Accepted: ${accepted.length} · Acceptance rate: ${formatRate(accepted.length, total)}</li>
+      <li>Quarantined: ${quarantined.length} · Quarantine rate: ${formatRate(quarantined.length, total)}</li>
+      <li>Failed infrastructure: ${failed} · Infrastructure-failure rate: ${formatRate(failed, total)}</li>
+    </ul>
+  </header>
   ${sectionHtml("Accepted", accepted, mediaById, htmlFile)}
   ${sectionHtml("Audit sample", audit, mediaById, htmlFile)}
   ${sectionHtml("Quarantine", quarantined, mediaById, htmlFile)}
@@ -598,5 +616,12 @@ export async function writeBatchReports({ state, workspaceDir }) {
     })),
   ]);
 
-  return { paths, counts, auditIds, warnings };
+  return {
+    reviewHtml: paths.reviewHtml,
+    auditItemIds: auditIds,
+    paths,
+    counts,
+    auditIds,
+    warnings,
+  };
 }

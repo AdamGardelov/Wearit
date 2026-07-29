@@ -253,6 +253,8 @@ describe("batch quality reports", () => {
     const firstJson = await readFile(first.paths.json, "utf8");
 
     expect(first).toMatchObject({
+      reviewHtml: first.paths.reviewHtml,
+      auditItemIds: [ACCEPTED_ID],
       counts: {
         accepted: 1,
         quarantined: 1,
@@ -299,6 +301,12 @@ describe("batch quality reports", () => {
     expect(firstHtml).toContain("<h2>Accepted</h2>");
     expect(firstHtml).toContain("<h2>Audit sample</h2>");
     expect(firstHtml).toContain("<h2>Quarantine</h2>");
+    expect(firstHtml).toContain("Accepted: 1");
+    expect(firstHtml).toContain("Quarantined: 1");
+    expect(firstHtml).toContain("Failed infrastructure: 1");
+    expect(firstHtml).toContain("Acceptance rate: 33.3%");
+    expect(firstHtml).toContain("Quarantine rate: 33.3%");
+    expect(firstHtml).toContain("Infrastructure-failure rate: 33.3%");
     expect(firstHtml).toContain("Accepted &lt;script&gt;alert(1)&lt;/script&gt;");
     expect(firstHtml).not.toContain("<script>");
     expect(firstHtml).toContain("generation-budget-exhausted &lt;unsafe&gt;");
@@ -329,6 +337,27 @@ describe("batch quality reports", () => {
     expect(await readFile(second.paths.json, "utf8")).toBe(firstJson);
   });
 
+  it("renders zero rates for an empty batch", async () => {
+    const emptyState = {
+      ...state(),
+      items: [],
+      infrastructureErrors: [],
+    };
+    const result = await writeBatchReports({
+      state: emptyState,
+      workspaceDir: workspace,
+    });
+    const html = await readFile(result.reviewHtml, "utf8");
+
+    expect(result.auditItemIds).toEqual([]);
+    expect(html).toContain("Accepted: 0");
+    expect(html).toContain("Quarantined: 0");
+    expect(html).toContain("Failed infrastructure: 0");
+    expect(html).toContain("Acceptance rate: 0%");
+    expect(html).toContain("Quarantine rate: 0%");
+    expect(html).toContain("Infrastructure-failure rate: 0%");
+  });
+
   it("exposes report through the CLI and rejects replaced managed directories", async () => {
     const cliWorkspace = path.join(root, "cli-workspace");
     const intake = [{
@@ -356,6 +385,8 @@ describe("batch quality reports", () => {
     const first = runCli(["report", "--workspace", cliWorkspace]);
     expect(first).toMatchObject({
       command: "report",
+      reviewHtml: first.paths.reviewHtml,
+      auditItemIds: [ACCEPTED_ID],
       counts: {
         accepted: 1,
         quarantined: 0,
