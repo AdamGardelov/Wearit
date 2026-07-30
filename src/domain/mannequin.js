@@ -1,22 +1,16 @@
+import { SLOT_ORDER } from "./slots.js";
+
 export const EMPTY_MANNEQUIN = {
   selectedBySlot: {},
   layerBySlot: {},
   history: [],
 };
 
-const SLOT_ORDER = [
-  "dress",
-  "top",
-  "bottom",
-  "outerwear",
-  "shoes",
-  "accessory",
-];
 const SLOT_RANK = new Map(SLOT_ORDER.map((slot, index) => [slot, index]));
 
 // Effective layers are normalized to unique, evenly spaced integers. Five is the
 // most garments that can share the mannequin (a dress excludes top and bottom), so
-// the largest value stays well within the 0-100 layer_order bound.
+// the largest value stays well within the 0-100 layer_order bound for all ten slots.
 const LAYER_STEP = 10;
 
 function nextSelection(selectedBySlot, item) {
