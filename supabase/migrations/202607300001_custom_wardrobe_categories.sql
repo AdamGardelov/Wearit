@@ -70,7 +70,6 @@ as $$
       from public.wardrobe_categories as category
       where category.owner_id = p_owner_id
         and category.id::text = p_category
-      for share
     )
   end;
 $$;
