@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(36);
+select plan(35);
 
 create function pg_temp.table_privileges(role_name name, relation regclass)
 returns text[] language sql stable set search_path = '' as $$
