@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WardrobeView } from "./WardrobeView.jsx";
 import { emptyAdvancedFilter } from "../../domain/filters.js";
+import { CATEGORIES } from "../../domain/slots.js";
 
 afterEach(cleanup);
 
@@ -53,6 +54,13 @@ const greenSummerTop = { ...shirt, id: "green-summer", name: "Green summer top",
 const summerLabel = { id: "s-summer", kind: "season", seasonKey: "summer", name: "Summer", locked: true };
 const rainyLabel = { id: "t-rainy", kind: "theme", seasonKey: null, name: "Rainy day", locked: false };
 const labels = [summerLabel, rainyLabel];
+
+const kavajer = {
+  id: "category-kavajer",
+  label: "Kavajer",
+  slot: "outerwear",
+  builtIn: false,
+};
 
 // The shared advanced filter is owned by App; this wrapper mirrors that ownership so
 // unit tests can drive the UnifiedFilter through WardrobeView's controlled props.
@@ -419,6 +427,62 @@ describe("WardrobeView", () => {
     expect(screen.getByRole("button", { name: "Jackor" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Klänningar" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Skor" })).not.toBeInTheDocument();
+  });
+
+  it("offers saved custom categories in the item picker", async () => {
+    const user = userEvent.setup();
+    const repository = createRepository({
+      listItems: vi.fn().mockResolvedValue([shirt]),
+    });
+    render(<WardrobeView repository={repository} categories={[...CATEGORIES, kavajer]} />);
+    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
+
+    expect(screen.getByRole("option", { name: "Kavajer" })).toBeInTheDocument();
+  });
+
+  it("shows and filters items by a custom category navigation chip", async () => {
+    const user = userEvent.setup();
+    const customJacket = { ...shirt, id: "custom-jacket", name: "Custom jacket", category: kavajer.id, slot: kavajer.slot };
+    const repository = createRepository({
+      listItems: vi.fn().mockResolvedValue([shirt, customJacket]),
+    });
+    render(<WardrobeView repository={repository} categories={[...CATEGORIES, kavajer]} />);
+    await screen.findByRole("button", { name: "Visa Blue shirt" });
+
+    await user.click(screen.getByRole("button", { name: "Kavajer" }));
+
+    expect(screen.getByRole("button", { name: "Visa Custom jacket" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Visa Blue shirt" })).not.toBeInTheDocument();
+  });
+
+  it("hides an empty saved custom category from navigation but keeps it in the picker", async () => {
+    const user = userEvent.setup();
+    const repository = createRepository({
+      listItems: vi.fn().mockResolvedValue([shirt]),
+    });
+    render(<WardrobeView repository={repository} categories={[...CATEGORIES, kavajer]} />);
+    await screen.findByRole("button", { name: "Visa Blue shirt" });
+
+    expect(screen.queryByRole("button", { name: "Kavajer" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Visa Blue shirt" }));
+    expect(screen.getByRole("option", { name: "Kavajer" })).toBeInTheDocument();
+  });
+
+  it("saves a custom category ID together with its persisted slot", async () => {
+    const user = userEvent.setup();
+    const repository = createRepository({
+      listItems: vi.fn().mockResolvedValue([shirt]),
+    });
+    render(<WardrobeView repository={repository} categories={[...CATEGORIES, kavajer]} />);
+    await user.click(await screen.findByRole("button", { name: "Visa Blue shirt" }));
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Kategori" }), kavajer.id);
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => expect(repository.updateItem).toHaveBeenCalledWith(expect.objectContaining({
+      category: kavajer.id,
+      slot: kavajer.slot,
+    })));
   });
 
   it("renders a single unified Filter trigger and no separate colour group", async () => {
