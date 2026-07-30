@@ -8,9 +8,8 @@ export const EMPTY_MANNEQUIN = {
 
 const SLOT_RANK = new Map(SLOT_ORDER.map((slot, index) => [slot, index]));
 
-// Effective layers are normalized to unique, evenly spaced integers. Five is the
-// most garments that can share the mannequin (a dress excludes top and bottom), so
-// the largest value stays well within the 0-100 layer_order bound for all ten slots.
+// Effective layers are normalized to unique, evenly spaced integers. The ten-slot
+// order stays within the 0-100 layer_order bound.
 const LAYER_STEP = 10;
 
 function nextSelection(selectedBySlot, item) {
