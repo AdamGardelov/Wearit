@@ -188,6 +188,60 @@ describe("conservative item decisions", () => {
     });
   });
 
+  it("retries a coherent arm-torso transparency defect", () => {
+    const failure = {
+      status: "fail",
+      confidence: 0.99,
+      reason: "opaque strip remains in the intended transparent gap",
+    };
+    expect(decideItem(validInput({
+      review: reviewWith({
+        leftSleeve: failure,
+        rightSleeve: failure,
+        torso: failure,
+        visibleMannequin: failure,
+        artifacts: failure,
+      }),
+      generationAttempts: 1,
+    }))).toEqual({
+      decision: "retry",
+      reason: "targeted-generation-correction",
+      correction: {
+        target: "arm-torso-gaps",
+        preserve: ["product-image"],
+        consumesGenerationAttempt: true,
+      },
+    });
+  });
+
+  it("quarantines an arm-torso transparency defect at the generation limit", () => {
+    const failure = {
+      status: "fail",
+      confidence: 0.99,
+      reason: "opaque strip remains in the intended transparent gap",
+    };
+    expect(decideItem(validInput({
+      review: reviewWith({
+        leftSleeve: failure,
+        rightSleeve: failure,
+        torso: failure,
+        visibleMannequin: failure,
+        artifacts: failure,
+      }),
+      generationAttempts: 3,
+    }))).toEqual({
+      decision: "quarantine",
+      reason: "generation-budget-exhausted",
+      failedRegions: [
+        "leftSleeve",
+        "rightSleeve",
+        "torso",
+        "visibleMannequin",
+        "artifacts",
+      ],
+    });
+  });
+
   it("quarantines an uncertain region when the generation budget is exhausted", () => {
     expect(decideItem(validInput({
       review: reviewWith({

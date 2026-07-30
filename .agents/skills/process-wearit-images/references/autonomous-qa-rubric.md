@@ -44,6 +44,13 @@ No region may be missing or added. Use `uncertain`, never `pass`, when the
 preview does not show a region clearly. A `fail`, `uncertain`, or pass
 confidence below `0.9` vetoes the whole item.
 
+When opaque or mannequin-colored material occupies an intended
+inner-arm-to-torso gap, fail the affected sleeve region(s), torso,
+`visibleMannequin`, and `artifacts` as supported by the image. The coherent
+cluster maps to the generation correction target `arm-torso-gaps`, preserves
+`product-image`, and consumes one generation attempt. Other unsupported or
+conflicting region combinations remain quarantine decisions.
+
 ## Region checks
 
 | Region | Pass only when |

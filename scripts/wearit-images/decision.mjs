@@ -25,6 +25,13 @@ const CLEANUP_FAILURE_KINDS = new Set([
   "chroma-residue",
   "detached-components",
 ]);
+const ARM_TORSO_GAP_REGIONS = new Set([
+  "leftSleeve",
+  "rightSleeve",
+  "torso",
+  "visibleMannequin",
+  "artifacts",
+]);
 const CORRECTIONS = Object.freeze({
   sourceFidelity: {
     target: "source-fidelity",
@@ -215,6 +222,22 @@ export function classifyCorrection(failedRegions) {
     || failedRegions.some((region) => !REGION_SET.has(region))
   ) {
     return null;
+  }
+
+  const failedRegionSet = new Set(failedRegions);
+  if (
+    failedRegions.every((region) => ARM_TORSO_GAP_REGIONS.has(region))
+    && failedRegionSet.has("torso")
+    && (
+      failedRegionSet.has("leftSleeve")
+      || failedRegionSet.has("rightSleeve")
+    )
+  ) {
+    return {
+      target: "arm-torso-gaps",
+      preserve: ["product-image"],
+      consumesGenerationAttempt: true,
+    };
   }
 
   const corrections = orderedRegions(failedRegions)
