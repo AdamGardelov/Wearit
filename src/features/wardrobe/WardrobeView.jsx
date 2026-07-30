@@ -92,6 +92,7 @@ export function WardrobeView({
   const [error, setError] = useState("");
   const repositoryRef = useRef(repository);
   repositoryRef.current = repository;
+  const categoryList = categories?.length ? categories : CATEGORIES;
 
   useEffect(() => {
     let mounted = true;
@@ -144,8 +145,8 @@ export function WardrobeView({
   const categoryCount = (categoryId) => (categoryId === "all" ? items.length : categoryCounts.get(categoryId) ?? 0);
   // Only offer categories that actually hold garments; "all" is always present.
   const visibleCategories = useMemo(
-    () => categories.filter((category) => category.id === "all" || availableCategoryIds.has(category.id)),
-    [availableCategoryIds, categories],
+    () => categoryList.filter((category) => category.id === "all" || availableCategoryIds.has(category.id)),
+    [availableCategoryIds, categoryList],
   );
   // Fall back to local colours only when App does not supply the shared families (e.g. the
   // view rendered standalone in tests). Colours always come from the complete item list.
@@ -245,7 +246,7 @@ export function WardrobeView({
     onMarkWorn?.([item]);
   };
 
-  const activeLabel = categories.find((category) => category.id === activeCategory)?.label || "Alla";
+  const activeLabel = categoryList.find((category) => category.id === activeCategory)?.label || "Alla";
 
   return (
     <div className={`app-shell${selectedItem ? " has-selection" : ""}`}>
@@ -347,7 +348,7 @@ export function WardrobeView({
           onArchive={archiveItem}
           onMarkWorn={markWorn}
           onRestoreFocus={restoreEditorFocus}
-          categories={categories}
+          categories={categoryList}
           categoriesLoading={categoriesLoading}
           categoriesError={categoriesError}
           onCreateCategory={onCreateCategory}

@@ -429,6 +429,17 @@ describe("WardrobeView", () => {
     expect(screen.queryByRole("button", { name: "Skor" })).not.toBeInTheDocument();
   });
 
+  it("keeps built-in navigation while categories are loading", async () => {
+    const repository = createRepository({
+      listItems: vi.fn().mockResolvedValue([shirt]),
+    });
+    render(<WardrobeView repository={repository} categories={[]} />);
+    await screen.findByRole("button", { name: "Visa Blue shirt" });
+
+    expect(screen.getByRole("button", { name: "Alla" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Överdelar" })).toBeInTheDocument();
+  });
+
   it("offers saved custom categories in the item picker", async () => {
     const user = userEvent.setup();
     const repository = createRepository({
