@@ -11,6 +11,9 @@ describe("category profile registry", () => {
       const profile = profileForCategory(profiles, category);
       expect(profile).toMatchObject({ schemaVersion: 1, category, placement: { anchorX: 0.5, anchorY: 0.5, scale: 1, rotationDegrees: 0 } });
       expect(profile.reviewRegions).toEqual(expect.arrayContaining(["sourceFidelity", "visibleMannequin", "artifacts"]));
+      expect(profile.corrections.sourceFidelity).toEqual({ target: "source-fidelity", preserve: [], consumesGenerationAttempt: true });
+      expect(profile.corrections).not.toHaveProperty("visibleMannequin");
+      expect(profile.corrections).not.toHaveProperty("artifacts");
       expect(profile.evidence).toEqual({ checkerboards: ["light", "dark"], topologyCrops: "item-contract", expectedCoverage: profile.calibration.status === "calibrated" ? "numeric-and-visual" : "visual-only" });
       expect(profile.relativePath).toBe("scripts/wearit-images/category-profiles.json");
       expect(profile.sha256).toMatch(/^[0-9a-f]{64}$/);
