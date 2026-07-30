@@ -10,6 +10,8 @@ Write exactly these 12 regions. Each region requires:
 - `status`: `pass`, `fail`, or `uncertain`;
 - `confidence`: a number from 0 to 1;
 - `reason`: a non-empty, image-specific explanation.
+- optional `applicable`: a boolean. Set it to `false` only for a sleeve or cuff
+  that is genuinely absent from the source garment.
 
 ```json
 {
@@ -31,6 +33,12 @@ Write exactly these 12 regions. Each region requires:
   }
 }
 ```
+
+For a genuinely sleeveless garment, keep all 12 regions and set
+`"applicable": false` on `leftSleeve`, `rightSleeve`, `leftCuff`, and
+`rightCuff`, with `status: "pass"`, confidence at least `0.9`, and a reason
+that names the absent source construction. Never mark shoulders, torso, hem,
+collar, source fidelity, visible mannequin, or artifacts non-applicable.
 
 No region may be missing or added. Use `uncertain`, never `pass`, when the
 preview does not show a region clearly. A `fail`, `uncertain`, or pass

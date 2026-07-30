@@ -14,6 +14,12 @@ export const CRITICAL_REGIONS = Object.freeze([
 ]);
 
 const REGION_SET = new Set(CRITICAL_REGIONS);
+const NON_APPLICABLE_REGIONS = new Set([
+  "leftSleeve",
+  "rightSleeve",
+  "leftCuff",
+  "rightCuff",
+]);
 const REVIEW_STATUSES = new Set(["pass", "fail", "uncertain"]);
 const CLEANUP_FAILURE_KINDS = new Set([
   "chroma-residue",
@@ -185,6 +191,18 @@ export function validateVisualReview(review) {
     ) {
       invalidReview(`${name}.reason must be a non-empty string`);
     }
+    if (
+      result.applicable !== undefined
+      && typeof result.applicable !== "boolean"
+    ) {
+      invalidReview(`${name}.applicable must be a boolean`);
+    }
+    if (
+      result.applicable === false
+      && !NON_APPLICABLE_REGIONS.has(name)
+    ) {
+      invalidReview(`${name} cannot be marked non-applicable`);
+    }
   }
 
   return review;
@@ -301,8 +319,8 @@ export function decideItem({
       "Placement result must contain valid constraint metrics",
     );
   }
-  const placementFailures = placement.metrics.uncoveredCriticalRegions;
-  if (placementFailures.some((region) => !REGION_SET.has(region))) {
+  const rawPlacementFailures = placement.metrics.uncoveredCriticalRegions;
+  if (rawPlacementFailures.some((region) => !REGION_SET.has(region))) {
     throw new Error("Placement contains an unknown critical region");
   }
   if (placement.metrics.forbiddenRegionViolations.some((region) =>
@@ -311,6 +329,9 @@ export function decideItem({
   }
 
   validateVisualReview(review);
+  const placementFailures = rawPlacementFailures.filter(
+    (region) => review.regions[region].applicable !== false,
+  );
   const globalPlacementFailure = (
     placement.metrics.forbiddenRegionViolations.length > 0
     || placement.metrics.clippingFraction > 0

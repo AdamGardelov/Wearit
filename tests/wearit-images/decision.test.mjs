@@ -116,6 +116,14 @@ describe("visual review validation", () => {
       "an empty reason",
       () => reviewWith({ collar: { reason: "   " } }),
     ],
+    [
+      "a non-boolean applicability flag",
+      () => reviewWith({ leftSleeve: { applicable: "no" } }),
+    ],
+    [
+      "a mandatory region marked non-applicable",
+      () => reviewWith({ torso: { applicable: false } }),
+    ],
   ])("rejects %s", (_description, makeReview) => {
     expect(() => validateVisualReview(makeReview())).toThrow(
       /invalid visual review/i,
@@ -303,6 +311,34 @@ describe("conservative item decisions", () => {
         preserve: ["product-image"],
         consumesGenerationAttempt: true,
       },
+    });
+  });
+
+  it("ignores placement coverage for explicitly non-applicable sleeve regions", () => {
+    const absent = {
+      applicable: false,
+      status: "pass",
+      confidence: 0.99,
+      reason: "the source garment is intentionally sleeveless",
+    };
+    expect(decideItem(validInput({
+      placement: placementWith({
+        uncoveredCriticalRegions: [
+          "leftSleeve",
+          "rightSleeve",
+          "leftCuff",
+          "rightCuff",
+        ],
+      }),
+      review: reviewWith({
+        leftSleeve: absent,
+        rightSleeve: absent,
+        leftCuff: absent,
+        rightCuff: absent,
+      }),
+    }))).toEqual({
+      decision: "accept",
+      reason: "all-critical-regions-pass",
     });
   });
 
