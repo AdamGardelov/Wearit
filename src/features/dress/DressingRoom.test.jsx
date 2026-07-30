@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../App.jsx";
 import { emptyAdvancedFilter } from "../../domain/filters.js";
+import { CATEGORIES } from "../../domain/slots.js";
 import { DressingRoom } from "./DressingRoom.jsx";
 
 afterEach(cleanup);
@@ -197,6 +198,46 @@ describe("DressingRoom", () => {
     expect(screen.getByRole("button", { name: "Överdelar" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Skor" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Klänningar" })).not.toBeInTheDocument();
+  });
+
+  it("shows populated custom categories and filters garments by their custom IDs", async () => {
+    const user = userEvent.setup();
+    const customCategories = [
+      { id: "jeans", label: "Jeans", slot: "bottom", builtIn: false },
+      { id: "shorts", label: "Shorts", slot: "bottom", builtIn: false },
+      { id: "t-shirts", label: "T-shirts", slot: "top", builtIn: false },
+      { id: "kavajer", label: "Kavajer", slot: "outerwear", builtIn: false },
+      { id: "hats", label: "Hattar", slot: "accessory", builtIn: false },
+    ];
+    const customItems = [
+      { ...bottom, id: "jeans-1", name: "Blue jeans", category: "jeans" },
+      { ...bottom, id: "shorts-1", name: "Linen shorts", category: "shorts" },
+      { ...top, id: "t-shirt-1", name: "White T-shirt", category: "t-shirts" },
+      { ...jacket, id: "blazer-1", name: "Navy blazer", category: "kavajer" },
+    ];
+
+    render(
+      <DressingRoom
+        items={customItems}
+        categories={[...CATEGORIES, ...customCategories]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Jeans" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Shorts" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "T-shirts" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Kavajer" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hattar" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Jeans" }));
+    expect(itemButton("Blue jeans")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Välj Linen shorts" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Shorts" }));
+    expect(itemButton("Linen shorts")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Kavajer" }));
+    expect(itemButton("Navy blazer")).toBeInTheDocument();
   });
 });
 

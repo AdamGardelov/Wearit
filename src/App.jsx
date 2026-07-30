@@ -357,6 +357,7 @@ export function App({ repository: injectedRepository }) {
       <section className="app-section" hidden={section !== "dress"}>
         <DressingRoom
           items={items}
+          categories={categories}
           loadRequest={loadRequest}
           onLoadedOutfitChange={setLoadedOutfit}
           onSave={(selection) => {
