@@ -166,7 +166,11 @@ describe("ItemEditorDialog category creation", () => {
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Kategori" }), "__new_category__");
 
+    expect(screen.getByRole("option", { name: "+ Lägg till kategori…" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Namn på kategori" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Namn på kategori" })).toBeRequired();
+    expect(screen.getByRole("textbox", { name: "Namn på kategori" })).toHaveAttribute("maxlength", "80");
+    expect(screen.getByRole("combobox", { name: "Typ av plagg" })).toBeRequired();
     expect(within(screen.getByRole("combobox", { name: "Typ av plagg" })).getAllByRole("option")
       .map((option) => option.textContent)).toEqual([
         "Överdelar",
@@ -185,7 +189,7 @@ describe("ItemEditorDialog category creation", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "Kategori" }), "__new_category__");
 
     await user.type(screen.getByRole("textbox", { name: "Namn på kategori" }), "   ");
-    await user.click(screen.getByRole("button", { name: "Skapa kategori" }));
+    await user.click(screen.getByRole("button", { name: "Lägg till" }));
 
     expect(onCreateCategory).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("Ange ett namn på kategorin.");
@@ -198,7 +202,7 @@ describe("ItemEditorDialog category creation", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "Kategori" }), "__new_category__");
     await user.type(screen.getByRole("textbox", { name: "Namn på kategori" }), "Kavajer");
 
-    await user.click(screen.getByRole("button", { name: "Skapa kategori" }));
+    await user.click(screen.getByRole("button", { name: "Lägg till" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("Det finns redan en kategori med det namnet.");
     expect(screen.getByRole("textbox", { name: "Namn på kategori" })).toHaveValue("Kavajer");
@@ -211,7 +215,8 @@ describe("ItemEditorDialog category creation", () => {
     expect(categorySelect).toHaveValue("top");
     await user.selectOptions(categorySelect, "__new_category__");
 
-    await user.click(screen.getByRole("button", { name: "Avbryt ny kategori" }));
+    await user.click(within(screen.getByRole("group", { name: "Ny kategori" }))
+      .getByRole("button", { name: "Avbryt" }));
 
     expect(categorySelect).toHaveValue("top");
     expect(screen.queryByRole("textbox", { name: "Namn på kategori" })).not.toBeInTheDocument();
@@ -235,7 +240,7 @@ describe("ItemEditorDialog category creation", () => {
     await user.type(screen.getByRole("textbox", { name: "Namn på kategori" }), "  Kavajer  ");
     await user.selectOptions(screen.getByRole("combobox", { name: "Typ av plagg" }), "outerwear");
 
-    await user.click(screen.getByRole("button", { name: "Skapa kategori" }));
+    await user.click(screen.getByRole("button", { name: "Lägg till" }));
 
     expect(onCreateCategory).toHaveBeenCalledWith({ name: "Kavajer", slot: "outerwear" });
     expect(screen.getByRole("combobox", { name: "Kategori" })).toHaveValue("category-1");
@@ -250,5 +255,54 @@ describe("ItemEditorDialog category creation", () => {
       category: "category-1",
       slot: "outerwear",
     }));
+  });
+
+  it("preserves the existing slot when selecting a built-in category", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    renderDialog({ onSave });
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Kategori" }), "jacket");
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ category: "jacket", slot: "top" }));
+  });
+
+  it("adds the category with Enter instead of submitting the item form", async () => {
+    const user = userEvent.setup();
+    const onCreateCategory = vi.fn().mockResolvedValue({
+      id: "category-1",
+      label: "Kavajer",
+      slot: "outerwear",
+      builtIn: false,
+    });
+    const onSave = vi.fn();
+    renderDialog({ onCreateCategory, onSave });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Kategori" }), "__new_category__");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Typ av plagg" }), "outerwear");
+
+    await user.type(screen.getByRole("textbox", { name: "Namn på kategori" }), "Kavajer{Enter}");
+
+    expect(onCreateCategory).toHaveBeenCalledWith({ name: "Kavajer", slot: "outerwear" });
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("disables save while an existing custom category cannot be resolved", () => {
+    renderDialog({
+      item: { ...multiImageItem, category: "category-1", slot: "outerwear" },
+      categories: [],
+      categoriesLoading: true,
+    });
+
+    expect(screen.getByRole("button", { name: "Spara" })).toBeDisabled();
+  });
+
+  it("keeps save available for a built-in category when category loading fails", () => {
+    renderDialog({
+      categories: CATEGORIES,
+      categoriesError: "Kunde inte ladda kategorier.",
+    });
+
+    expect(screen.getByRole("button", { name: "Spara" })).toBeEnabled();
   });
 });

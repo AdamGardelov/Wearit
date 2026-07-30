@@ -150,9 +150,14 @@ export function ItemEditorDialog({
   const themes = useMemo(() => labelsByKind(labels).themes, [labels]);
   const labelsUnavailable = labelsLoading || Boolean(labelsError);
   const availableCategories = useMemo(() => {
-    const suppliedIds = new Set(categories.map((category) => category.id));
-    return [...categories, ...createdCategories.filter((category) => !suppliedIds.has(category.id))];
+    const seenIds = new Set();
+    return [...CATEGORIES, ...categories, ...createdCategories].filter((category) => {
+      if (seenIds.has(category.id)) return false;
+      seenIds.add(category.id);
+      return true;
+    });
   }, [categories, createdCategories]);
+  const categoryResolved = availableCategories.some((category) => category.id === draft.category);
 
   const galleryImages = useMemo(() => galleryImagesFor(item), [item]);
   const safeIndex = Math.min(activeIndex, Math.max(galleryImages.length - 1, 0));
@@ -277,7 +282,7 @@ export function ItemEditorDialog({
     setDraft((current) => ({
       ...current,
       category: categoryId,
-      ...(category?.slot ? { slot: category.slot } : {}),
+      ...(category?.builtIn === false && category.slot ? { slot: category.slot } : {}),
     }));
   };
 
@@ -315,9 +320,16 @@ export function ItemEditorDialog({
     }
   };
 
+  const handleCategoryCreationKeyDown = (event) => {
+    if (event.key !== "Enter" || !event.target.matches("input, select")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    createCategory();
+  };
+
   const save = async (event) => {
     event.preventDefault();
-    if (labelsUnavailable) return;
+    if (labelsUnavailable || !categoryResolved) return;
     setError("");
     setBusyAction("save");
     try {
@@ -458,17 +470,22 @@ export function ItemEditorDialog({
                   aria-label="Kategori"
                   value={categoryFormOpen ? NEW_CATEGORY_VALUE : draft.category}
                   onChange={selectCategory}
-                  disabled={categoryCreating || categoriesLoading}
+                  disabled={categoryCreating}
                 >
                   {availableCategories.filter((category) => category.id !== "all").map((category) => (
                     <option value={category.id} key={category.id}>{category.label}</option>
                   ))}
-                  {onCreateCategory && <option value={NEW_CATEGORY_VALUE}>+ Lägg till kategori</option>}
+                  {onCreateCategory && <option value={NEW_CATEGORY_VALUE}>+ Lägg till kategori…</option>}
                 </select>
                 {categoriesLoading && <p className="category-status">Laddar kategorier…</p>}
                 {categoriesError && <p className="category-status error">{categoriesError}</p>}
                 {categoryFormOpen && (
-                  <div className="category-create" aria-label="Ny kategori">
+                  <div
+                    className="category-create"
+                    role="group"
+                    aria-label="Ny kategori"
+                    onKeyDown={handleCategoryCreationKeyDown}
+                  >
                     <label>
                       <span>Namn på kategori</span>
                       <input
@@ -476,7 +493,8 @@ export function ItemEditorDialog({
                         value={categoryName}
                         onChange={(event) => setCategoryName(event.target.value)}
                         disabled={categoryCreating}
-                        maxLength={81}
+                        maxLength={80}
+                        required
                         autoFocus
                       />
                     </label>
@@ -487,6 +505,7 @@ export function ItemEditorDialog({
                         value={categorySlot}
                         onChange={(event) => setCategorySlot(event.target.value)}
                         disabled={categoryCreating}
+                        required
                       >
                         {SLOT_OPTIONS.map((slot) => (
                           <option value={slot.id} key={slot.id}>{slot.label}</option>
@@ -501,7 +520,7 @@ export function ItemEditorDialog({
                         onClick={cancelCategoryCreation}
                         disabled={categoryCreating}
                       >
-                        Avbryt ny kategori
+                        Avbryt
                       </button>
                       <button
                         className="primary-button"
@@ -509,7 +528,7 @@ export function ItemEditorDialog({
                         onClick={createCategory}
                         disabled={categoryCreating}
                       >
-                        {categoryCreating ? "Skapar…" : "Skapa kategori"}
+                        {categoryCreating ? "Lägger till…" : "Lägg till"}
                       </button>
                     </div>
                   </div>
@@ -624,7 +643,7 @@ export function ItemEditorDialog({
               <button
                 className="primary-button"
                 type="submit"
-                disabled={Boolean(busyAction) || labelsUnavailable}
+                disabled={Boolean(busyAction) || labelsUnavailable || !categoryResolved}
               >
                 <Check size={15} weight="bold" aria-hidden="true" />
                 {busyAction === "save" ? "Sparar…" : "Spara"}
