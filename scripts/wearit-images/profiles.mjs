@@ -44,6 +44,7 @@ function validateProfile(profile, definition) {
   if (!profile.reviewRegions.includes("sourceFidelity") || !profile.reviewRegions.includes("visibleMannequin") || !profile.reviewRegions.includes("artifacts")) fail(`${definition.id} is missing common review regions`);
   const expectedOptional = OPTIONAL_REGIONS.has(definition.id) ? ["leftSleeve", "rightSleeve", "leftCuff", "rightCuff"] : [];
   if (!Array.isArray(profile.nonApplicableRegions) || JSON.stringify(profile.nonApplicableRegions) !== JSON.stringify(expectedOptional)) fail(`${definition.id} has invalid nonApplicableRegions`);
+  if (profile.corrections === null || typeof profile.corrections !== "object" || Array.isArray(profile.corrections) || (definition.id === "accessory" && Object.keys(profile.corrections).length !== 0)) fail(`${definition.id} has invalid corrections`);
   const p = profile.placement;
   EXACT_KEYS(p, ["anchorX", "anchorY", "scale", "rotationDegrees"], `${definition.id}.placement`);
   if (p.anchorX !== 0.5 || p.anchorY !== 0.5 || p.scale !== 1 || p.rotationDegrees !== 0) fail(`${definition.id} has invalid neutral placement`);
@@ -70,7 +71,6 @@ function validateProfile(profile, definition) {
   validateNumericRegions(profile.criticalRegions, "critical");
   validateNumericRegions(profile.forbiddenRegions, "forbidden");
   for (const region of profile.reviewRegions) {
-    if (COMMON_REGIONS.has(region)) continue;
     const correction = profile.corrections?.[region];
     if (COMMON_REGIONS.has(region)) continue;
     EXACT_KEYS(correction, ["target", "preserve", "consumesGenerationAttempt"], `${definition.id}.corrections.${region}`);
@@ -97,7 +97,7 @@ export async function loadProfiles() {
 }
 
 export function profileForCategory(profiles, category) {
-  const profile = profiles?.[category];
+  const profile = profiles && Object.hasOwn(profiles, category) ? profiles[category] : undefined;
   if (!profile) throw new Error(`Unknown category profile: ${category}`);
   return profile;
 }

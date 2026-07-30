@@ -23,4 +23,9 @@ describe("category profile registry", () => {
   it("canonicalizes object keys without changing array order", () => {
     expect(canonicalStringify({ b: 1, a: ["x", "y"] })).toBe('{"a":["x","y"],"b":1}');
   });
+
+  it("rejects inherited prototype keys as categories", () => {
+    expect(() => profileForCategory({}, "__proto__")).toThrow("Unknown category profile");
+    expect(() => profileForCategory({}, "constructor")).toThrow("Unknown category profile");
+  });
 });
