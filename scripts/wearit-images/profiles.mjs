@@ -20,7 +20,9 @@ export function canonicalStringify(value) {
 function fail(message) { throw new Error(`Invalid category profile: ${message}`); }
 
 function validateProfile(profile, definition) {
-  if (!profile || typeof profile !== "object") fail(`${definition.id} must be an object`);
+  if (!profile || typeof profile !== "object") fail(` must be an object`);
+  const allowed = new Set(["schemaVersion","category","sourceFolder","slot","layerOrder","reviewRegions","nonApplicableRegions","corrections","placement","evidence","calibration","criticalRegions","forbiddenRegions","relativePath","sha256"]);
+  if (Object.keys(profile).some((key) => !allowed.has(key))) fail(` has unknown fields`);
   const required = ["schemaVersion", "category", "sourceFolder", "slot", "layerOrder", "reviewRegions", "nonApplicableRegions", "corrections", "placement", "evidence", "calibration", "criticalRegions", "forbiddenRegions"];
   for (const key of required) if (!(key in profile)) fail(`${definition.id} is missing ${key}`);
   if (profile.schemaVersion !== 1 || profile.category !== definition.id || profile.sourceFolder !== definition.sourceFolder || profile.slot !== definition.slot || profile.layerOrder !== definition.layerOrder) fail(`${definition.id} does not match category registry`);
