@@ -1,4 +1,4 @@
-import { slotForCategory } from "../domain/slots.js";
+import { CATEGORIES, normalizeCustomCategory, slotForCategory } from "../domain/slots.js";
 
 const OUTFIT_SELECT = "*, outfit_items(*, wardrobe_item:wardrobe_items(*)), outfit_labels(label_id)";
 const WEAR_HISTORY_SELECT =
@@ -147,6 +147,25 @@ export function createWardrobeRepository(client) {
     return imagesByItem;
   }
 
+  async function listCategories() {
+    const rows = dataOrThrow(await client
+      .from("wardrobe_categories")
+      .select("id, name, slot, created_at")
+      .order("created_at", { ascending: true })
+      .order("name", { ascending: true }));
+    return [...CATEGORIES, ...(rows || []).map(normalizeCustomCategory)];
+  }
+
+  async function createCategory({ name, slot }) {
+    const ownerId = await authenticatedOwnerId();
+    const row = dataOrThrow(await client
+      .from("wardrobe_categories")
+      .insert({ owner_id: ownerId, name: name.trim(), slot })
+      .select("id, name, slot")
+      .single());
+    return normalizeCustomCategory(row);
+  }
+
   async function listItems({ includeArchived = false } = {}) {
     let query = client
       .from("wardrobe_items")
@@ -192,7 +211,7 @@ export function createWardrobeRepository(client) {
   }
 
   async function updateItem(item) {
-    const slot = slotForCategory(item.category);
+    const slot = slotForCategory(item.category) ?? item.slot;
     if (!slot) throw new Error(`Category ${item.category} has no wardrobe slot.`);
 
     const labelIds = item.labelIds ?? [];
@@ -882,6 +901,8 @@ export function createWardrobeRepository(client) {
 
   return {
     listItems,
+    listCategories,
+    createCategory,
     updateItem,
     archiveItem,
     restoreItem,

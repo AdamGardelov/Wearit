@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { availableColorFamilies } from "./domain/colors.js";
+import { CATEGORIES } from "./domain/slots.js";
 import { emptyAdvancedFilter, sanitizeAdvancedFilter } from "./domain/filters.js";
 import { createWardrobeRepository } from "./data/wardrobeRepository.js";
 import { ImportAdminView } from "./features/admin/ImportAdminView.jsx";
@@ -24,6 +25,7 @@ const SECTIONS = [
 // previous repository. `colors` is memoized on `items`, so a fresh [] each render would make
 // the colour-sanitize effect re-run every render and loop during a repository swap.
 const EMPTY_ITEMS = [];
+const EMPTY_CATEGORIES = [];
 
 export function App({ repository: injectedRepository }) {
   const [section, setSection] = useState("wardrobe");
@@ -49,6 +51,12 @@ export function App({ repository: injectedRepository }) {
   const [labelsState, setLabelsState] = useState(() => ({
     repository: baseRepository,
     labels: [],
+    loading: true,
+    error: "",
+  }));
+  const [categoriesState, setCategoriesState] = useState(() => ({
+    repository: baseRepository,
+    categories: CATEGORIES,
     loading: true,
     error: "",
   }));
@@ -82,11 +90,71 @@ export function App({ repository: injectedRepository }) {
     return () => { active = false; };
   }, [baseRepository]);
 
+  useEffect(() => {
+    let active = true;
+    if (typeof baseRepository.listCategories !== "function") {
+      setCategoriesState({ repository: baseRepository, categories: CATEGORIES, loading: false, error: "" });
+      return () => { active = false; };
+    }
+    setCategoriesState({ repository: baseRepository, categories: [], loading: true, error: "" });
+    baseRepository.listCategories()
+      .then((loadedCategories) => {
+        if (active) {
+          setCategoriesState((current) => {
+            if (current.repository !== baseRepository) return current;
+            const loadedIds = new Set(loadedCategories.map((category) => category.id));
+            const categories = [
+              ...loadedCategories,
+              ...current.categories.filter((category) => !loadedIds.has(category.id)),
+            ];
+            return { repository: baseRepository, categories, loading: false, error: "" };
+          });
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setCategoriesState((current) => {
+            if (current.repository !== baseRepository) return current;
+            const builtInIds = new Set(CATEGORIES.map((category) => category.id));
+            const categories = [
+              ...CATEGORIES,
+              ...current.categories.filter((category) => !builtInIds.has(category.id)),
+            ];
+            return {
+              repository: baseRepository,
+              categories,
+              loading: false,
+              error: error?.message || "Kunde inte ladda kategorier.",
+            };
+          });
+        }
+      });
+    return () => { active = false; };
+  }, [baseRepository]);
+
   const labels = labelsState.repository === baseRepository ? labelsState.labels : [];
   const labelsLoading = labelsState.repository === baseRepository ? labelsState.loading : true;
   const labelsError = labelsState.repository === baseRepository ? labelsState.error : "";
+  const categories = categoriesState.repository === baseRepository
+    ? categoriesState.categories
+    : EMPTY_CATEGORIES;
+  const categoriesLoading = categoriesState.repository === baseRepository
+    ? categoriesState.loading
+    : true;
+  const categoriesError = categoriesState.repository === baseRepository ? categoriesState.error : "";
   const labelsRef = useRef(labels);
   labelsRef.current = labels;
+
+  const createCategory = useCallback(async (categoryInput) => {
+    if (typeof baseRepository.createCategory !== "function") {
+      throw new Error("Kategorier kan inte skapas.");
+    }
+    const category = await baseRepository.createCategory(categoryInput);
+    setCategoriesState((current) => (current.repository === baseRepository
+      ? { ...current, categories: [...current.categories, category] }
+      : current));
+    return category;
+  }, [baseRepository]);
 
   const createTheme = useCallback(async (name) => {
     const theme = await baseRepository.createTheme(name);
@@ -247,6 +315,10 @@ export function App({ repository: injectedRepository }) {
     onAdvancedFilterChange: setAdvancedFilter,
     labelsLoading,
     labelsError,
+    categories,
+    categoriesLoading,
+    categoriesError,
+    onCreateCategory: typeof baseRepository.createCategory === "function" ? createCategory : undefined,
   };
 
   const requestWear = (selection, sourceOutfit = null) => {
