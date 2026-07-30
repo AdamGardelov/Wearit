@@ -14,6 +14,9 @@ describe("category profile registry", () => {
       expect(profile.evidence).toEqual({ checkerboards: ["light", "dark"], topologyCrops: "item-contract", expectedCoverage: profile.calibration.status === "calibrated" ? "numeric-and-visual" : "visual-only" });
       expect(profile.relativePath).toBe("scripts/wearit-images/category-profiles.json");
       expect(profile.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(Object.isFrozen(profile.reviewRegions)).toBe(true);
+      expect(Object.isFrozen(profile.corrections)).toBe(true);
+      expect(Object.isFrozen(profile.placement)).toBe(true);
     }
   });
 

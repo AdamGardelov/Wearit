@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { CATEGORY_DEFINITIONS } from "../../src/domain/slots.js";
 
-const PROFILE_FILE = path.join(path.dirname(new URL(import.meta.url).pathname), "category-profiles.json");
+const MODULE_PATH = import.meta.url.startsWith("file:")
+  ? decodeURIComponent(new URL(import.meta.url).pathname)
+  : import.meta.url;
+const PROFILE_FILE = path.join(path.dirname(MODULE_PATH), "category-profiles.json");
 const PROFILE_PATH = "scripts/wearit-images/category-profiles.json";
 const COMMON_REGIONS = new Set(["sourceFidelity", "visibleMannequin", "artifacts"]);
 const VALID_CALIBRATION = new Set(["calibrated", "uncalibrated"]);
@@ -12,6 +15,13 @@ const OPTIONAL_REGIONS = new Set(["top", "dress", "jacket", "coat"]);
 const EXACT_KEYS = (value, keys, label) => {
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join(",") !== [...keys].sort().join(",")) fail(`${label} has invalid fields`);
 };
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const nested of Object.values(value)) deepFreeze(nested);
+    Object.freeze(value);
+  }
+  return value;
+}
 
 export function canonicalStringify(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalStringify).join(",")}]`;
@@ -30,7 +40,7 @@ function validateProfile(profile, definition) {
   for (const key of required) if (!(key in profile)) fail(`${definition.id} is missing ${key}`);
   if (profile.schemaVersion !== 1 || profile.category !== definition.id || profile.sourceFolder !== definition.sourceFolder || profile.slot !== definition.slot || profile.layerOrder !== definition.layerOrder) fail(`${definition.id} does not match category registry`);
   if (!Array.isArray(profile.reviewRegions) || profile.reviewRegions.length < 3 || new Set(profile.reviewRegions).size !== profile.reviewRegions.length) fail(`${definition.id} has invalid reviewRegions`);
-  if (JSON.stringify(profile.reviewRegions) !== JSON.stringify(PROFILE_REGIONS[definition.id])) fail(` has missing or extra review regions`);
+  if (JSON.stringify(profile.reviewRegions) !== JSON.stringify(PROFILE_REGIONS[definition.id])) fail(`${definition.id} has missing or extra review regions`);
   if (!profile.reviewRegions.includes("sourceFidelity") || !profile.reviewRegions.includes("visibleMannequin") || !profile.reviewRegions.includes("artifacts")) fail(`${definition.id} is missing common review regions`);
   const expectedOptional = OPTIONAL_REGIONS.has(definition.id) ? ["leftSleeve", "rightSleeve", "leftCuff", "rightCuff"] : [];
   if (!Array.isArray(profile.nonApplicableRegions) || JSON.stringify(profile.nonApplicableRegions) !== JSON.stringify(expectedOptional)) fail(`${definition.id} has invalid nonApplicableRegions`);
@@ -42,6 +52,7 @@ function validateProfile(profile, definition) {
   if (!e || JSON.stringify(e.checkerboards) !== JSON.stringify(["light", "dark"]) || e.topologyCrops !== "item-contract" || !["visual-only", "numeric-and-visual"].includes(e.expectedCoverage)) fail(`${definition.id} has invalid evidence contract`);
   const c = profile.calibration;
   EXACT_KEYS(c, ["status", "method", "evidenceHashes"], `${definition.id}.calibration`);
+  if (!Array.isArray(profile.criticalRegions) || !Array.isArray(profile.forbiddenRegions)) fail(`${definition.id} has invalid numeric regions`);
   if (!VALID_CALIBRATION.has(c?.status) || (c.status === "uncalibrated" && (definition.id === "jacket" || c.method !== null || !Array.isArray(c.evidenceHashes) || c.evidenceHashes.length || profile.criticalRegions.length || profile.forbiddenRegions.length))) fail(`${definition.id} has invalid calibration`);
   if (c.status === "calibrated" && (definition.id !== "jacket" || typeof c.method !== "string" || !Array.isArray(c.evidenceHashes) || c.evidenceHashes.length === 0 || c.evidenceHashes.some((h) => !/^[0-9a-f]{64}$/.test(h)))) fail(`${definition.id} has invalid calibrated evidence`);
   if (e.expectedCoverage !== (c.status === "calibrated" ? "numeric-and-visual" : "visual-only")) fail(`${definition.id} has mismatched evidence coverage`);
@@ -80,9 +91,9 @@ export async function loadProfiles() {
     const runtimeFree = { ...profile };
     delete runtimeFree.sha256;
     delete runtimeFree.relativePath;
-    profiles[definition.id] = Object.freeze({ ...profile, relativePath: PROFILE_PATH, sha256: createHash("sha256").update(canonicalStringify(runtimeFree), "utf8").digest("hex") });
+    profiles[definition.id] = deepFreeze({ ...profile, relativePath: PROFILE_PATH, sha256: createHash("sha256").update(canonicalStringify(runtimeFree), "utf8").digest("hex") });
   }
-  return Object.freeze(profiles);
+  return deepFreeze(profiles);
 }
 
 export function profileForCategory(profiles, category) {
