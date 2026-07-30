@@ -14,16 +14,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-
-const CATEGORY_SLOTS = Object.freeze({
-  top: "top",
-  bottom: "bottom",
-  dress: "dress",
-  jacket: "outerwear",
-  coat: "outerwear",
-  shoes: "shoes",
-  accessory: "accessory",
-});
+import { slotForCategory } from "../src/domain/slots.js";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DETAIL_FORMATS = new Set(["jpeg", "png", "webp"]);
@@ -247,7 +238,7 @@ async function prepareAcceptedItem(raw, index, itemsRoot) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${label} must be an object`);
 
   const category = raw.category;
-  const slot = CATEGORY_SLOTS[category];
+  const slot = slotForCategory(category);
   if (!slot) throw new Error(`${label}: invalid category ${String(category)}`);
   if (raw.slot !== undefined && raw.slot !== slot) {
     throw new Error(`${label}.slot must be ${slot} for category ${category}`);
@@ -304,7 +295,7 @@ async function prepareAcceptedItemV2(raw, index, itemsRoot) {
 
   const id = normalizeUuid(raw.id, `${label}.id`);
   const category = raw.category;
-  const slot = CATEGORY_SLOTS[category];
+  const slot = slotForCategory(category);
   if (!slot) throw new Error(`${label}: invalid category ${String(category)}`);
   if (raw.slot !== undefined && raw.slot !== slot) {
     throw new Error(`${label}.slot must be ${slot} for category ${category}`);
