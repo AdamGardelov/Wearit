@@ -1068,3 +1068,43 @@ describe("createWardrobeRepository", () => {
     expect(query.eq).toHaveBeenCalledWith("locked", false);
   });
 });
+
+describe("wardrobe category repository APIs", () => {
+  it("lists built-ins before custom rows ordered by creation and name", async () => {
+    const customRows = [
+      { id: "category-z", name: "Kavajer", slot: "outerwear", created_at: "2026-07-02T00:00:00Z" },
+      { id: "category-a", name: "Byxor", slot: "bottom", created_at: "2026-07-01T00:00:00Z" },
+    ];
+    const query = {
+      select: vi.fn(() => query), order: vi.fn(() => query),
+      then: (resolve, reject) => Promise.resolve({ data: customRows, error: null }).then(resolve, reject),
+    };
+    const client = { from: vi.fn(() => query) };
+    const result = await createWardrobeRepository(client).listCategories();
+    expect(client.from).toHaveBeenCalledWith("wardrobe_categories");
+    expect(query.select).toHaveBeenCalledWith("id, name, slot, created_at");
+    expect(query.order).toHaveBeenNthCalledWith(1, "created_at", { ascending: true });
+    expect(query.order).toHaveBeenNthCalledWith(2, "name", { ascending: true });
+    expect(result[0]).toMatchObject({ id: "all", builtIn: true });
+    expect(result.at(-2)).toEqual({ id: "category-z", label: "Kavajer", slot: "outerwear", builtIn: false });
+  });
+
+  it("trims and persists a category for the authenticated owner", async () => {
+    const query = {
+      insert: vi.fn(() => query), select: vi.fn(() => query), single: vi.fn(() => Promise.resolve({ data: { id: "category-1", name: "Kavajer", slot: "outerwear" }, error: null })),
+    };
+    const auth = { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "owner-1" } }, error: null }) };
+    const client = { auth, from: vi.fn(() => query) };
+    await expect(createWardrobeRepository(client).createCategory({ name: "  Kavajer  ", slot: "outerwear" })).resolves.toEqual({ id: "category-1", label: "Kavajer", slot: "outerwear", builtIn: false });
+    expect(query.insert).toHaveBeenCalledWith({ owner_id: "owner-1", name: "Kavajer", slot: "outerwear" });
+    expect(query.select).toHaveBeenCalledWith("id, name, slot");
+  });
+
+  it("passes a custom item's persisted slot through updateItem", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "item-1", error: null });
+    const item = { id: "item-1", name: "Saved blazer", category: "category-1", slot: "outerwear", labelIds: [], colors: [], tags: [] };
+    const result = await createWardrobeRepository({ rpc }).updateItem(item);
+    expect(rpc).toHaveBeenCalledWith("update_wardrobe_item_with_labels", expect.objectContaining({ p_category: "category-1", p_slot: "outerwear" }));
+    expect(result).toMatchObject({ category: "category-1", slot: "outerwear" });
+  });
+});
