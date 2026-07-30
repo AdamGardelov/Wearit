@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, CalendarCheck, Check, MagnifyingGlassPlus, X } from "@phosphor-icons/react";
-import { CATEGORIES } from "../../domain/slots.js";
+import { CATEGORIES, SLOT_OPTIONS } from "../../domain/slots.js";
 import { labelsByKind } from "../../domain/labels.js";
 import { LabelPicker } from "../labels/LabelPicker.jsx";
 import { ThemeManager } from "../labels/ThemeManager.jsx";
@@ -24,6 +24,16 @@ const FOCUSABLE_SELECTOR = [
   "[href]",
   '[tabindex]:not([tabindex="-1"])',
 ].join(", ");
+
+const NEW_CATEGORY_VALUE = "__new_category__";
+
+function categoryCreationError(error) {
+  const message = error?.message || "";
+  if (error?.code === "23505" || /duplicate|unique|finns redan/i.test(message)) {
+    return "Det finns redan en kategori med det namnet.";
+  }
+  return message || "Kunde inte skapa kategorin. Försök igen.";
+}
 
 function rgbToHex(red, green, blue) {
   return `#${[red, green, blue]
@@ -111,6 +121,10 @@ export function ItemEditorDialog({
   labels = [],
   labelsLoading = false,
   labelsError = "",
+  categories = CATEGORIES,
+  categoriesLoading = false,
+  categoriesError = "",
+  onCreateCategory,
   onCreateTheme,
   onRenameTheme,
   onDeleteTheme,
@@ -126,9 +140,19 @@ export function ItemEditorDialog({
   const [error, setError] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [categoryFormOpen, setCategoryFormOpen] = useState(false);
+  const [categoryName, setCategoryName] = useState("");
+  const [categorySlot, setCategorySlot] = useState(SLOT_OPTIONS[0].id);
+  const [categoryCreating, setCategoryCreating] = useState(false);
+  const [categoryError, setCategoryError] = useState("");
+  const [createdCategories, setCreatedCategories] = useState([]);
 
   const themes = useMemo(() => labelsByKind(labels).themes, [labels]);
   const labelsUnavailable = labelsLoading || Boolean(labelsError);
+  const availableCategories = useMemo(() => {
+    const suppliedIds = new Set(categories.map((category) => category.id));
+    return [...categories, ...createdCategories.filter((category) => !suppliedIds.has(category.id))];
+  }, [categories, createdCategories]);
 
   const galleryImages = useMemo(() => galleryImagesFor(item), [item]);
   const safeIndex = Math.min(activeIndex, Math.max(galleryImages.length - 1, 0));
@@ -144,6 +168,12 @@ export function ItemEditorDialog({
     setError("");
     setActiveIndex(0);
     setLightboxOpen(false);
+    setCategoryFormOpen(false);
+    setCategoryName("");
+    setCategorySlot(SLOT_OPTIONS[0].id);
+    setCategoryCreating(false);
+    setCategoryError("");
+    setCreatedCategories([]);
   }, [item]);
 
   useEffect(() => {
@@ -230,6 +260,59 @@ export function ItemEditorDialog({
   const deleteTheme = async (labelId) => {
     await onDeleteTheme?.(labelId);
     setSelectedLabelIds((current) => current.filter((id) => id !== labelId));
+  };
+
+  const selectCategory = (event) => {
+    const categoryId = event.target.value;
+    if (categoryId === NEW_CATEGORY_VALUE) {
+      setCategoryFormOpen(true);
+      setCategoryError("");
+      return;
+    }
+    setCategoryFormOpen(false);
+    setCategoryName("");
+    setCategorySlot(SLOT_OPTIONS[0].id);
+    setCategoryError("");
+    const category = availableCategories.find((entry) => entry.id === categoryId);
+    setDraft((current) => ({
+      ...current,
+      category: categoryId,
+      ...(category?.slot ? { slot: category.slot } : {}),
+    }));
+  };
+
+  const cancelCategoryCreation = () => {
+    setCategoryFormOpen(false);
+    setCategoryName("");
+    setCategorySlot(SLOT_OPTIONS[0].id);
+    setCategoryError("");
+  };
+
+  const createCategory = async () => {
+    const name = categoryName.trim();
+    if (!name) {
+      setCategoryError("Ange ett namn på kategorin.");
+      return;
+    }
+    if (name.length > 80) {
+      setCategoryError("Namnet får vara högst 80 tecken.");
+      return;
+    }
+
+    setCategoryError("");
+    setCategoryCreating(true);
+    try {
+      const category = await onCreateCategory({ name, slot: categorySlot });
+      setCreatedCategories((current) => [...current, category]);
+      setDraft((current) => ({ ...current, category: category.id, slot: category.slot }));
+      setCategoryFormOpen(false);
+      setCategoryName("");
+      setCategorySlot(SLOT_OPTIONS[0].id);
+    } catch (creationError) {
+      setCategoryError(categoryCreationError(creationError));
+    } finally {
+      setCategoryCreating(false);
+    }
   };
 
   const save = async (event) => {
@@ -368,18 +451,70 @@ export function ItemEditorDialog({
                   required
                 />
               </label>
-              <label className="field">
-                <span>Kategori</span>
+              <div className={`field category-field${categoryFormOpen ? " category-field-expanded" : ""}`}>
+                <label htmlFor="item-category"><span>Kategori</span></label>
                 <select
+                  id="item-category"
                   aria-label="Kategori"
-                  value={draft.category}
-                  onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value }))}
+                  value={categoryFormOpen ? NEW_CATEGORY_VALUE : draft.category}
+                  onChange={selectCategory}
+                  disabled={categoryCreating || categoriesLoading}
                 >
-                  {CATEGORIES.slice(1).map((category) => (
+                  {availableCategories.filter((category) => category.id !== "all").map((category) => (
                     <option value={category.id} key={category.id}>{category.label}</option>
                   ))}
+                  {onCreateCategory && <option value={NEW_CATEGORY_VALUE}>+ Lägg till kategori</option>}
                 </select>
-              </label>
+                {categoriesLoading && <p className="category-status">Laddar kategorier…</p>}
+                {categoriesError && <p className="category-status error">{categoriesError}</p>}
+                {categoryFormOpen && (
+                  <div className="category-create" aria-label="Ny kategori">
+                    <label>
+                      <span>Namn på kategori</span>
+                      <input
+                        aria-label="Namn på kategori"
+                        value={categoryName}
+                        onChange={(event) => setCategoryName(event.target.value)}
+                        disabled={categoryCreating}
+                        maxLength={81}
+                        autoFocus
+                      />
+                    </label>
+                    <label>
+                      <span>Typ av plagg</span>
+                      <select
+                        aria-label="Typ av plagg"
+                        value={categorySlot}
+                        onChange={(event) => setCategorySlot(event.target.value)}
+                        disabled={categoryCreating}
+                      >
+                        {SLOT_OPTIONS.map((slot) => (
+                          <option value={slot.id} key={slot.id}>{slot.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    {categoryError && <p className="category-create-error" role="alert">{categoryError}</p>}
+                    <div className="category-create-actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={cancelCategoryCreation}
+                        disabled={categoryCreating}
+                      >
+                        Avbryt ny kategori
+                      </button>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={createCategory}
+                        disabled={categoryCreating}
+                      >
+                        {categoryCreating ? "Skapar…" : "Skapa kategori"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
               <label className="field">
                 <span>Märke</span>
                 <input

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CATEGORIES } from "../../domain/slots.js";
 import { ItemEditorDialog } from "./ItemEditorDialog.jsx";
 
 afterEach(cleanup);
@@ -36,6 +37,7 @@ function renderDialog(overrides = {}) {
     onSave: vi.fn(),
     onArchive: vi.fn(),
     onMarkWorn: vi.fn(),
+    categories: CATEGORIES,
     ...overrides,
   };
   render(<ItemEditorDialog {...props} />);
@@ -154,5 +156,99 @@ describe("ItemEditorDialog gallery", () => {
 
     const lightbox = screen.getByRole("dialog", { name: "Disco tee bildvisare" });
     expect(within(lightbox).getByRole("img")).toHaveAttribute("src", "https://assets.test/layer.png");
+  });
+});
+
+describe("ItemEditorDialog category creation", () => {
+  it("opens an inline form with the supported Swedish slot labels", async () => {
+    const user = userEvent.setup();
+    renderDialog({ onCreateCategory: vi.fn() });
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Kategori" }), "__new_category__");
+
+    expect(screen.getByRole("textbox", { name: "Namn på kategori" })).toBeInTheDocument();
+    expect(within(screen.getByRole("combobox", { name: "Typ av plagg" })).getAllByRole("option")
+      .map((option) => option.textContent)).toEqual([
+        "Överdelar",
+        "Underdelar",
+        "Klänningar",
+        "Ytterplagg",
+        "Skor",
+        "Accessoarer",
+      ]);
+  });
+
+  it("rejects a blank category name without calling the repository", async () => {
+    const user = userEvent.setup();
+    const onCreateCategory = vi.fn();
+    renderDialog({ onCreateCategory });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Kategori" }), "__new_category__");
+
+    await user.type(screen.getByRole("textbox", { name: "Namn på kategori" }), "   ");
+    await user.click(screen.getByRole("button", { name: "Skapa kategori" }));
+
+    expect(onCreateCategory).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Ange ett namn på kategorin.");
+  });
+
+  it("keeps the category draft and exposes duplicate errors accessibly", async () => {
+    const user = userEvent.setup();
+    const onCreateCategory = vi.fn().mockRejectedValue({ code: "23505" });
+    renderDialog({ onCreateCategory });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Kategori" }), "__new_category__");
+    await user.type(screen.getByRole("textbox", { name: "Namn på kategori" }), "Kavajer");
+
+    await user.click(screen.getByRole("button", { name: "Skapa kategori" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Det finns redan en kategori med det namnet.");
+    expect(screen.getByRole("textbox", { name: "Namn på kategori" })).toHaveValue("Kavajer");
+  });
+
+  it("cancels creation and restores the previous category selection", async () => {
+    const user = userEvent.setup();
+    renderDialog({ onCreateCategory: vi.fn() });
+    const categorySelect = screen.getByRole("combobox", { name: "Kategori" });
+    expect(categorySelect).toHaveValue("top");
+    await user.selectOptions(categorySelect, "__new_category__");
+
+    await user.click(screen.getByRole("button", { name: "Avbryt ny kategori" }));
+
+    expect(categorySelect).toHaveValue("top");
+    expect(screen.queryByRole("textbox", { name: "Namn på kategori" })).not.toBeInTheDocument();
+  });
+
+  it("creates, selects, and saves a custom category without losing other draft edits", async () => {
+    const user = userEvent.setup();
+    const onCreateCategory = vi.fn().mockResolvedValue({
+      id: "category-1",
+      label: "Kavajer",
+      slot: "outerwear",
+      builtIn: false,
+    });
+    const onSave = vi.fn();
+    renderDialog({ onCreateCategory, onSave });
+
+    await user.clear(screen.getByRole("textbox", { name: "Namn" }));
+    await user.type(screen.getByRole("textbox", { name: "Namn" }), "Min kavaj");
+    await user.type(screen.getByRole("textbox", { name: "Märke" }), "Acme");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Kategori" }), "__new_category__");
+    await user.type(screen.getByRole("textbox", { name: "Namn på kategori" }), "  Kavajer  ");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Typ av plagg" }), "outerwear");
+
+    await user.click(screen.getByRole("button", { name: "Skapa kategori" }));
+
+    expect(onCreateCategory).toHaveBeenCalledWith({ name: "Kavajer", slot: "outerwear" });
+    expect(screen.getByRole("combobox", { name: "Kategori" })).toHaveValue("category-1");
+    expect(screen.queryByRole("textbox", { name: "Namn på kategori" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Namn" })).toHaveValue("Min kavaj");
+    expect(screen.getByRole("textbox", { name: "Märke" })).toHaveValue("Acme");
+
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Min kavaj",
+      brand: "Acme",
+      category: "category-1",
+      slot: "outerwear",
+    }));
   });
 });
