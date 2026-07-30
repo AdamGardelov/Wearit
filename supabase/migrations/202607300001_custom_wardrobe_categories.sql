@@ -58,6 +58,37 @@ as $$
   end;
 $$;
 
+revoke all on function public.wardrobe_slot_for_owner_category(uuid, text) from PUBLIC, anon, authenticated;
+
+create or replace function public.prevent_referenced_category_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if tg_op = 'DELETE' then
+    if exists (select 1 from public.wardrobe_items as item where item.owner_id = old.owner_id and item.category = old.id::text) then
+      raise exception 'A category assigned to wardrobe items cannot be deleted.' using errcode = '22023';
+    end if;
+    return old;
+  end if;
+
+  if (new.id is distinct from old.id or new.owner_id is distinct from old.owner_id or new.slot is distinct from old.slot)
+     and exists (select 1 from public.wardrobe_items as item where item.owner_id = old.owner_id and item.category = old.id::text) then
+    raise exception 'A category assigned to wardrobe items cannot change identity or slot.' using errcode = '22023';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.prevent_referenced_category_change() from PUBLIC, anon, authenticated;
+
+drop trigger if exists wardrobe_categories_reference_guard on public.wardrobe_categories;
+create trigger wardrobe_categories_reference_guard
+before update or delete on public.wardrobe_categories
+for each row execute function public.prevent_referenced_category_change();
+
 -- The old constraints only knew about built-in category IDs. Replace those
 -- checks with one owner-aware trigger while retaining the independent slot
 -- whitelist constraint already present on wardrobe_items.

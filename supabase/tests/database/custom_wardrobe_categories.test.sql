@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(29);
+select plan(33);
 
 create function pg_temp.table_privileges(role_name name, relation regclass)
 returns text[] language sql stable set search_path = '' as $$
@@ -31,6 +31,8 @@ select policies_are('public', 'wardrobe_categories', array[
 select is(pg_temp.table_privileges('anon', 'public.wardrobe_categories'), '{}'::text[], 'anon has no category privileges');
 select is(pg_temp.table_privileges('authenticated', 'public.wardrobe_categories'), array['DELETE','INSERT','SELECT','UPDATE']::text[], 'authenticated has category CRUD privileges');
 select has_function('public', 'wardrobe_slot_for_owner_category', array['uuid','text'], 'owner-aware slot resolver exists');
+select is(has_function_privilege('anon', 'public.wardrobe_slot_for_owner_category(uuid,text)', 'EXECUTE'), false, 'anon cannot execute the owner-aware resolver');
+select is(has_function_privilege('authenticated', 'public.wardrobe_slot_for_owner_category(uuid,text)', 'EXECUTE'), false, 'authenticated cannot execute the owner-aware resolver');
 
 insert into auth.users (id, aud, role, email, raw_user_meta_data, created_at, updated_at)
 values
@@ -62,6 +64,11 @@ $sql$), '23514', 'category slots are restricted');
 insert into public.wardrobe_categories (owner_id, name, slot)
 values ('72222222-2222-4222-8222-222222222222', 'Kavajer', 'outerwear');
 
+create temp table foreign_category as
+  select id from public.wardrobe_categories
+  where owner_id = '72222222-2222-4222-8222-222222222222';
+grant select on foreign_category to authenticated;
+
 insert into public.wardrobe_items (id, owner_id, name, category, slot, cutout_path)
 values ('7aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', '71111111-1111-4111-8111-111111111111', 'A jacket', 'jacket', 'outerwear', '71111111-1111-4111-8111-111111111111/items/a.png');
 
@@ -78,7 +85,7 @@ select is(pg_temp.sqlstate_for($sql$
 $sql$), '22023', 'item insert rejects an unknown category');
 select is(pg_temp.sqlstate_for($sql$
   insert into public.wardrobe_items (owner_id, name, category, slot, cutout_path)
-  values ('71111111-1111-4111-8111-111111111111', 'Foreign custom', (select id::text from public.wardrobe_categories where owner_id = '72222222-2222-4222-8222-222222222222'), 'outerwear', '71111111-1111-4111-8111-111111111111/items/foreign.png')
+  values ('71111111-1111-4111-8111-111111111111', 'Foreign custom', (select id::text from foreign_category), 'outerwear', '71111111-1111-4111-8111-111111111111/items/foreign.png')
 $sql$), '22023', 'item insert rejects a foreign custom category');
 select is(pg_temp.sqlstate_for($sql$
   insert into public.wardrobe_items (owner_id, name, category, slot, cutout_path)
@@ -91,10 +98,18 @@ select is(public.update_wardrobe_item_with_labels(
   null, null, null, '{}'::text[], '{}'::text[], 0.5, 0.5, 0.5, 0, 30, '{}'::uuid[]
 ), '7aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid, 'item label update accepts an owned custom category');
 select is(pg_temp.sqlstate_for($sql$
+  update public.wardrobe_categories set slot = 'top'
+  where id = (select id from public.wardrobe_categories where owner_id = '71111111-1111-4111-8111-111111111111')
+$sql$), '22023', 'referenced category slot cannot change');
+select is(pg_temp.sqlstate_for($sql$
+  delete from public.wardrobe_categories
+  where id = (select id from public.wardrobe_categories where owner_id = '71111111-1111-4111-8111-111111111111')
+$sql$), '22023', 'referenced category cannot be deleted');
+select is(pg_temp.sqlstate_for($sql$
   select public.update_wardrobe_item_with_labels('7aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'Bad', (select id::text from public.wardrobe_categories where owner_id = '71111111-1111-4111-8111-111111111111'), 'top', null, null, null, '{}'::text[], '{}'::text[], 0.5, 0.5, 0.5, 0, 30, '{}'::uuid[])
 $sql$), '22023', 'item label update rejects a custom slot mismatch');
 select is(pg_temp.sqlstate_for($sql$
-  select public.update_wardrobe_item_with_labels('7aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'Bad', (select id::text from public.wardrobe_categories where owner_id = '72222222-2222-4222-8222-222222222222'), 'outerwear', null, null, null, '{}'::text[], '{}'::text[], 0.5, 0.5, 0.5, 0, 30, '{}'::uuid[])
+  select public.update_wardrobe_item_with_labels('7aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'Bad', (select id::text from foreign_category), 'outerwear', null, null, null, '{}'::text[], '{}'::text[], 0.5, 0.5, 0.5, 0, 30, '{}'::uuid[])
 $sql$), '22023', 'item label update rejects a foreign custom category');
 
 set local role authenticated;
