@@ -79,11 +79,16 @@ function validateProfile(profile, definition) {
   validateNumericRegions(profile.forbiddenRegions, "forbidden");
   for (const region of profile.reviewRegions) {
     const correction = profile.corrections?.[region];
+    if (region === "sourceFidelity") {
+      EXACT_KEYS(correction, ["target", "preserve", "consumesGenerationAttempt"], `${definition.id}.corrections.${region}`);
+      if (!correction || correction.target !== "source-fidelity" || JSON.stringify(correction.preserve) !== JSON.stringify([]) || correction.consumesGenerationAttempt !== true) fail(`${definition.id} has invalid source fidelity correction`);
+      continue;
+    }
     if (COMMON_REGIONS.has(region)) continue;
     EXACT_KEYS(correction, ["target", "preserve", "consumesGenerationAttempt"], `${definition.id}.corrections.${region}`);
     if (!correction || correction.target !== region.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`) || JSON.stringify(correction.preserve) !== JSON.stringify(["product-images"]) || correction.consumesGenerationAttempt !== true) fail(`${definition.id} has invalid correction for ${region}`);
   }
-  for (const [name, correction] of Object.entries(profile.corrections ?? {})) if (!profile.reviewRegions.includes(name) || COMMON_REGIONS.has(name) || !correction) fail(`${definition.id} has unexpected correction ${name}`);
+  for (const [name, correction] of Object.entries(profile.corrections ?? {})) if (!profile.reviewRegions.includes(name) || name === "visibleMannequin" || name === "artifacts" || !correction) fail(`${definition.id} has unexpected correction ${name}`);
   return profile;
 }
 
