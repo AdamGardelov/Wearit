@@ -98,16 +98,34 @@ export function App({ repository: injectedRepository }) {
     }
     setCategoriesState({ repository: baseRepository, categories: [], loading: true, error: "" });
     baseRepository.listCategories()
-      .then((categories) => {
-        if (active) setCategoriesState({ repository: baseRepository, categories, loading: false, error: "" });
+      .then((loadedCategories) => {
+        if (active) {
+          setCategoriesState((current) => {
+            if (current.repository !== baseRepository) return current;
+            const loadedIds = new Set(loadedCategories.map((category) => category.id));
+            const categories = [
+              ...loadedCategories,
+              ...current.categories.filter((category) => !loadedIds.has(category.id)),
+            ];
+            return { repository: baseRepository, categories, loading: false, error: "" };
+          });
+        }
       })
       .catch((error) => {
         if (active) {
-          setCategoriesState({
-            repository: baseRepository,
-            categories: [],
-            loading: false,
-            error: error?.message || "Kunde inte ladda kategorier.",
+          setCategoriesState((current) => {
+            if (current.repository !== baseRepository) return current;
+            const builtInIds = new Set(CATEGORIES.map((category) => category.id));
+            const categories = [
+              ...CATEGORIES,
+              ...current.categories.filter((category) => !builtInIds.has(category.id)),
+            ];
+            return {
+              repository: baseRepository,
+              categories,
+              loading: false,
+              error: error?.message || "Kunde inte ladda kategorier.",
+            };
           });
         }
       });

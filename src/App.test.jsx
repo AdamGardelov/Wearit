@@ -88,4 +88,52 @@ describe("App category integration", () => {
     expect(wardrobeProps.categoriesLoading).toBe(false);
     expect(wardrobeProps.categoriesError).toBe("");
   });
+
+  it("keeps built-in categories usable when loading custom categories fails", async () => {
+    const listCategories = vi.fn().mockRejectedValue(new Error("category service unavailable"));
+
+    render(<App repository={repository({ listCategories })} />);
+
+    await waitFor(() => expect(wardrobeProps.categoriesLoading).toBe(false));
+    expect(wardrobeProps.categories).toEqual(CATEGORIES);
+    expect(wardrobeProps.categoriesError).toBe("category service unavailable");
+  });
+
+  it("preserves a category created while the category list is loading", async () => {
+    const categories = deferred();
+    const created = { id: "category-kavajer", label: "Kavajer", slot: "outerwear", builtIn: false };
+    const listCategories = vi.fn(() => categories.promise);
+    const createCategory = vi.fn().mockResolvedValue(created);
+    const repo = repository({ listCategories, createCategory });
+
+    render(<App repository={repo} />);
+    await waitFor(() => expect(listCategories).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await wardrobeProps.onCreateCategory({ name: "Kavajer", slot: "outerwear" });
+    });
+    expect(wardrobeProps.categories).toContainEqual(created);
+
+    await act(async () => categories.resolve([...CATEGORIES]));
+    await waitFor(() => expect(wardrobeProps.categories).toEqual([...CATEGORIES, created]));
+  });
+  it("preserves a category created while a failed category list is pending", async () => {
+    const categories = deferred();
+    const created = { id: "category-kavajer", label: "Kavajer", slot: "outerwear", builtIn: false };
+    const listCategories = vi.fn(() => categories.promise);
+    const createCategory = vi.fn().mockResolvedValue(created);
+    const repo = repository({ listCategories, createCategory });
+
+    render(<App repository={repo} />);
+    await waitFor(() => expect(listCategories).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await wardrobeProps.onCreateCategory({ name: "Kavajer", slot: "outerwear" });
+    });
+
+    await act(async () => categories.resolve(Promise.reject(new Error("category service unavailable"))));
+    await waitFor(() => expect(wardrobeProps.categoriesLoading).toBe(false));
+    expect(wardrobeProps.categories).toEqual([...CATEGORIES, created]);
+    expect(wardrobeProps.categoriesError).toBe("category service unavailable");
+  });
+
 });
