@@ -1,11 +1,18 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { CATEGORY_DEFINITIONS } from "../../src/domain/slots.js";
 
-const MODULE_PATH = import.meta.url.startsWith("file:")
-  ? decodeURIComponent(new URL(import.meta.url).pathname)
-  : import.meta.url;
+const MODULE_PATH = (() => {
+  if (!import.meta.url.startsWith("file:")) return import.meta.url;
+  try {
+    return fileURLToPath(import.meta.url);
+  } catch {
+    // Vitest transformed module URLs are not always valid file URLs.
+    return decodeURIComponent(new URL(import.meta.url).pathname);
+  }
+})();
 const PROFILE_FILE = path.join(path.dirname(MODULE_PATH), "category-profiles.json");
 const PROFILE_PATH = "scripts/wearit-images/category-profiles.json";
 const COMMON_REGIONS = new Set(["sourceFidelity", "visibleMannequin", "artifacts"]);
