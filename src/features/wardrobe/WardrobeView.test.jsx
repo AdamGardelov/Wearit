@@ -49,6 +49,12 @@ const redBottom = {
 };
 const redSummerTop = { ...shirt, id: "red-summer", name: "Red summer top", colors: ["#c0392b"], labelIds: ["s-summer"] };
 const greenSummerTop = { ...shirt, id: "green-summer", name: "Green summer top", colors: ["#4a8c3f"], labelIds: ["s-summer"] };
+const expandedCategoryItems = [
+  { ...shirt, id: "hat-1", name: "Wool hat", category: "hat", slot: "hat" },
+  { ...shirt, id: "belt-1", name: "Leather belt", category: "belt", slot: "belt" },
+  { ...shirt, id: "bag-1", name: "Canvas bag", category: "bag", slot: "bag" },
+  { ...shirt, id: "scarf-1", name: "Silk scarf", category: "scarf", slot: "scarf" },
+];
 
 const summerLabel = { id: "s-summer", kind: "season", seasonKey: "summer", name: "Summer", locked: true };
 const rainyLabel = { id: "t-rainy", kind: "theme", seasonKey: null, name: "Rainy day", locked: false };
@@ -127,6 +133,20 @@ describe("WardrobeView", () => {
 
     expect(screen.getByRole("button", { name: "Visa Blue shirt" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Visa Brown jacket" })).not.toBeInTheDocument();
+  });
+
+  it("shows distinct filters for hats, belts, bags, and scarves", async () => {
+    const user = userEvent.setup();
+    const repository = createRepository({ listItems: vi.fn().mockResolvedValue(expandedCategoryItems) });
+    render(<WardrobeView repository={repository} />);
+    await screen.findByRole("button", { name: "Visa Wool hat" });
+
+    for (const [label, itemName] of [["Hattar", "Wool hat"], ["Bälten", "Leather belt"], ["Väskor", "Canvas bag"], ["Halsdukar", "Silk scarf"]]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: label }));
+      expect(screen.getByRole("button", { name: `Visa ${itemName}` })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /^Visa / })).toHaveLength(1);
+    }
   });
 
   it("keeps signed asset URLs intact on native images", async () => {
