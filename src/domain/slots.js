@@ -21,7 +21,14 @@ export const SLOT_LABELS = {
   accessory: "accessoar",
 };
 
-export const SLOT_OPTIONS = SUPPORTED_SLOTS.map((id) => ({ id, label: SLOT_LABELS[id] }));
+export const SLOT_OPTIONS = [
+  { id: "top", label: "Överdelar" },
+  { id: "bottom", label: "Underdelar" },
+  { id: "dress", label: "Klänningar" },
+  { id: "outerwear", label: "Ytterplagg" },
+  { id: "shoes", label: "Skor" },
+  { id: "accessory", label: "Accessoarer" },
+];
 
 export const CATEGORY_BY_ID = Object.fromEntries(
   CATEGORIES.map((category) => [category.id, category]),

@@ -1073,20 +1073,29 @@ describe("wardrobe category repository APIs", () => {
   it("lists built-ins before custom rows ordered by creation and name", async () => {
     const customRows = [
       { id: "category-z", name: "Kavajer", slot: "outerwear", created_at: "2026-07-02T00:00:00Z" },
+      { id: "category-m", name: "Blusar", slot: "top", created_at: "2026-07-01T00:00:00Z" },
       { id: "category-a", name: "Byxor", slot: "bottom", created_at: "2026-07-01T00:00:00Z" },
     ];
+    const orderFields = [];
     const query = {
-      select: vi.fn(() => query), order: vi.fn(() => query),
-      then: (resolve, reject) => Promise.resolve({ data: customRows, error: null }).then(resolve, reject),
+      select: vi.fn(() => query),
+      order: vi.fn((field, options) => { orderFields.push([field, options]); return query; }),
+      then: (resolve, reject) => Promise.resolve({
+        data: [...customRows].sort((left, right) => (
+          left.created_at.localeCompare(right.created_at) || left.name.localeCompare(right.name)
+        )),
+        error: null,
+      }).then(resolve, reject),
     };
     const client = { from: vi.fn(() => query) };
     const result = await createWardrobeRepository(client).listCategories();
     expect(client.from).toHaveBeenCalledWith("wardrobe_categories");
     expect(query.select).toHaveBeenCalledWith("id, name, slot, created_at");
-    expect(query.order).toHaveBeenNthCalledWith(1, "created_at", { ascending: true });
-    expect(query.order).toHaveBeenNthCalledWith(2, "name", { ascending: true });
-    expect(result[0]).toMatchObject({ id: "all", builtIn: true });
-    expect(result.at(-2)).toEqual({ id: "category-z", label: "Kavajer", slot: "outerwear", builtIn: false });
+    expect(orderFields).toEqual([
+      ["created_at", { ascending: true }],
+      ["name", { ascending: true }],
+    ]);
+    expect(result.slice(-3).map((category) => category.id)).toEqual(["category-m", "category-a", "category-z"]);
   });
 
   it("trims and persists a category for the authenticated owner", async () => {

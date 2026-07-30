@@ -9,9 +9,9 @@ describe("wardrobe categories", () => {
 
   it("exposes supported mannequin slots with Swedish labels", () => {
     expect(SLOT_OPTIONS).toEqual([
-      { id: "top", label: "överdel" }, { id: "bottom", label: "underdel" },
-      { id: "dress", label: "klänning" }, { id: "outerwear", label: "ytterplagg" },
-      { id: "shoes", label: "skor" }, { id: "accessory", label: "accessoar" },
+      { id: "top", label: "Överdelar" }, { id: "bottom", label: "Underdelar" },
+      { id: "dress", label: "Klänningar" }, { id: "outerwear", label: "Ytterplagg" },
+      { id: "shoes", label: "Skor" }, { id: "accessory", label: "Accessoarer" },
     ]);
   });
 
