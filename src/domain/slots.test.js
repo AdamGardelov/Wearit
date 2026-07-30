@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CATEGORIES,
   CATEGORY_BY_ID,
   CATEGORY_BY_SOURCE_FOLDER,
   CATEGORY_DEFINITIONS,
@@ -26,11 +27,14 @@ const EXPECTED = [
 describe("category registry", () => {
   it("preserves the legacy all-category lookup entry", () => {
     expect(CATEGORY_BY_ID.all).toEqual({ id: "all", label: "Alla" });
+    expect(Object.isFrozen(CATEGORY_BY_ID.all)).toBe(true);
   });
 
   it("defines every category, source folder, slot, and default layer", () => {
     expect(CATEGORY_DEFINITIONS.map(({ id, sourceFolder, slot, layerOrder }) =>
       [id, sourceFolder, slot, layerOrder])).toEqual(EXPECTED);
+    expect(CATEGORY_DEFINITIONS.every((category) => Object.isFrozen(category))).toBe(true);
+    expect(CATEGORIES.every((category) => Object.isFrozen(category))).toBe(true);
     for (const [id, folder, slot, layer] of EXPECTED) {
       expect(CATEGORY_BY_ID[id]).toMatchObject({ id, sourceFolder: folder, slot, layerOrder: layer });
       expect(CATEGORY_BY_SOURCE_FOLDER[folder].id).toBe(id);
