@@ -10,12 +10,12 @@ export const CATEGORY_DEFINITIONS = Object.freeze([
   { id: "bag", label: "Väskor", sourceFolder: "Bags", slot: "bag", layerOrder: 60 },
   { id: "scarf", label: "Halsdukar", sourceFolder: "Scarves", slot: "scarf", layerOrder: 50 },
   { id: "accessory", label: "Accessoarer", sourceFolder: "Accessories", slot: "accessory", layerOrder: 80 },
-]);
+].map((category) => Object.freeze(category)));
 
 export const CATEGORIES = Object.freeze([
   { id: "all", label: "Alla" },
   ...CATEGORY_DEFINITIONS.map(({ id, label, slot }) => ({ id, label, slot })),
-]);
+].map((category) => Object.freeze(category)));
 
 export const CATEGORY_BY_ID = Object.freeze({
   all: CATEGORIES[0],
