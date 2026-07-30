@@ -17,9 +17,10 @@ export const CATEGORIES = Object.freeze([
   ...CATEGORY_DEFINITIONS.map(({ id, label, slot }) => ({ id, label, slot })),
 ]);
 
-export const CATEGORY_BY_ID = Object.freeze(
-  Object.fromEntries(CATEGORY_DEFINITIONS.map((category) => [category.id, category])),
-);
+export const CATEGORY_BY_ID = Object.freeze({
+  all: CATEGORIES[0],
+  ...Object.fromEntries(CATEGORY_DEFINITIONS.map((category) => [category.id, category])),
+});
 
 export const CATEGORY_BY_SOURCE_FOLDER = Object.freeze(
   Object.fromEntries(CATEGORY_DEFINITIONS.map((category) => [category.sourceFolder, category])),

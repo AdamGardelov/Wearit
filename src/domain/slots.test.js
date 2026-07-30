@@ -24,6 +24,10 @@ const EXPECTED = [
 ];
 
 describe("category registry", () => {
+  it("preserves the legacy all-category lookup entry", () => {
+    expect(CATEGORY_BY_ID.all).toEqual({ id: "all", label: "Alla" });
+  });
+
   it("defines every category, source folder, slot, and default layer", () => {
     expect(CATEGORY_DEFINITIONS.map(({ id, sourceFolder, slot, layerOrder }) =>
       [id, sourceFolder, slot, layerOrder])).toEqual(EXPECTED);
