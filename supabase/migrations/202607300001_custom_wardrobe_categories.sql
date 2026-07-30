@@ -29,6 +29,22 @@ for delete to authenticated using ((select auth.uid()) = owner_id);
 revoke all privileges on table public.wardrobe_categories from anon, authenticated;
 grant select, insert, update, delete on table public.wardrobe_categories to authenticated;
 
+create or replace function public.lock_custom_wardrobe_category(p_category text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if p_category is null or p_category in ('top', 'bottom', 'dress', 'jacket', 'coat', 'shoes', 'accessory') then
+    return;
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_category, 0));
+end;
+$$;
+
+revoke all on function public.lock_custom_wardrobe_category(text) from PUBLIC, anon, authenticated;
+
 -- Built-ins retain their historical IDs. Custom category IDs are UUID text values
 -- looked up only in the supplied owner's category namespace.
 create or replace function public.wardrobe_slot_for_owner_category(
@@ -54,6 +70,7 @@ as $$
       from public.wardrobe_categories as category
       where category.owner_id = p_owner_id
         and category.id::text = p_category
+      for share
     )
   end;
 $$;
@@ -68,10 +85,23 @@ set search_path = ''
 as $$
 begin
   if tg_op = 'DELETE' then
+    perform public.lock_custom_wardrobe_category(old.id::text);
     if exists (select 1 from public.wardrobe_items as item where item.owner_id = old.owner_id and item.category = old.id::text) then
       raise exception 'A category assigned to wardrobe items cannot be deleted.' using errcode = '22023';
     end if;
     return old;
+  end if;
+
+  if new.id is distinct from old.id then
+    if old.id::text < new.id::text then
+      perform public.lock_custom_wardrobe_category(old.id::text);
+      perform public.lock_custom_wardrobe_category(new.id::text);
+    else
+      perform public.lock_custom_wardrobe_category(new.id::text);
+      perform public.lock_custom_wardrobe_category(old.id::text);
+    end if;
+  else
+    perform public.lock_custom_wardrobe_category(old.id::text);
   end if;
 
   if (new.id is distinct from old.id or new.owner_id is distinct from old.owner_id or new.slot is distinct from old.slot)
@@ -129,6 +159,17 @@ as $$
 declare
   expected_slot text;
 begin
+  if tg_op = 'UPDATE' and new.category is distinct from old.category then
+    if old.category < new.category then
+      perform public.lock_custom_wardrobe_category(old.category);
+      perform public.lock_custom_wardrobe_category(new.category);
+    else
+      perform public.lock_custom_wardrobe_category(new.category);
+      perform public.lock_custom_wardrobe_category(old.category);
+    end if;
+  else
+    perform public.lock_custom_wardrobe_category(new.category);
+  end if;
   expected_slot := public.wardrobe_slot_for_owner_category(new.owner_id, new.category);
   if expected_slot is null or new.slot is distinct from expected_slot then
     raise exception 'The category and slot do not match.' using errcode = '22023';
@@ -136,6 +177,8 @@ begin
   return new;
 end;
 $$;
+
+revoke all on function public.validate_wardrobe_item_category_slot() from PUBLIC, anon, authenticated;
 
 drop trigger if exists wardrobe_items_category_slot_validation on public.wardrobe_items;
 create trigger wardrobe_items_category_slot_validation

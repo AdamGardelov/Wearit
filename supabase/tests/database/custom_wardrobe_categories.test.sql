@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(34);
+select plan(36);
 
 create function pg_temp.table_privileges(role_name name, relation regclass)
 returns text[] language sql stable set search_path = '' as $$
@@ -33,6 +33,8 @@ select is(pg_temp.table_privileges('authenticated', 'public.wardrobe_categories'
 select has_function('public', 'wardrobe_slot_for_owner_category', array['uuid','text'], 'owner-aware slot resolver exists');
 select is(has_function_privilege('anon', 'public.wardrobe_slot_for_owner_category(uuid,text)', 'EXECUTE'), false, 'anon cannot execute the owner-aware resolver');
 select is(has_function_privilege('authenticated', 'public.wardrobe_slot_for_owner_category(uuid,text)', 'EXECUTE'), false, 'authenticated cannot execute the owner-aware resolver');
+select is(has_function_privilege('authenticated', 'public.validate_wardrobe_item_category_slot()', 'EXECUTE'), false, 'authenticated cannot execute the item validation trigger');
+select is((select prosrc like '%pg_advisory_xact_lock%' from pg_proc where oid = 'public.lock_custom_wardrobe_category(text)'::regprocedure), true, 'custom category validation uses a transaction lock');
 
 insert into auth.users (id, aud, role, email, raw_user_meta_data, created_at, updated_at)
 values
