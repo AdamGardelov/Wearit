@@ -190,7 +190,13 @@ function latestAssets(item) {
 }
 
 async function profileForItem(state, item) {
-  if (state.version === 3) return loadProfile();
+  if (state.version === 3) {
+    // v3 predates per-category coverage and only ever carries jackets, so it
+    // borrows the jacket floors rather than falling back to inspectWearLayer's
+    // built-in defaults. Keeps one source of truth for the numbers.
+    const [runtime, categoryProfiles] = await Promise.all([loadProfile(), loadProfiles()]);
+    return { ...runtime, coverage: profileForCategory(categoryProfiles, "jacket").coverage };
+  }
   const profiles = await loadProfiles();
   const profile = profileForCategory(profiles, item.category);
   if (profile.sha256 !== item.profile?.sha256) {
@@ -514,6 +520,8 @@ async function commandInspect(options) {
       inspectWearLayer(assets["wear-layer"].path, {
         width: profile.canvas.width,
         height: profile.canvas.height,
+        minVisibleFraction: profile.coverage.minVisibleFraction,
+        minLargestComponentFraction: profile.coverage.minLargestComponentFraction,
       }),
     ]);
   } catch (error) {

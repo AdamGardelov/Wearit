@@ -42,8 +42,8 @@ function fail(message) { throw new Error(`Invalid category profile: ${message}`)
 
 function validateProfile(profile, definition) {
   if (!profile || typeof profile !== "object" || Array.isArray(profile)) fail(`${definition.id} must be an object`);
-  EXACT_KEYS(profile, ["schemaVersion","category","sourceFolder","slot","layerOrder","reviewRegions","nonApplicableRegions","corrections","placement","evidence","calibration","criticalRegions","forbiddenRegions"], definition.id);
-  const required = ["schemaVersion", "category", "sourceFolder", "slot", "layerOrder", "reviewRegions", "nonApplicableRegions", "corrections", "placement", "evidence", "calibration", "criticalRegions", "forbiddenRegions"];
+  EXACT_KEYS(profile, ["schemaVersion","category","sourceFolder","slot","layerOrder","reviewRegions","nonApplicableRegions","corrections","placement","evidence","calibration","coverage","criticalRegions","forbiddenRegions"], definition.id);
+  const required = ["schemaVersion", "category", "sourceFolder", "slot", "layerOrder", "reviewRegions", "nonApplicableRegions", "corrections", "placement", "evidence", "calibration", "coverage", "criticalRegions", "forbiddenRegions"];
   for (const key of required) if (!(key in profile)) fail(`${definition.id} is missing ${key}`);
   if (profile.schemaVersion !== 1 || profile.category !== definition.id || profile.sourceFolder !== definition.sourceFolder || profile.slot !== definition.slot || profile.layerOrder !== definition.layerOrder) fail(`${definition.id} does not match category registry`);
   if (!Array.isArray(profile.reviewRegions) || profile.reviewRegions.length < 3 || new Set(profile.reviewRegions).size !== profile.reviewRegions.length) fail(`${definition.id} has invalid reviewRegions`);
@@ -58,6 +58,15 @@ function validateProfile(profile, definition) {
   const e = profile.evidence;
   EXACT_KEYS(e, ["checkerboards", "topologyCrops", "expectedCoverage"], `${definition.id}.evidence`);
   if (!e || JSON.stringify(e.checkerboards) !== JSON.stringify(["light", "dark"]) || e.topologyCrops !== "item-contract" || !["visual-only", "numeric-and-visual"].includes(e.expectedCoverage)) fail(`${definition.id} has invalid evidence contract`);
+  // Wear-layer coverage floors are per-category: a jacket fills much of the
+  // body canvas, a pair of shoes covers ~2% of it and a belt strap far less.
+  // Without these the structural check falls back to jacket-shaped defaults
+  // and every small-garment category fails on content at any quality.
+  const cov = profile.coverage;
+  EXACT_KEYS(cov, ["minVisibleFraction", "minLargestComponentFraction"], `${definition.id}.coverage`);
+  const fractions = [cov.minVisibleFraction, cov.minLargestComponentFraction];
+  if (fractions.some((value) => typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 1)) fail(`${definition.id} has invalid coverage fractions`);
+  if (cov.minLargestComponentFraction > cov.minVisibleFraction) fail(`${definition.id} largest-component floor exceeds its visible floor`);
   const c = profile.calibration;
   EXACT_KEYS(c, ["status", "method", "evidenceHashes"], `${definition.id}.calibration`);
   if (!Array.isArray(profile.criticalRegions) || !Array.isArray(profile.forbiddenRegions)) fail(`${definition.id} has invalid numeric regions`);
