@@ -909,6 +909,12 @@ export async function initializeBatch({
 
       const sources = [];
       for (const source of item.sources) {
+        if (mixedRoot) {
+          const firstSegment = String(source?.file ?? "").split(/[\\/]/)[0];
+          const sourceCategory = categoryForSourceFolder(firstSegment);
+          if (!sourceCategory) throw new Error(`Unknown category folder in mixed input: ${firstSegment}`);
+          if (sourceCategory !== category) throw new Error(`Item category ${category} does not match source folder ${firstSegment}`);
+        }
         sources.push(await sourceMetadata(inputPath, source, claimedSources));
       }
 
