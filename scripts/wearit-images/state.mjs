@@ -14,8 +14,11 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { categoryForSourceFolder, CATEGORY_DEFINITIONS } from "../../src/domain/slots.js";
+import { loadProfiles, profileForCategory } from "./profiles.mjs";
 
-const STATE_VERSION = 3;
+const STATE_VERSION = 4;
+const LEGACY_STATE_VERSION = 3;
 const TERMINAL_ITEM_STATUSES = new Set([
   "accepted",
   "quarantined",
@@ -37,7 +40,6 @@ const LOCK_RETRY_MS = 25;
 const POLICY_KEYS = [
   "acceptanceConfidence",
   "auditRate",
-  "category",
   "maxGenerationAttempts",
   "reuseEarlierOutput",
 ];
@@ -222,8 +224,8 @@ async function ensureWorkspaceDirectory(workspacePath, relativePath) {
 }
 
 async function validateBatchState(state, stateFile) {
-  if (!isPlainObject(state) || state.version !== STATE_VERSION) {
-    throw stateError(stateFile, `version must be ${STATE_VERSION}`);
+  if (!isPlainObject(state) || ![LEGACY_STATE_VERSION, STATE_VERSION].includes(state.version)) {
+    throw stateError(stateFile, `version must be ${STATE_VERSION} or ${LEGACY_STATE_VERSION}`);
   }
   if (!isNonEmptyString(state.batchSlug)) {
     throw stateError(stateFile, "batchSlug must be a non-empty string");
@@ -244,8 +246,9 @@ async function validateBatchState(state, stateFile) {
     throw stateError(stateFile, "policy must be an object");
   }
   if (
-    Object.keys(state.policy).sort().join(",") !== POLICY_KEYS.join(",")
-    || state.policy.category !== "Jackets"
+    state.version === LEGACY_STATE_VERSION && Object.keys(state.policy).sort().join(",") !== [...POLICY_KEYS, "category"].sort().join(",")
+    || state.version === STATE_VERSION && Object.keys(state.policy).sort().join(",") !== POLICY_KEYS.sort().join(",")
+    || (state.version === LEGACY_STATE_VERSION && state.policy.category !== "Jackets")
     || state.policy.maxGenerationAttempts !== 3
     || state.policy.acceptanceConfidence !== 0.9
     || state.policy.auditRate !== 0.1
@@ -253,7 +256,7 @@ async function validateBatchState(state, stateFile) {
   ) {
     throw stateError(
       stateFile,
-      "policy must match the bounded Jackets pilot policy",
+      "policy must match the bounded processing policy",
     );
   }
   if (!Array.isArray(state.items)) {
@@ -271,7 +274,7 @@ async function validateBatchState(state, stateFile) {
   if (canonicalInput !== state.inputPath) {
     throw stateError(stateFile, "inputPath must be canonical");
   }
-  if (path.basename(canonicalInput) !== "Jackets") {
+  if (state.version === LEGACY_STATE_VERSION && path.basename(canonicalInput) !== "Jackets") {
     throw stateError(stateFile, "inputPath must identify the Jackets category");
   }
   const canonicalWorkspace = await canonicalStatePath(
@@ -328,8 +331,14 @@ async function validateBatchState(state, stateFile) {
     if (!isNonEmptyString(item.name)) {
       throw stateError(stateFile, `invalid item name: ${item.slug}`);
     }
-    if (item.category !== "jacket") {
+    if (state.version === LEGACY_STATE_VERSION && item.category !== "jacket") {
       throw stateError(stateFile, `invalid item category: ${item.slug}`);
+    }
+    if (state.version === STATE_VERSION) {
+      const definition = CATEGORY_DEFINITIONS.find(({ id }) => id === item.category);
+      if (!definition || !isPlainObject(item.profile) || item.profile.category !== item.category || item.profile.relativePath !== "scripts/wearit-images/category-profiles.json" || !/^[a-f0-9]{64}$/.test(item.profile.sha256 ?? "")) {
+        throw stateError(stateFile, `invalid category profile: ${item.slug}`);
+      }
     }
     if (!ITEM_STATUSES.has(item.status)) {
       throw stateError(stateFile, `invalid item status: ${item.slug}`);
@@ -822,9 +831,10 @@ export async function initializeBatch({
   now = new Date().toISOString(),
 }) {
   const inputPath = await realpath(inputDir);
-  if (path.basename(inputPath) !== "Jackets") {
-    throw new Error(`Only the Jackets input category is supported: ${inputPath}`);
-  }
+  const sourceFolder = path.basename(inputPath);
+  const rootCategory = categoryForSourceFolder(sourceFolder);
+  const mixedRoot = sourceFolder === "unprocessed";
+  if (!rootCategory && !mixedRoot) throw new Error(`Input must be a registered category folder or unprocessed: ${inputPath}`);
 
   const prospectiveWorkspace = await canonicalizeProspectivePath(workspaceDir);
   if (
@@ -902,11 +912,15 @@ export async function initializeBatch({
         sources.push(await sourceMetadata(inputPath, source, claimedSources));
       }
 
+      const category = item.category ?? rootCategory;
+      const definition = CATEGORY_DEFINITIONS.find((entry) => entry.id === category);
+      if (!definition) throw new Error(`Unknown item category: ${category}`);
+      if (!mixedRoot && category !== rootCategory) throw new Error(`Item category ${category} does not match input folder ${sourceFolder}`);
       items.push({
         id: item.id,
         slug: item.slug,
         name: item.name,
-        category: "jacket",
+        category,
         ...(item.metadata === undefined
           ? {}
           : { metadata: structuredClone(item.metadata) }),
@@ -921,8 +935,10 @@ export async function initializeBatch({
       });
     }
 
+    const profiles = await loadProfiles();
     const state = {
       version: STATE_VERSION,
+      inputMode: mixedRoot ? "mixed" : "category",
       batchSlug,
       inputPath,
       workspacePath,
@@ -930,7 +946,6 @@ export async function initializeBatch({
       updatedAt: now,
       stage: "processing",
       policy: {
-        category: "Jackets",
         maxGenerationAttempts: 3,
         acceptanceConfidence: 0.9,
         auditRate: 0.1,
@@ -940,6 +955,10 @@ export async function initializeBatch({
       infrastructureErrors: [],
     };
 
+    for (const item of state.items) {
+      const profile = profileForCategory(profiles, item.category);
+      item.profile = { category: item.category, relativePath: profile.relativePath, sha256: profile.sha256 };
+    }
     await validateBatchState(state, stateFile);
     for (const directory of BATCH_DIRECTORIES) {
       await ensureWorkspaceDirectory(workspacePath, directory);
