@@ -465,6 +465,23 @@ async function validateBatchState(state, stateFile) {
   }
 }
 
+async function hasSupportedImage(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.isDirectory() && !entry.isSymbolicLink() && await hasSupportedImage(path.join(directory, entry.name))) return true;
+    if (entry.isFile() && IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) return true;
+  }
+  return false;
+}
+
+async function validateMixedRootChildren(inputPath) {
+  for (const entry of await readdir(inputPath, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    if (!categoryForSourceFolder(entry.name) && await hasSupportedImage(path.join(inputPath, entry.name))) {
+      throw new Error(`Unknown category folder in mixed input: ${entry.name}. Valid folders: ${CATEGORY_DEFINITIONS.map(({ sourceFolder }) => sourceFolder).join(", ")}`);
+    }
+  }
+}
+
 async function canonicalizeProspectivePath(requestedPath) {
   let existingAncestor = path.resolve(requestedPath);
   const missingSegments = [];
@@ -913,6 +930,7 @@ export async function initializeBatch({
     }
 
     await assertFreshWorkspace(workspacePath, stateFile);
+    if (mixedRoot) await validateMixedRootChildren(inputPath);
     if (!Array.isArray(intake)) {
       throw new Error("Batch intake must be an array");
     }
