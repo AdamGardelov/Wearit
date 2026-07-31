@@ -119,6 +119,23 @@ describe("inspectWearLayer under small-garment categories", () => {
     }
   });
 
+  it("keeps even the smallest floor meaningful rather than effectively zero", async () => {
+    // accessory carries the lowest floor in the registry. On this canvas
+    // 0.0005 is ~787px, so a 20x20 speck must still be rejected: the floor has
+    // to catch a collapsed layer, not merely a literally empty one.
+    const profiles = await loadProfiles();
+    const { coverage } = profileForCategory(profiles, "accessory");
+    expect(coverage.minVisibleFraction * CANVAS.width * CANVAS.height).toBeGreaterThan(500);
+
+    const file = await layerWithBlocks("tiny-accessory", [
+      { left: 440, top: 880, width: 20, height: 20 },
+    ]);
+    const result = await inspectWearLayer(file, { ...CANVAS, ...coverage });
+
+    expect(result.failures).toContain("content");
+    expect(result.pass).toBe(false);
+  });
+
   it("still rejects a layer that is effectively empty", async () => {
     const file = await layerWithBlocks("speck", [
       { left: 440, top: 880, width: 6, height: 6 },
