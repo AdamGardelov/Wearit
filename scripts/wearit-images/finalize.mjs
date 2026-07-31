@@ -262,8 +262,9 @@ export async function preflightSourceMoves(state) {
     throw new Error("Source preflight requires batch state items");
   }
   const input = path.resolve(requireNonEmptyString(state.inputPath, "Batch inputPath"));
-  if (processedDestination(path.join(input, "source-check"))) {
-    // processedDestination performs the expected-tree shape check.
+  const inputFolder = path.basename(input);
+  if (CATEGORY_BY_SOURCE_FOLDER[inputFolder]) {
+    processedDestination(path.join(input, "source-check"), CATEGORY_BY_SOURCE_FOLDER[inputFolder].id);
   }
   const destinations = new Set();
   const moves = [];
