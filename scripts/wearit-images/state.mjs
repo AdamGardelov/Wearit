@@ -134,9 +134,38 @@ function validateV3ItemMetadata(metadata, slug, stateFile) {
   }
 }
 
+// `images` is required; `colors` and `tags` are optional but must follow the
+// same rules as v3 metadata when present. Without them finalize.mjs can never
+// read metadata.colors and every bundled item falls back to ["#000000"].
+const V4_METADATA_KEYS = new Set(["images", "colors", "tags"]);
+
 function validateV4ItemMetadata(metadata, slug, stateFile) {
-  if (!isPlainObject(metadata) || Object.keys(metadata).join(",") !== "images") throw stateError(stateFile, `invalid metadata shape for ${slug}`);
+  if (!isPlainObject(metadata)) throw stateError(stateFile, `invalid metadata shape for ${slug}`);
+  const metadataKeys = Object.keys(metadata);
+  if (!metadataKeys.includes("images") || metadataKeys.some((key) => !V4_METADATA_KEYS.has(key))) {
+    throw stateError(stateFile, `invalid metadata shape for ${slug}`);
+  }
   if (!Array.isArray(metadata.images) || metadata.images.length === 0) throw stateError(stateFile, `invalid metadata images for ${slug}`);
+  if (metadata.colors !== undefined && (
+    !Array.isArray(metadata.colors)
+    || metadata.colors.length === 0
+    || metadata.colors.some((color) => typeof color !== "string" || !/^#[0-9a-f]{6}$/i.test(color))
+  )) {
+    throw stateError(stateFile, `invalid metadata colors for ${slug}`);
+  }
+  if (metadata.tags !== undefined && (
+    !Array.isArray(metadata.tags)
+    || metadata.tags.length > 12
+    || metadata.tags.some((tag) => (
+      typeof tag !== "string"
+      || tag.length === 0
+      || tag.length > 40
+      || tag.trim() !== tag
+      || tag.toLowerCase() !== tag
+    ))
+  )) {
+    throw stateError(stateFile, `invalid metadata tags for ${slug}`);
+  }
   const ids = new Set(); const orders = new Set(); let primaryFronts = 0; let backs = 0;
   for (const image of metadata.images) {
     if (!isPlainObject(image) || Object.keys(image).sort().join(",") !== "id,isPrimary,sortOrder,view") throw stateError(stateFile, `invalid metadata image shape for ${slug}`);
