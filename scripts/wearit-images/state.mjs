@@ -14,8 +14,11 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { categoryForSourceFolder, CATEGORY_DEFINITIONS } from "../../src/domain/slots.js";
+import { loadProfiles, profileForCategory } from "./profiles.mjs";
 
-const STATE_VERSION = 3;
+const STATE_VERSION = 4;
+const LEGACY_STATE_VERSION = 3;
 const TERMINAL_ITEM_STATUSES = new Set([
   "accepted",
   "quarantined",
@@ -37,7 +40,6 @@ const LOCK_RETRY_MS = 25;
 const POLICY_KEYS = [
   "acceptanceConfidence",
   "auditRate",
-  "category",
   "maxGenerationAttempts",
   "reuseEarlierOutput",
 ];
@@ -94,7 +96,10 @@ function isTimestamp(value) {
   );
 }
 
-function validateItemMetadata(metadata, slug, stateFile) {
+const IMAGE_VIEWS = new Set(["front", "back", "detail"]);
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+
+function validateV3ItemMetadata(metadata, slug, stateFile) {
   if (!isPlainObject(metadata)) {
     throw stateError(stateFile, `invalid metadata for ${slug}`);
   }
@@ -127,6 +132,26 @@ function validateItemMetadata(metadata, slug, stateFile) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(metadata.productImageId ?? "")) {
     throw stateError(stateFile, `invalid metadata productImageId for ${slug}`);
   }
+}
+
+function validateV4ItemMetadata(metadata, slug, stateFile) {
+  if (!isPlainObject(metadata) || Object.keys(metadata).join(",") !== "images") throw stateError(stateFile, `invalid metadata shape for ${slug}`);
+  if (!Array.isArray(metadata.images) || metadata.images.length === 0) throw stateError(stateFile, `invalid metadata images for ${slug}`);
+  const ids = new Set(); const orders = new Set(); let primaryFronts = 0; let backs = 0;
+  for (const image of metadata.images) {
+    if (!isPlainObject(image) || Object.keys(image).sort().join(",") !== "id,isPrimary,sortOrder,view") throw stateError(stateFile, `invalid metadata image shape for ${slug}`);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(image.id ?? "") || ids.has(image.id) || !IMAGE_VIEWS.has(image.view)) throw stateError(stateFile, `invalid metadata image identity for ${slug}`);
+    if (!Number.isSafeInteger(image.sortOrder) || image.sortOrder < 0 || orders.has(image.sortOrder)) throw stateError(stateFile, `invalid metadata image sortOrder for ${slug}`);
+    if (typeof image.isPrimary !== "boolean") throw stateError(stateFile, `invalid metadata image primary flag for ${slug}`);
+    ids.add(image.id); orders.add(image.sortOrder); if (image.view === "back") backs += 1;
+    if (image.isPrimary && image.view === "front") primaryFronts += 1;
+    if (image.isPrimary && image.view !== "front") throw stateError(stateFile, `only front image may be primary for ${slug}`);
+  }
+  if (primaryFronts !== 1 || backs > 1) throw stateError(stateFile, `metadata images require exactly one primary front and at most one back for ${slug}`);
+}
+
+function validateProductImages(productImages, slug, stateFile) {
+  if (!Array.isArray(productImages) || productImages.some((image) => !isPlainObject(image))) throw stateError(stateFile, `invalid productImages for ${slug}`);
 }
 
 function stateError(stateFile, reason, cause) {
@@ -222,8 +247,8 @@ async function ensureWorkspaceDirectory(workspacePath, relativePath) {
 }
 
 async function validateBatchState(state, stateFile) {
-  if (!isPlainObject(state) || state.version !== STATE_VERSION) {
-    throw stateError(stateFile, `version must be ${STATE_VERSION}`);
+  if (!isPlainObject(state) || ![LEGACY_STATE_VERSION, STATE_VERSION].includes(state.version)) {
+    throw stateError(stateFile, `version must be ${STATE_VERSION} or ${LEGACY_STATE_VERSION}`);
   }
   if (!isNonEmptyString(state.batchSlug)) {
     throw stateError(stateFile, "batchSlug must be a non-empty string");
@@ -244,8 +269,9 @@ async function validateBatchState(state, stateFile) {
     throw stateError(stateFile, "policy must be an object");
   }
   if (
-    Object.keys(state.policy).sort().join(",") !== POLICY_KEYS.join(",")
-    || state.policy.category !== "Jackets"
+    state.version === LEGACY_STATE_VERSION && Object.keys(state.policy).sort().join(",") !== [...POLICY_KEYS, "category"].sort().join(",")
+    || state.version === STATE_VERSION && Object.keys(state.policy).sort().join(",") !== POLICY_KEYS.sort().join(",")
+    || (state.version === LEGACY_STATE_VERSION && state.policy.category !== "Jackets")
     || state.policy.maxGenerationAttempts !== 3
     || state.policy.acceptanceConfidence !== 0.9
     || state.policy.auditRate !== 0.1
@@ -253,7 +279,7 @@ async function validateBatchState(state, stateFile) {
   ) {
     throw stateError(
       stateFile,
-      "policy must match the bounded Jackets pilot policy",
+      "policy must match the bounded processing policy",
     );
   }
   if (!Array.isArray(state.items)) {
@@ -271,7 +297,7 @@ async function validateBatchState(state, stateFile) {
   if (canonicalInput !== state.inputPath) {
     throw stateError(stateFile, "inputPath must be canonical");
   }
-  if (path.basename(canonicalInput) !== "Jackets") {
+  if (state.version === LEGACY_STATE_VERSION && path.basename(canonicalInput) !== "Jackets") {
     throw stateError(stateFile, "inputPath must identify the Jackets category");
   }
   const canonicalWorkspace = await canonicalStatePath(
@@ -328,8 +354,14 @@ async function validateBatchState(state, stateFile) {
     if (!isNonEmptyString(item.name)) {
       throw stateError(stateFile, `invalid item name: ${item.slug}`);
     }
-    if (item.category !== "jacket") {
+    if (state.version === LEGACY_STATE_VERSION && item.category !== "jacket") {
       throw stateError(stateFile, `invalid item category: ${item.slug}`);
+    }
+    if (state.version === STATE_VERSION) {
+      const definition = CATEGORY_DEFINITIONS.find(({ id }) => id === item.category);
+      if (!definition || !isPlainObject(item.profile) || item.profile.category !== item.category || item.profile.relativePath !== "scripts/wearit-images/category-profiles.json" || !/^[a-f0-9]{64}$/.test(item.profile.sha256 ?? "")) {
+        throw stateError(stateFile, `invalid category profile: ${item.slug}`);
+      }
     }
     if (!ITEM_STATUSES.has(item.status)) {
       throw stateError(stateFile, `invalid item status: ${item.slug}`);
@@ -347,8 +379,11 @@ async function validateBatchState(state, stateFile) {
     if (!isPlainObject(item.acceptedAssets)) {
       throw stateError(stateFile, `invalid acceptedAssets for ${item.slug}`);
     }
-    if (item.metadata !== undefined) {
-      validateItemMetadata(item.metadata, item.slug, stateFile);
+    if (state.version === LEGACY_STATE_VERSION) {
+      if (item.metadata !== undefined) validateV3ItemMetadata(item.metadata, item.slug, stateFile);
+    } else {
+      validateV4ItemMetadata(item.metadata, item.slug, stateFile);
+      validateProductImages(item.productImages, item.slug, stateFile);
     }
     if (
       !Array.isArray(item.attempts)
@@ -426,6 +461,23 @@ async function validateBatchState(state, stateFile) {
         );
       }
       sourcePaths.add(canonicalSource);
+    }
+  }
+}
+
+async function hasSupportedImage(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.isDirectory() && !entry.isSymbolicLink() && await hasSupportedImage(path.join(directory, entry.name))) return true;
+    if (entry.isFile() && IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) return true;
+  }
+  return false;
+}
+
+async function validateMixedRootChildren(inputPath) {
+  for (const entry of await readdir(inputPath, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    if (!categoryForSourceFolder(entry.name) && await hasSupportedImage(path.join(inputPath, entry.name))) {
+      throw new Error(`Unknown category folder in mixed input: ${entry.name}. Valid folders: ${CATEGORY_DEFINITIONS.map(({ sourceFolder }) => sourceFolder).join(", ")}`);
     }
   }
 }
@@ -773,6 +825,9 @@ async function sourceMetadata(inputPath, source, claimedSources) {
     throw new Error(`Intake filename escapes input directory: ${source.file}`);
   }
 
+  const extension = path.extname(requestedPath).toLowerCase();
+  if (!IMAGE_EXTENSIONS.has(extension)) throw new Error(`Unsupported image format: ${source.file}`);
+
   const sourcePath = await realpath(requestedPath);
   if (!isContained(inputPath, sourcePath)) {
     throw new Error(`Source is outside canonical input directory: ${source.file}`);
@@ -822,9 +877,10 @@ export async function initializeBatch({
   now = new Date().toISOString(),
 }) {
   const inputPath = await realpath(inputDir);
-  if (path.basename(inputPath) !== "Jackets") {
-    throw new Error(`Only the Jackets input category is supported: ${inputPath}`);
-  }
+  const sourceFolder = path.basename(inputPath);
+  const rootCategory = categoryForSourceFolder(sourceFolder);
+  const mixedRoot = sourceFolder === "unprocessed";
+  if (!rootCategory && !mixedRoot) throw new Error(`Input must be a registered category folder or unprocessed: ${inputPath}`);
 
   const prospectiveWorkspace = await canonicalizeProspectivePath(workspaceDir);
   if (
@@ -874,6 +930,7 @@ export async function initializeBatch({
     }
 
     await assertFreshWorkspace(workspacePath, stateFile);
+    if (mixedRoot) await validateMixedRootChildren(inputPath);
     if (!Array.isArray(intake)) {
       throw new Error("Batch intake must be an array");
     }
@@ -897,19 +954,31 @@ export async function initializeBatch({
       ids.add(item.id);
       slugs.add(item.slug);
 
+      const category = item.category ?? rootCategory;
       const sources = [];
       for (const source of item.sources) {
+        if (mixedRoot) {
+          const firstSegment = String(source?.file ?? "").split(/[\\/]/)[0];
+          const sourceCategory = categoryForSourceFolder(firstSegment);
+          if (!sourceCategory) throw new Error(`Unknown category folder in mixed input: ${firstSegment}. Valid folders: ${CATEGORY_DEFINITIONS.map(({ sourceFolder }) => sourceFolder).join(", ")}`);
+          if (sourceCategory !== category) throw new Error(`Item category ${category} does not match source folder ${firstSegment}`);
+        }
         sources.push(await sourceMetadata(inputPath, source, claimedSources));
       }
 
+
+      const definition = CATEGORY_DEFINITIONS.find((entry) => entry.id === category);
+      if (!definition) throw new Error(`Unknown item category: ${category}`);
+      if (!mixedRoot && category !== rootCategory) throw new Error(`Item category ${category} does not match input folder ${sourceFolder}`);
       items.push({
         id: item.id,
         slug: item.slug,
         name: item.name,
-        category: "jacket",
-        ...(item.metadata === undefined
-          ? {}
-          : { metadata: structuredClone(item.metadata) }),
+        category,
+        metadata: structuredClone(item.metadata ?? {
+          images: [{ id: randomUUID(), view: "front", sortOrder: 0, isPrimary: true }],
+        }),
+        productImages: structuredClone(item.productImages ?? []),
         sources,
         generationAttempts: 0,
         status: "ready",
@@ -921,8 +990,10 @@ export async function initializeBatch({
       });
     }
 
+    const profiles = await loadProfiles();
     const state = {
       version: STATE_VERSION,
+      inputMode: mixedRoot ? "mixed" : "category",
       batchSlug,
       inputPath,
       workspacePath,
@@ -930,7 +1001,6 @@ export async function initializeBatch({
       updatedAt: now,
       stage: "processing",
       policy: {
-        category: "Jackets",
         maxGenerationAttempts: 3,
         acceptanceConfidence: 0.9,
         auditRate: 0.1,
@@ -940,6 +1010,10 @@ export async function initializeBatch({
       infrastructureErrors: [],
     };
 
+    for (const item of state.items) {
+      const profile = profileForCategory(profiles, item.category);
+      item.profile = { category: item.category, relativePath: profile.relativePath, sha256: profile.sha256 };
+    }
     await validateBatchState(state, stateFile);
     for (const directory of BATCH_DIRECTORIES) {
       await ensureWorkspaceDirectory(workspacePath, directory);

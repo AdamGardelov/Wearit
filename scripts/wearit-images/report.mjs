@@ -203,6 +203,38 @@ function itemRetries(item) {
   return Math.max(0, generationAttempts - 1) + deterministic.total;
 }
 
+function attemptsOfKind(item, matcher) {
+  return (item.attempts ?? []).filter((attempt) => matcher(attempt.kind)).length;
+}
+
+function isProductKind(kind) {
+  return kind === "product"
+    || kind === "product-image"
+    || (typeof kind === "string" && kind.startsWith("product-image:"));
+}
+
+function isOneShot(item, productAttempts, wearAttempts) {
+  const deterministic = deterministicAttempts(item);
+  const humanOverride = item.humanOverride === true
+    || item.review?.humanOverride === true
+    || item.decision?.humanOverride === true;
+  return item.status === "accepted"
+    && productAttempts === 1
+    && wearAttempts === 1
+    && deterministic.total === 0
+    && !humanOverride;
+}
+
+function itemAttemptMetrics(item) {
+  const productAttempts = attemptsOfKind(item, isProductKind);
+  const wearAttempts = attemptsOfKind(item, (kind) => kind === "wear-layer");
+  return {
+    productAttempts,
+    wearAttempts,
+    oneShot: isOneShot(item, productAttempts, wearAttempts),
+  };
+}
+
 function uniqueRegions(item) {
   return [...new Set([
     ...(item.quarantine?.failedRegions ?? []),
@@ -222,6 +254,7 @@ function itemReason(item) {
 }
 
 function reportItem(item) {
+  const attemptMetrics = itemAttemptMetrics(item);
   return {
     id: item.id,
     slug: item.slug,
@@ -233,6 +266,7 @@ function reportItem(item) {
     generationAttempts: item.generationAttempts ?? 0,
     deterministicAttempts: deterministicAttempts(item),
     retries: itemRetries(item),
+    ...attemptMetrics,
     attempts: (item.attempts ?? []).map((attempt) => ({
       kind: attempt.kind ?? null,
       version: attempt.version ?? null,
@@ -265,7 +299,37 @@ function reportCounts(items) {
     counts.deterministicAttempts.cleanup
     + counts.deterministicAttempts.placement
   );
+  counts.oneShot = items.filter((item) => itemAttemptMetrics(item).oneShot).length;
+  counts.byCategory = categoryCounts(items);
   return counts;
+}
+
+function categoryCounts(items) {
+  const categories = new Map();
+  for (const item of items) {
+    const category = item.category ?? "unknown";
+    const current = categories.get(category) ?? {
+      total: 0,
+      accepted: 0,
+      quarantined: 0,
+      failedInfrastructure: 0,
+      productAttempts: 0,
+      wearAttempts: 0,
+      oneShot: 0,
+    };
+    const metrics = itemAttemptMetrics(item);
+    current.total += 1;
+    if (item.status === "accepted") current.accepted += 1;
+    if (item.status === "quarantined") current.quarantined += 1;
+    if (item.status === "failed-infrastructure") current.failedInfrastructure += 1;
+    current.productAttempts += metrics.productAttempts;
+    current.wearAttempts += metrics.wearAttempts;
+    if (metrics.oneShot) current.oneShot += 1;
+    categories.set(category, current);
+  }
+  return Object.fromEntries(
+    [...categories.entries()].sort(([left], [right]) => left.localeCompare(right)),
+  );
 }
 
 function escapeHtml(value) {
@@ -418,6 +482,17 @@ function markdownReport(report) {
 - Retries: ${counts.retries}
 - Generation attempts: ${counts.generationAttempts}
 - Deterministic attempts: ${counts.deterministicAttempts.total} (${counts.deterministicAttempts.cleanup} cleanup, ${counts.deterministicAttempts.placement} placement)
+- One-shot items: ${counts.oneShot}
+
+## Categories
+
+| Category | Total | Accepted | Quarantined | Failed infrastructure | Product attempts | Wear attempts | One-shot |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+${Object.entries(counts.byCategory).map(([category, values]) =>
+    `| ${escapeMarkdown(category)} | ${values.total} | ${values.accepted}`
+    + ` | ${values.quarantined} | ${values.failedInfrastructure}`
+    + ` | ${values.productAttempts} | ${values.wearAttempts} | ${values.oneShot} |`,
+  ).join("\n") || "| — | 0 | 0 | 0 | 0 | 0 | 0 | 0 |"}
 
 ## Items
 

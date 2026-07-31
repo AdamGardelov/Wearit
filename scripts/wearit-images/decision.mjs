@@ -1,4 +1,4 @@
-export const CRITICAL_REGIONS = Object.freeze([
+const LEGACY_CRITICAL_REGIONS = Object.freeze([
   "sourceFidelity",
   "collar",
   "leftShoulder",
@@ -13,8 +13,9 @@ export const CRITICAL_REGIONS = Object.freeze([
   "artifacts",
 ]);
 
-const REGION_SET = new Set(CRITICAL_REGIONS);
-const NON_APPLICABLE_REGIONS = new Set([
+const COMMON_REGIONS = new Set(["sourceFidelity", "visibleMannequin", "artifacts"]);
+const LEGACY_REGION_SET = new Set(LEGACY_CRITICAL_REGIONS);
+const LEGACY_NON_APPLICABLE_REGIONS = new Set([
   "leftSleeve",
   "rightSleeve",
   "leftCuff",
@@ -32,7 +33,7 @@ const ARM_TORSO_GAP_REGIONS = new Set([
   "visibleMannequin",
   "artifacts",
 ]);
-const CORRECTIONS = Object.freeze({
+const LEGACY_CORRECTIONS = Object.freeze({
   sourceFidelity: {
     target: "source-fidelity",
     preserve: [],
@@ -103,7 +104,7 @@ function copyCorrection(correction) {
 
 function orderedRegions(regions) {
   const unique = new Set(regions);
-  return CRITICAL_REGIONS.filter((region) => unique.has(region));
+  return LEGACY_CRITICAL_REGIONS.filter((region) => unique.has(region));
 }
 
 function itemIdsMustMatch(structural, placement, review) {
@@ -144,7 +145,113 @@ function cleanupCorrection() {
   };
 }
 
-export function validateVisualReview(review) {
+function kebabCase(value) {
+  return value.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+}
+
+function assertProfile(profile) {
+  if (!isPlainObject(profile) || !Array.isArray(profile.reviewRegions)
+    || !isPlainObject(profile.corrections)
+    || typeof profile.category !== "string") {
+    throw new Error("Invalid category profile");
+  }
+  if (profile.reviewRegions.length === 0
+    || new Set(profile.reviewRegions).size !== profile.reviewRegions.length) {
+    throw new Error("Invalid category profile review regions");
+  }
+  for (const region of profile.reviewRegions) {
+    if (typeof region !== "string" || region.length === 0) {
+      throw new Error("Invalid category profile review regions");
+    }
+  }
+  return profile;
+}
+
+function assertImmutableItemContract(itemContract) {
+  if (itemContract === undefined) return Object.freeze({});
+  if (!isPlainObject(itemContract) || !Object.isFrozen(itemContract)) {
+    throw new Error("Item contract must be an immutable object");
+  }
+  return itemContract;
+}
+
+export function resolveReviewContract(profile, itemContract) {
+  const activeProfile = assertProfile(profile);
+  const contract = assertImmutableItemContract(itemContract);
+  const profileRegions = [...activeProfile.reviewRegions];
+  const profileNonApplicable = new Set(activeProfile.nonApplicableRegions ?? []);
+  const contractNonApplicable = contract.nonApplicableRegions ?? [];
+  if (!Array.isArray(contractNonApplicable)
+    || contractNonApplicable.some((region) => typeof region !== "string")) {
+    throw new Error("Item contract nonApplicableRegions must be an array of strings");
+  }
+  const nonApplicableRegions = new Set([...profileNonApplicable, ...contractNonApplicable]);
+  let regions = profileRegions;
+  if (activeProfile.category === "accessory") {
+    const subtype = contract.subtypeReviewRegions ?? [];
+    if (!Array.isArray(subtype)
+      || subtype.some((region) => typeof region !== "string" || region.trim() === "")
+      || new Set(subtype).size !== subtype.length) {
+      throw new Error("Accessory subtypeReviewRegions must be unique non-empty strings");
+    }
+    if (subtype.some((region) => COMMON_REGIONS.has(region) || profileRegions.includes(region))) {
+      throw new Error("Accessory subtype review region collides with profile regions");
+    }
+    regions = [
+      profileRegions[0],
+      ...subtype,
+      ...profileRegions.slice(1),
+    ];
+    for (const region of subtype) {
+      if (!Object.hasOwn(contract, "subtypeReviewRegions")) break;
+      // subtype regions are item-contract topology and always receive a generated correction.
+      // Their correction target is derived lazily by classifyCorrection.
+    }
+  } else if (Object.hasOwn(contract, "subtypeReviewRegions")
+    && contract.subtypeReviewRegions?.length) {
+    throw new Error("subtypeReviewRegions are only valid for accessory items");
+  }
+  for (const region of nonApplicableRegions) {
+    if (!regions.includes(region)) throw new Error("Item contract non-applicable region is not reviewable");
+  }
+  const corrections = { ...activeProfile.corrections };
+  for (const region of regions) {
+    if (activeProfile.category === "accessory"
+      && !Object.hasOwn(corrections, region) && !COMMON_REGIONS.has(region)) {
+      corrections[region] = {
+        target: kebabCase(region),
+        preserve: ["product-images"],
+        consumesGenerationAttempt: true,
+      };
+    }
+  }
+  return Object.freeze({
+    category: activeProfile.category,
+    regions: Object.freeze(regions),
+    nonApplicableRegions: Object.freeze([...nonApplicableRegions]),
+    corrections: Object.freeze(corrections),
+  });
+}
+
+export function criticalRegions(reviewContract) {
+  if (!reviewContract || !Array.isArray(reviewContract.regions)) {
+    throw new Error("Invalid review contract");
+  }
+  return reviewContract.regions;
+}
+
+export const CRITICAL_REGIONS = LEGACY_CRITICAL_REGIONS;
+
+export function validateVisualReview(review, reviewContract = null) {
+  const contract = reviewContract ?? resolveReviewContract({
+    category: "jacket",
+    reviewRegions: LEGACY_CRITICAL_REGIONS,
+    nonApplicableRegions: [...LEGACY_NON_APPLICABLE_REGIONS],
+    corrections: LEGACY_CORRECTIONS,
+  });
+  const regionsForReview = criticalRegions(contract);
+  const regionSet = new Set(regionsForReview);
+  const nonApplicable = new Set(contract.nonApplicableRegions ?? []);
   if (!isPlainObject(review) || !isPlainObject(review.regions)) {
     invalidReview("review and regions must be objects");
   }
@@ -165,9 +272,9 @@ export function validateVisualReview(review) {
   }
 
   const regionNames = Object.keys(review.regions);
-  const missing = CRITICAL_REGIONS.filter((name) =>
+  const missing = regionsForReview.filter((name) =>
     !Object.hasOwn(review.regions, name));
-  const extra = regionNames.filter((name) => !REGION_SET.has(name));
+  const extra = regionNames.filter((name) => !regionSet.has(name));
   if (missing.length > 0 || extra.length > 0) {
     invalidReview(
       `regions must match the critical-region contract`
@@ -176,7 +283,7 @@ export function validateVisualReview(review) {
     );
   }
 
-  for (const name of CRITICAL_REGIONS) {
+  for (const name of regionsForReview) {
     const result = review.regions[name];
     if (!isPlainObject(result)) {
       invalidReview(`${name} must be an object`);
@@ -206,7 +313,7 @@ export function validateVisualReview(review) {
     }
     if (
       result.applicable === false
-      && !NON_APPLICABLE_REGIONS.has(name)
+      && !nonApplicable.has(name)
     ) {
       invalidReview(`${name} cannot be marked non-applicable`);
     }
@@ -215,11 +322,16 @@ export function validateVisualReview(review) {
   return review;
 }
 
-export function classifyCorrection(failedRegions) {
+export function classifyCorrection(failedRegions, reviewContract = null) {
+  const contract = reviewContract ?? resolveReviewContract({
+    category: "jacket", reviewRegions: LEGACY_CRITICAL_REGIONS,
+    nonApplicableRegions: [...LEGACY_NON_APPLICABLE_REGIONS], corrections: LEGACY_CORRECTIONS,
+  });
+  const regionSet = new Set(contract.regions);
   if (
     !Array.isArray(failedRegions)
     || failedRegions.length === 0
-    || failedRegions.some((region) => !REGION_SET.has(region))
+    || failedRegions.some((region) => !regionSet.has(region))
   ) {
     return null;
   }
@@ -240,8 +352,8 @@ export function classifyCorrection(failedRegions) {
     };
   }
 
-  const corrections = orderedRegions(failedRegions)
-    .map((region) => CORRECTIONS[region]);
+  const corrections = contract.regions.filter((region) => failedRegions.includes(region))
+    .map((region) => contract.corrections[region]);
   if (
     corrections.some((correction) => correction === undefined)
     || new Set(corrections.map((correction) => correction.target)).size !== 1
@@ -260,7 +372,13 @@ export function decideItem({
   generationAttempts,
   maxGenerationAttempts = 3,
   minimumConfidence = 0.9,
-}) {
+}, reviewContract = null) {
+  const contract = reviewContract ?? resolveReviewContract({
+    category: "jacket", reviewRegions: LEGACY_CRITICAL_REGIONS,
+    nonApplicableRegions: [...LEGACY_NON_APPLICABLE_REGIONS], corrections: LEGACY_CORRECTIONS,
+  });
+  const regionsForReview = criticalRegions(contract);
+  const regionSet = new Set(regionsForReview);
   if (
     !Number.isInteger(generationAttempts)
     || generationAttempts < 0
@@ -343,7 +461,7 @@ export function decideItem({
     );
   }
   const rawPlacementFailures = placement.metrics.uncoveredCriticalRegions;
-  if (rawPlacementFailures.some((region) => !REGION_SET.has(region))) {
+  if (rawPlacementFailures.some((region) => !regionSet.has(region))) {
     throw new Error("Placement contains an unknown critical region");
   }
   if (placement.metrics.forbiddenRegionViolations.some((region) =>
@@ -351,7 +469,7 @@ export function decideItem({
     throw new Error("Placement contains an invalid forbidden region");
   }
 
-  validateVisualReview(review);
+  validateVisualReview(review, contract);
   const placementFailures = rawPlacementFailures.filter(
     (region) => review.regions[region].applicable !== false,
   );
@@ -384,17 +502,17 @@ export function decideItem({
       },
     };
   }
-  const reviewFailures = CRITICAL_REGIONS.filter((name) => {
+  const reviewFailures = regionsForReview.filter((name) => {
     const result = review.regions[name];
     return (
       result.status !== "pass"
       || result.confidence < minimumConfidence
     );
   });
-  const failedRegions = orderedRegions([
+  const failedRegions = regionsForReview.filter((region) => new Set([
     ...placementFailures,
     ...reviewFailures,
-  ]);
+  ]).has(region));
 
   if (failedRegions.length === 0) {
     return {
@@ -403,10 +521,10 @@ export function decideItem({
     };
   }
 
-  const correction = classifyCorrection(failedRegions);
+  const correction = classifyCorrection(failedRegions, contract);
   if (!correction) {
     const hasKnownCorrection = failedRegions.some((region) =>
-      CORRECTIONS[region] !== undefined);
+      contract.corrections[region] !== undefined);
     return {
       decision: "quarantine",
       reason: hasKnownCorrection

@@ -1,42 +1,68 @@
+// Slots a user-created category may be assigned to. Must stay in sync with the
+// check constraint in supabase/migrations/202607300001_custom_wardrobe_categories.sql;
+// the image-pipeline slots (hat, belt, bag, scarf) are deliberately not included
+// until a migration widens that constraint.
 const SUPPORTED_SLOTS = ["top", "bottom", "dress", "outerwear", "shoes", "accessory"];
 
-export const CATEGORIES = [
+export const CATEGORY_DEFINITIONS = Object.freeze([
+  { id: "top", label: "Överdelar", sourceFolder: "Tops", slot: "top", layerOrder: 20 },
+  { id: "bottom", label: "Underdelar", sourceFolder: "Bottoms", slot: "bottom", layerOrder: 30 },
+  { id: "dress", label: "Klänningar", sourceFolder: "Dresses", slot: "dress", layerOrder: 25 },
+  { id: "jacket", label: "Jackor", sourceFolder: "Jackets", slot: "outerwear", layerOrder: 40 },
+  { id: "coat", label: "Rockar", sourceFolder: "Coats", slot: "outerwear", layerOrder: 40 },
+  { id: "shoes", label: "Skor", sourceFolder: "Shoes", slot: "shoes", layerOrder: 10 },
+  { id: "hat", label: "Hattar", sourceFolder: "Hats", slot: "hat", layerOrder: 70 },
+  { id: "belt", label: "Bälten", sourceFolder: "Belts", slot: "belt", layerOrder: 35 },
+  { id: "bag", label: "Väskor", sourceFolder: "Bags", slot: "bag", layerOrder: 60 },
+  { id: "scarf", label: "Halsdukar", sourceFolder: "Scarves", slot: "scarf", layerOrder: 50 },
+  { id: "accessory", label: "Accessoarer", sourceFolder: "Accessories", slot: "accessory", layerOrder: 80 },
+].map((category) => Object.freeze(category)));
+
+export const CATEGORIES = Object.freeze([
   { id: "all", label: "Alla", builtIn: true },
-  { id: "top", label: "Överdelar", slot: "top", builtIn: true },
-  { id: "bottom", label: "Underdelar", slot: "bottom", builtIn: true },
-  { id: "dress", label: "Klänningar", slot: "dress", builtIn: true },
-  { id: "jacket", label: "Jackor", slot: "outerwear", builtIn: true },
-  { id: "coat", label: "Rockar", slot: "outerwear", builtIn: true },
-  { id: "shoes", label: "Skor", slot: "shoes", builtIn: true },
-  { id: "accessory", label: "Accessoarer", slot: "accessory", builtIn: true },
-];
+  ...CATEGORY_DEFINITIONS.map(({ id, label, slot }) => ({ id, label, slot, builtIn: true })),
+].map((category) => Object.freeze(category)));
+
+export const CATEGORY_BY_ID = Object.freeze({
+  all: CATEGORIES[0],
+  ...Object.fromEntries(CATEGORY_DEFINITIONS.map((category) => [category.id, category])),
+});
+
+export const CATEGORY_BY_SOURCE_FOLDER = Object.freeze(
+  Object.fromEntries(CATEGORY_DEFINITIONS.map((category) => [category.sourceFolder, category])),
+);
 
 // Swedish labels for composition slots (used where an item is missing from an outfit).
-export const SLOT_LABELS = {
+export const SLOT_LABELS = Object.freeze({
   top: "överdel",
   bottom: "underdel",
   dress: "klänning",
   outerwear: "ytterplagg",
   shoes: "skor",
+  hat: "hatt",
+  belt: "bälte",
+  bag: "väska",
+  scarf: "halsduk",
   accessory: "accessoar",
-};
+});
 
-export const SLOT_OPTIONS = [
+export const SLOT_ORDER = Object.freeze([
+  "shoes", "dress", "top", "bottom", "belt", "outerwear", "scarf", "bag", "hat", "accessory",
+]);
+
+// Slot picker for the custom-category editor. Limited to SUPPORTED_SLOTS.
+export const SLOT_OPTIONS = Object.freeze([
   { id: "top", label: "Överdelar" },
   { id: "bottom", label: "Underdelar" },
   { id: "dress", label: "Klänningar" },
   { id: "outerwear", label: "Ytterplagg" },
   { id: "shoes", label: "Skor" },
   { id: "accessory", label: "Accessoarer" },
-];
+].map((option) => Object.freeze(option)));
 
-export const CATEGORY_BY_ID = Object.fromEntries(
-  CATEGORIES.map((category) => [category.id, category]),
-);
-
-export function slotForCategory(category) {
-  return CATEGORY_BY_ID[category]?.slot ?? null;
-}
+export const slotForCategory = (category) => CATEGORY_BY_ID[category]?.slot ?? null;
+export const categoryForSourceFolder = (folder) => CATEGORY_BY_SOURCE_FOLDER[folder]?.id ?? null;
+export const defaultLayerOrderForCategory = (category) => CATEGORY_BY_ID[category]?.layerOrder ?? null;
 
 export function normalizeCustomCategory(row) {
   if (

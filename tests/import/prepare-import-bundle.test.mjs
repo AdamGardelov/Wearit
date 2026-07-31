@@ -168,7 +168,7 @@ describe("prepareImportBundle", () => {
       await writeRgbPng(path.join(itemsDir, "navy.png"));
       return accepted();
     }, /alpha channel/i],
-    ["an invalid category", async () => accepted({ category: "hat" }), /invalid category/i],
+    ["an invalid category", async () => accepted({ category: "not-a-category" }), /invalid category/i],
     ["an invalid color", async () => accepted({ colors: ["navy"] }), /six-digit hex/i],
     ["an invalid anchor", async () => accepted({ placement: { ...VALID_PLACEMENT, anchorX: 1.1 } }), /anchorX/i],
     ["an invalid scale", async () => accepted({ placement: { ...VALID_PLACEMENT, scale: 0 } }), /scale/i],
@@ -567,6 +567,22 @@ describe("prepareImportBundle", () => {
     expect(result.bytes.total).toBe(
       result.bytes.wearLayers + result.bytes.productImages + result.bytes.manifest,
     );
+  });
+
+  it.each([
+    ["hat", "hat"],
+    ["belt", "belt"],
+    ["bag", "bag"],
+    ["scarf", "scarf"],
+    ["accessory", "accessory"],
+  ])("bundles %s into the %s slot", async (category, slot) => {
+    await writeV2Sources();
+    await writeManifest(manifestFile, [acceptedV2({ category, slot })], 2);
+
+    await prepareImportBundle({ itemsDir, manifestFile, outputDir });
+    const bundle = JSON.parse(await readFile(path.join(outputDir, "manifest.json"), "utf8"));
+
+    expect(bundle.items[0]).toMatchObject({ category, slot });
   });
 
   it("rejects an opaque v2 product source instead of baking in a rectangular background", async () => {

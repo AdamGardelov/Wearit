@@ -68,6 +68,28 @@ describe("mannequinReducer", () => {
     expect(result.selectedBySlot).toEqual({ outerwear, shoes, accessory, dress });
   });
 
+  it("wears hat, belt, bag, scarf, and generic accessory simultaneously", () => {
+    const additions = [
+      { id: "hat-1", slot: "hat", layer_order: 70 },
+      { id: "belt-1", slot: "belt", layer_order: 35 },
+      { id: "bag-1", slot: "bag", layer_order: 60 },
+      { id: "scarf-1", slot: "scarf", layer_order: 50 },
+      { id: "watch-1", slot: "accessory", layer_order: 80 },
+    ];
+    const state = additions.reduce(
+      (value, item) => select(value, item),
+      EMPTY_MANNEQUIN,
+    );
+
+    expect(selectedItems(state).map(({ id }) => id)).toEqual([
+      "belt-1",
+      "scarf-1",
+      "bag-1",
+      "hat-1",
+      "watch-1",
+    ]);
+  });
+
   it("undo restores the prior complete selection", () => {
     const withSeparates = select(select(EMPTY_MANNEQUIN, top), bottom);
     const withDress = select(withSeparates, dress);
@@ -140,7 +162,7 @@ describe("mannequinReducer", () => {
 
     const result = mannequinReducer(state, {
       type: "load",
-      items: [bottom, { id: "hat-1", slot: "hat" }],
+      items: [bottom, { id: "unknown-1", slot: "unknown" }],
     });
 
     expect(result).toBe(state);
@@ -258,11 +280,11 @@ describe("selectedItems", () => {
     };
 
     expect(selectedItems(state).map((item) => item.slot)).toEqual([
+      "shoes",
       "dress",
       "top",
       "bottom",
       "outerwear",
-      "shoes",
       "accessory",
     ]);
   });
@@ -283,8 +305,8 @@ describe("selectedItems", () => {
     expect(selectedItems(state).map((item) => item.id)).toEqual([
       "top-1",
       "bottom-1",
-      "coat-missing",
       "shoes-text",
+      "coat-missing",
     ]);
   });
 

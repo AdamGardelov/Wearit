@@ -14,8 +14,7 @@
     "test:db": "supabase test db",
     "test:e2e": "playwright test",
     "check": "npm run test && npm run build",
-    "wearit:batch": "node scripts/wearit-images/batch.mjs",
-    "test:wearit-images": "vitest run tests/wearit-images && python3 tests/wearit-images/test_remove_dual_chroma.py"
+    "wearit:batch": "node scripts/wearit-images/batch.mjs"
   },
   "dependencies": {
     "@fontsource-variable/instrument-sans": "^5.2.8",

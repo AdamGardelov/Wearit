@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(107);
+select plan(110);
 
 create function pg_temp.table_privileges(role_name name, relation regclass)
 returns text[]
@@ -120,7 +120,12 @@ values
   ('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', '31111111-1111-4111-8111-111111111111', 'A jacket', 'jacket', 'outerwear', 'a/jacket.png'),
   ('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5', '31111111-1111-4111-8111-111111111111', 'A second top', 'top', 'top', 'a/second-top.png'),
   ('3bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1', '32222222-2222-4222-8222-222222222222', 'B top', 'top', 'top', 'b/top.png'),
-  ('3bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2', '32222222-2222-4222-8222-222222222222', 'B bottom', 'bottom', 'bottom', 'b/bottom.png');
+  ('3bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2', '32222222-2222-4222-8222-222222222222', 'B bottom', 'bottom', 'bottom', 'b/bottom.png'),
+  ('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6', '31111111-1111-4111-8111-111111111111', 'A hat', 'hat', 'hat', 'a/hat.png'),
+  ('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7', '31111111-1111-4111-8111-111111111111', 'A belt', 'belt', 'belt', 'a/belt.png'),
+  ('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8', '31111111-1111-4111-8111-111111111111', 'A bag', 'bag', 'bag', 'a/bag.png'),
+  ('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa9', '31111111-1111-4111-8111-111111111111', 'A scarf', 'scarf', 'scarf', 'a/scarf.png'),
+  ('3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa10', '31111111-1111-4111-8111-111111111111', 'A accessory', 'accessory', 'accessory', 'a/accessory.png');
 
 select is(pg_temp.sqlstate_for($sql$select public.save_outfit(null, 'Anon', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid], null)$sql$), '42501', 'save_outfit rejects unauthenticated callers');
 select is(pg_temp.sqlstate_for($sql$select public.record_wear(array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'::uuid], '2026-07-01 10:00+00', null, null)$sql$), '42501', 'record_wear rejects unauthenticated callers');
@@ -152,6 +157,8 @@ select is(public.save_outfit((select id from saved_ids where kind = 'outfit'), '
 select is((select name from public.outfits), 'Evening', 'save_outfit updates outfit metadata');
 select is((select count(*) from public.outfit_items), 2::bigint, 'save_outfit replaces associations instead of appending');
 select is((select string_agg(slot, ',' order by slot) from public.outfit_items), 'dress,outerwear', 'save_outfit installs replacement associations');
+select is(public.save_outfit(null, 'Accessories together', array['3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa9'::uuid, '3aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa10'::uuid], null) is not null, true, 'save_outfit accepts all accessory slots together');
+select is((select string_agg(slot, ',' order by slot) from public.outfit_items), 'accessory,bag,belt,hat,scarf', 'accessory outfit snapshots every slot');
 
 select is(pg_temp.sqlstate_for($sql$insert into public.outfits(owner_id, name) values ('31111111-1111-4111-8111-111111111111', 'Direct')$sql$), '42501', 'direct outfit insert is denied');
 select is(pg_temp.sqlstate_for($sql$update public.outfit_items set layer_order = 99$sql$), '42501', 'direct outfit item update is denied');

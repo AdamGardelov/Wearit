@@ -13,6 +13,7 @@ import {
 import { constants } from "node:fs";
 import path from "node:path";
 import { prepareImportBundle } from "../prepare-import-bundle.mjs";
+import { CATEGORY_BY_ID, CATEGORY_BY_SOURCE_FOLDER, slotForCategory, defaultLayerOrderForCategory } from "../../src/domain/slots.js";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -125,9 +126,8 @@ function assetReference(state, item, kind) {
 }
 
 export function acceptedManifest(state) {
-  if (!isPlainObject(state) || state.version !== 3 || !Array.isArray(state.items)) {
-    throw new Error("Finalization requires version-3 batch state");
-  }
+  if (!isPlainObject(state) || !Array.isArray(state.items) || ![3, 4].includes(state.version)) throw new Error("Finalization requires version-3 or version-4 batch state");
+  if (state.version === 4) return acceptedManifestV4(state);
   requireNonEmptyString(state.workspacePath, "Batch workspacePath");
   const items = state.items
     .filter(({ status }) => status === "accepted")
@@ -160,7 +160,27 @@ export function acceptedManifest(state) {
   return { version: 2, items };
 }
 
-export function processedDestination(sourcePath) {
+function acceptedManifestV4(state) {
+  requireNonEmptyString(state.workspacePath, "Batch workspacePath");
+  const items = state.items.filter(({ status }) => status === "accepted").map((item) => {
+    if (!UUID_V4.test(item.id ?? "")) throw new Error("Accepted item id must be a version-4 UUID");
+    if (!CATEGORY_BY_ID[item.category] || item.category === "all") throw new Error("Accepted item " + item.id + " has invalid category");
+    if (!isPlainObject(item.profile) || item.profile.category !== item.category || item.profile.relativePath !== "scripts/wearit-images/category-profiles.json" || !/^[0-9a-f]{64}$/.test(item.profile.sha256 ?? "")) throw new Error("Accepted item " + item.id + " has invalid category profile");
+    const metadata = item.metadata;
+    if (!isPlainObject(metadata) || !Array.isArray(metadata.images) || metadata.images.length === 0) throw new Error("Accepted item " + item.id + " requires complete image metadata");
+    const images = metadata.images.map((image) => {
+      if (!isPlainObject(image) || !UUID_V4.test(image.id ?? "") || !["front", "back", "detail"].includes(image.view)) throw new Error("Accepted item " + item.id + " has invalid product image metadata");
+      const asset = item.acceptedAssets?.["product-image:" + image.id] ?? item.acceptedAssets?.[image.id];
+      if (!asset) throw new Error("Accepted item " + item.id + " has no accepted product image " + image.id);
+      return { id: image.id, file: assetReference(state, { ...item, acceptedAssets: { "product-image": asset } }, "product-image"), view: image.view, sortOrder: image.sortOrder, isPrimary: image.isPrimary };
+    });
+    if (!item.acceptedAssets?.["wear-layer"]) throw new Error("Accepted item " + item.id + " has no accepted wear layer");
+    const placement = normalizedPlacement(item); placement.layerOrder = defaultLayerOrderForCategory(item.category);
+    return { id: item.id, name: requireNonEmptyString(item.name, "Accepted item " + item.id + " name"), category: item.category, slot: slotForCategory(item.category), wearLayerFile: assetReference(state, item, "wear-layer"), images, colors: Array.isArray(metadata.colors) && metadata.colors.length ? [...metadata.colors] : ["#000000"], tags: Array.isArray(metadata.tags) ? [...metadata.tags] : [], placement, status: "accepted" };
+  });
+  return { version: 2, items };
+}
+export function processedDestination(sourcePath, expectedCategory = undefined) {
   requireNonEmptyString(sourcePath, "Source path");
   if (!path.isAbsolute(sourcePath) || path.normalize(sourcePath) !== sourcePath) {
     throw new Error(`Source path must be absolute and canonical: ${sourcePath}`);
@@ -174,9 +194,10 @@ export function processedDestination(sourcePath) {
     throw new Error(`Source path must contain exactly one unprocessed segment: ${sourcePath}`);
   }
   const index = indexes[0];
-  if (segments[index + 1] !== "Jackets" || index + 2 >= segments.length) {
-    throw new Error(`Source path is outside unprocessed/Jackets: ${sourcePath}`);
-  }
+  const sourceFolder = segments[index + 1];
+  const definition = CATEGORY_BY_SOURCE_FOLDER[sourceFolder];
+  if (!definition || index + 2 >= segments.length) throw new Error(`Source path is outside unprocessed/<registered-category>: ${sourcePath}`);
+  if (expectedCategory !== undefined && definition.id !== expectedCategory) throw new Error(`Source path category ${definition.id} does not match item category ${expectedCategory}: ${sourcePath}`);
   segments[index] = "processed";
   return path.join(root, ...segments);
 }
@@ -241,8 +262,9 @@ export async function preflightSourceMoves(state) {
     throw new Error("Source preflight requires batch state items");
   }
   const input = path.resolve(requireNonEmptyString(state.inputPath, "Batch inputPath"));
-  if (processedDestination(path.join(input, "source-check"))) {
-    // processedDestination performs the expected-tree shape check.
+  const inputFolder = path.basename(input);
+  if (CATEGORY_BY_SOURCE_FOLDER[inputFolder]) {
+    processedDestination(path.join(input, "source-check"), CATEGORY_BY_SOURCE_FOLDER[inputFolder].id);
   }
   const destinations = new Set();
   const moves = [];
@@ -253,7 +275,7 @@ export async function preflightSourceMoves(state) {
     for (let sourceIndex = 0; sourceIndex < item.sources.length; sourceIndex += 1) {
       const source = item.sources[sourceIndex];
       const original = source.originalPath ?? source.path;
-      const destination = processedDestination(original);
+      const destination = processedDestination(original, item.category);
       if (!isContained(input, original)) {
         throw new Error(`Accepted source is outside the expected input tree: ${original}`);
       }

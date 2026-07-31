@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(31);
+select plan(43);
 
 create function pg_temp.sqlstate_for(command text)
 returns text
@@ -131,6 +131,19 @@ select is(pg_temp.sqlstate_for($sql$select public.import_wardrobe_item('4aaaaaaa
 
 set local request.jwt.claim.sub = '42222222-2222-4222-8222-222222222222';
 select is(pg_temp.sqlstate_for($sql$select public.import_wardrobe_item('4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'Stolen', 'top', 'top', '{}', '{}', '42222222-2222-4222-8222-222222222222/items/4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1/cutout.png', '{}', 0.5, 0.5, 0.5, 0, 30)$sql$), '42501', 'foreign stable ID update is rejected');
+set local request.jwt.claim.sub = '41111111-1111-4111-8111-111111111111';
+select is(public.import_wardrobe_item('4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3', 'Hat', 'hat', 'hat', '{}', '{}', '41111111-1111-4111-8111-111111111111/items/4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3/cutout.png', '{}', 0.5, 0.5, 0.5, 0, 70), '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'::uuid, 'hat imports');
+select is((select slot from public.wardrobe_items where id = '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'), 'hat', 'hat import stores hat slot');
+select is(public.import_wardrobe_item('4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', 'Belt', 'belt', 'belt', '{}', '{}', '41111111-1111-4111-8111-111111111111/items/4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4/cutout.png', '{}', 0.5, 0.5, 0.5, 0, 35), '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4'::uuid, 'belt imports');
+select is((select slot from public.wardrobe_items where id = '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4'), 'belt', 'belt import stores belt slot');
+select is(public.import_wardrobe_item('4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5', 'Bag', 'bag', 'bag', '{}', '{}', '41111111-1111-4111-8111-111111111111/items/4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5/cutout.png', '{}', 0.5, 0.5, 0.5, 0, 60), '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5'::uuid, 'bag imports');
+select is((select slot from public.wardrobe_items where id = '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5'), 'bag', 'bag import stores bag slot');
+select is(public.import_wardrobe_item('4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6', 'Scarf', 'scarf', 'scarf', '{}', '{}', '41111111-1111-4111-8111-111111111111/items/4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6/cutout.png', '{}', 0.5, 0.5, 0.5, 0, 50), '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6'::uuid, 'scarf imports');
+select is((select slot from public.wardrobe_items where id = '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6'), 'scarf', 'scarf import stores scarf slot');
+select is(public.import_wardrobe_item('4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7', 'Watch', 'accessory', 'accessory', '{}', '{}', '41111111-1111-4111-8111-111111111111/items/4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7/cutout.png', '{}', 0.5, 0.5, 0.5, 0, 80), '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7'::uuid, 'accessory imports');
+select is((select slot from public.wardrobe_items where id = '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7'), 'accessory', 'accessory import stores accessory slot');
+select is(pg_temp.sqlstate_for($sql$select public.import_wardrobe_item('4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8', 'Bad hat', 'hat', 'top', '{}', '{}', '41111111-1111-4111-8111-111111111111/items/4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8/cutout.png', '{}', 0.5, 0.5, 0.5, 0, 70)$sql$), '22023', 'hat slot mismatch is rejected');
+select is(pg_temp.sqlstate_for($sql$select public.import_wardrobe_item('4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa9', 'Bad belt', 'belt', 'hat', '{}', '{}', '41111111-1111-4111-8111-111111111111/items/4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa9/cutout.png', '{}', 0.5, 0.5, 0.5, 0, 35)$sql$), '22023', 'belt slot mismatch is rejected');
 reset role;
 select is((select name from public.wardrobe_items where id = '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'), 'Tailored cardigan', 'foreign update leaves owned row unchanged');
 

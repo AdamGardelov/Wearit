@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(12);
+select plan(17);
 
 select has_table('public', 'profiles', 'profiles exists');
 select has_table('public', 'wardrobe_items', 'wardrobe_items exists');
@@ -14,6 +14,11 @@ select col_is_fk('public', 'wardrobe_items', 'owner_id', 'item owner is a foreig
 select policies_are('public', 'wardrobe_items', array['owners_select_items', 'owners_insert_items', 'owners_update_items'], 'items expose only owner policies');
 select is((select public.wardrobe_slot_for_category('dress')), 'dress', 'dress maps to dress');
 select is((select public.wardrobe_slot_for_category('jacket')), 'outerwear', 'jacket maps to outerwear');
+select is((select public.wardrobe_slot_for_category('hat')), 'hat', 'hat maps to hat');
+select is((select public.wardrobe_slot_for_category('belt')), 'belt', 'belt maps to belt');
+select is((select public.wardrobe_slot_for_category('bag')), 'bag', 'bag maps to bag');
+select is((select public.wardrobe_slot_for_category('scarf')), 'scarf', 'scarf maps to scarf');
+select is((select public.wardrobe_slot_for_category('accessory')), 'accessory', 'accessory maps to accessory');
 
 select * from finish();
 rollback;

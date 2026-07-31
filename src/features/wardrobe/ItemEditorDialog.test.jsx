@@ -45,6 +45,15 @@ function renderDialog(overrides = {}) {
 }
 
 describe("ItemEditorDialog gallery", () => {
+  it("offers the expanded wardrobe categories", () => {
+    renderDialog();
+
+    const category = screen.getByRole("combobox", { name: "Kategori" });
+    for (const label of ["Hattar", "Bälten", "Väskor", "Halsdukar"]) {
+      expect(within(category).getByRole("option", { name: label })).toBeInTheDocument();
+    }
+  });
+
   it("shows the primary front image with front/back thumbnails and switches on selection", async () => {
     const user = userEvent.setup();
     renderDialog();
