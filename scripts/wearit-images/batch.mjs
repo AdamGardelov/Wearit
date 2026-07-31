@@ -196,7 +196,17 @@ async function profileForItem(state, item) {
   if (profile.sha256 !== item.profile?.sha256) {
     throw new Error(`Profile drift for ${item.slug}: expected ${item.profile?.sha256}, got ${profile.sha256}`);
   }
-  return profile;
+  // Category profiles own review/correction and numeric placement regions;
+  // the shared neutral search/canvas runtime contract remains in the legacy
+  // profile until each category receives calibrated geometry.
+  const runtime = await loadProfile();
+  return {
+    ...runtime,
+    ...profile,
+    canvas: runtime.canvas,
+    search: runtime.search,
+    scoring: runtime.scoring,
+  };
 }
 
 function statusCounts(state) {
@@ -493,11 +503,11 @@ async function commandInspect(options) {
   const item = state.items.find(({ id }) => id === options.item);
   if (!item) throw new Error(`Batch item not found: ${options.item}`);
   const assets = requireSelectedAssets(item);
+  const productAssets = assets.productImages ?? [assets["product-image"]];
   let product;
   let wear;
   try {
     const profile = await profileForItem(state, item);
-    const productAssets = assets.productImages ?? [assets["product-image"]];
     const primaryProduct = productAssets.find((asset) => asset?.view === "front") ?? productAssets[0];
     [product, wear] = await Promise.all([
       inspectProductImage(primaryProduct.path),
@@ -582,7 +592,11 @@ function deterministicAttempts(item) {
 
 function assetsForKinds(item, kinds) {
   const assets = latestAssets(item);
-  if (item.metadata?.images && (kinds.includes("product-image") || kinds.includes("product-images"))) return Object.fromEntries((assets.productImages ?? []).map((asset) => [asset.kind, asset]));
+  if (item.metadata?.images && (kinds.includes("product-image") || kinds.includes("product-images"))) {
+    const selected = Object.fromEntries((assets.productImages ?? []).map((asset) => [asset.kind, asset]));
+    if (kinds.includes("wear-layer") && assets["wear-layer"]) selected["wear-layer"] = assets["wear-layer"];
+    return selected;
+  }
   return Object.fromEntries(
     kinds.filter((kind) => assets[kind]).map((kind) => [kind, assets[kind]]),
   );

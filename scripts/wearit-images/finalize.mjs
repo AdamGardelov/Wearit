@@ -176,7 +176,7 @@ function acceptedManifestV4(state) {
     });
     if (!item.acceptedAssets?.["wear-layer"]) throw new Error("Accepted item " + item.id + " has no accepted wear layer");
     const placement = normalizedPlacement(item); placement.layerOrder = defaultLayerOrderForCategory(item.category);
-    return { id: item.id, name: requireNonEmptyString(item.name, "Accepted item " + item.id + " name"), category: item.category, slot: slotForCategory(item.category), wearLayerFile: assetReference(state, item, "wear-layer"), images, colors: Array.isArray(metadata.colors) ? [...metadata.colors] : [], tags: Array.isArray(metadata.tags) ? [...metadata.tags] : [], placement, status: "accepted" };
+    return { id: item.id, name: requireNonEmptyString(item.name, "Accepted item " + item.id + " name"), category: item.category, slot: slotForCategory(item.category), wearLayerFile: assetReference(state, item, "wear-layer"), images, colors: Array.isArray(metadata.colors) && metadata.colors.length ? [...metadata.colors] : ["#000000"], tags: Array.isArray(metadata.tags) ? [...metadata.tags] : [], placement, status: "accepted" };
   });
   return { version: 2, items };
 }
