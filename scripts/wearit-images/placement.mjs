@@ -580,3 +580,64 @@ export async function optimizeJacketPlacement({
     ),
   };
 }
+
+/** Evaluate a layer using a validated category profile. */
+export async function evaluatePlacement({
+  wearLayer,
+  mannequin,
+  profile,
+  outputDirectory,
+  outputDir,
+}) {
+  if (!profile || typeof profile !== "object") {
+    throw new Error("A validated category profile is required");
+  }
+  const resolvedLayer = path.resolve(wearLayer);
+  const resolvedMannequin = path.resolve(mannequin);
+  const layerMetadata = await sharp(resolvedLayer).metadata();
+  const mannequinMetadata = await sharp(resolvedMannequin).metadata();
+  const canvas = {
+    width: profile.canvas?.width ?? 887,
+    height: profile.canvas?.height ?? 1774,
+  };
+  if (mannequinMetadata.width !== canvas.width || mannequinMetadata.height !== canvas.height) {
+    throw new Error(`Mannequin must be ${canvas.width}x${canvas.height}`);
+  }
+  const placement = {
+    ...(profile.placement ?? {
+      anchorX: 0.5,
+      anchorY: 0.5,
+      scale: 1,
+      rotationDegrees: 0,
+    }),
+    layerOrder: profile.layerOrder,
+  };
+  const exactCanvas = layerMetadata.width === canvas.width
+    && layerMetadata.height === canvas.height;
+  if (profile.calibration?.status !== "calibrated" && exactCanvas) {
+    return {
+      placement,
+      preview: null,
+      score: 0,
+      metrics: {
+        calibrated: false,
+        criticalCoverage: {},
+        forbiddenCoverage: {},
+        uncoveredCriticalRegions: [],
+        forbiddenRegionViolations: [],
+        clippingFraction: 0,
+      },
+      candidates: [{ placement, score: 0, metrics: { calibrated: false } }],
+      evaluatedPlacements: [placement],
+    };
+  }
+  if (profile.calibration?.status !== "calibrated") {
+    throw new Error(`Wear layer must be ${canvas.width}x${canvas.height}`);
+  }
+  return optimizeJacketPlacement({
+    wearLayer: resolvedLayer,
+    mannequin: resolvedMannequin,
+    profile,
+    outputDir: outputDirectory ?? outputDir,
+  });
+}
