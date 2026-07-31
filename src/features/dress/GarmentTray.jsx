@@ -1,18 +1,24 @@
 import { useMemo, useState } from "react";
-import { CATEGORY_BY_ID, CATEGORIES } from "../../domain/slots.js";
+import { CATEGORIES } from "../../domain/slots.js";
 
-function garmentName(item) {
-  return item.name || CATEGORY_BY_ID[item.category]?.label || "Garderobsplagg";
+function garmentName(item, categoryById) {
+  return item.name || categoryById[item.category]?.label || "Garderobsplagg";
 }
 
 export function GarmentTray({
   items,
+  categories = CATEGORIES,
   selectedIds,
   onSelect,
   itemFilter = () => true,
   renderFilter = null,
 }) {
   const [activeCategory, setActiveCategory] = useState("all");
+  const categoryList = categories?.length ? categories : CATEGORIES;
+  const categoryById = useMemo(
+    () => Object.fromEntries(categoryList.map((category) => [category.id, category])),
+    [categoryList],
+  );
   // Category availability comes from the complete item list, so the advanced filter can
   // never make a category chip disappear.
   const availableCategoryIds = useMemo(
@@ -20,8 +26,8 @@ export function GarmentTray({
     [items],
   );
   const visibleCategories = useMemo(
-    () => CATEGORIES.filter((category) => category.id === "all" || availableCategoryIds.has(category.id)),
-    [availableCategoryIds],
+    () => categoryList.filter((category) => category.id === "all" || availableCategoryIds.has(category.id)),
+    [availableCategoryIds, categoryList],
   );
   // Fall back to All only when the selected category no longer exists in complete items.
   const effectiveCategory = activeCategory === "all" || availableCategoryIds.has(activeCategory)
@@ -38,7 +44,7 @@ export function GarmentTray({
     () => categoryItems.filter((item) => itemFilter(item)),
     [categoryItems, itemFilter],
   );
-  const activeLabel = CATEGORY_BY_ID[effectiveCategory]?.label || "Plagg";
+  const activeLabel = categoryById[effectiveCategory]?.label || "Plagg";
 
   return (
     <section className="garment-tray" aria-label="Plagglåda">
@@ -70,11 +76,11 @@ export function GarmentTray({
               type="button"
               className="garment-option"
               onClick={() => onSelect(item)}
-              aria-label={`Välj ${garmentName(item)}`}
+              aria-label={`Välj ${garmentName(item, categoryById)}`}
               aria-pressed={selectedIds.has(item.id)}
             >
               {item.cutoutUrl ? <img src={item.cutoutUrl} alt="" /> : <span aria-hidden="true">—</span>}
-              <span>{garmentName(item)}</span>
+              <span>{garmentName(item, categoryById)}</span>
             </button>
           ))}
         </div>

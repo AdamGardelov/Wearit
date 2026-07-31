@@ -1,3 +1,9 @@
+// Slots a user-created category may be assigned to. Must stay in sync with the
+// check constraint in supabase/migrations/202607300001_custom_wardrobe_categories.sql;
+// the image-pipeline slots (hat, belt, bag, scarf) are deliberately not included
+// until a migration widens that constraint.
+const SUPPORTED_SLOTS = ["top", "bottom", "dress", "outerwear", "shoes", "accessory"];
+
 export const CATEGORY_DEFINITIONS = Object.freeze([
   { id: "top", label: "Överdelar", sourceFolder: "Tops", slot: "top", layerOrder: 20 },
   { id: "bottom", label: "Underdelar", sourceFolder: "Bottoms", slot: "bottom", layerOrder: 30 },
@@ -13,8 +19,8 @@ export const CATEGORY_DEFINITIONS = Object.freeze([
 ].map((category) => Object.freeze(category)));
 
 export const CATEGORIES = Object.freeze([
-  { id: "all", label: "Alla" },
-  ...CATEGORY_DEFINITIONS.map(({ id, label, slot }) => ({ id, label, slot })),
+  { id: "all", label: "Alla", builtIn: true },
+  ...CATEGORY_DEFINITIONS.map(({ id, label, slot }) => ({ id, label, slot, builtIn: true })),
 ].map((category) => Object.freeze(category)));
 
 export const CATEGORY_BY_ID = Object.freeze({
@@ -44,6 +50,37 @@ export const SLOT_ORDER = Object.freeze([
   "shoes", "dress", "top", "bottom", "belt", "outerwear", "scarf", "bag", "hat", "accessory",
 ]);
 
+// Slot picker for the custom-category editor. Limited to SUPPORTED_SLOTS.
+export const SLOT_OPTIONS = Object.freeze([
+  { id: "top", label: "Överdelar" },
+  { id: "bottom", label: "Underdelar" },
+  { id: "dress", label: "Klänningar" },
+  { id: "outerwear", label: "Ytterplagg" },
+  { id: "shoes", label: "Skor" },
+  { id: "accessory", label: "Accessoarer" },
+].map((option) => Object.freeze(option)));
+
 export const slotForCategory = (category) => CATEGORY_BY_ID[category]?.slot ?? null;
 export const categoryForSourceFolder = (folder) => CATEGORY_BY_SOURCE_FOLDER[folder]?.id ?? null;
 export const defaultLayerOrderForCategory = (category) => CATEGORY_BY_ID[category]?.layerOrder ?? null;
+
+export function normalizeCustomCategory(row) {
+  if (
+    !row
+    || typeof row.id !== "string"
+    || !row.id.trim()
+    || typeof row.name !== "string"
+    || !row.name.trim()
+    || row.name.trim().length > 80
+    || !SUPPORTED_SLOTS.includes(row.slot)
+    || row.builtIn === true
+  ) {
+    throw new Error("Invalid custom wardrobe category.");
+  }
+  return {
+    id: row.id,
+    label: row.name.trim(),
+    slot: row.slot,
+    builtIn: false,
+  };
+}

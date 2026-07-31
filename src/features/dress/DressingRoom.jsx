@@ -11,6 +11,7 @@ import {
   emptyAdvancedFilter,
   matchesAdvancedFilter,
 } from "../../domain/filters.js";
+import { CATEGORIES } from "../../domain/slots.js";
 import { UnifiedFilter } from "../filters/UnifiedFilter.jsx";
 import { GarmentTray } from "./GarmentTray.jsx";
 import { MannequinCanvas } from "./MannequinCanvas.jsx";
@@ -26,6 +27,7 @@ export function DressingRoom({
   onSave,
   onWear,
   colors = null,
+  categories = CATEGORIES,
   labels = [],
   advancedFilter = emptyAdvancedFilter(),
   onAdvancedFilterChange = () => {},
@@ -181,6 +183,7 @@ export function DressingRoom({
 
       <GarmentTray
         items={items}
+        categories={categories}
         selectedIds={selectedIds}
         onSelect={(item) => dispatch({ type: "select", item })}
         itemFilter={itemFilter}
