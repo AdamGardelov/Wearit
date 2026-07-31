@@ -17,8 +17,9 @@ import {
   updateItem,
 } from "./state.mjs";
 import { inspectProductImage, inspectWearLayer } from "./image-checks.mjs";
-import { optimizeJacketPlacement } from "./placement.mjs";
-import { decideItem } from "./decision.mjs";
+import { evaluatePlacement, optimizeJacketPlacement } from "./placement.mjs";
+import { loadProfiles, profileForCategory } from "./profiles.mjs";
+import { decideItem, resolveReviewContract } from "./decision.mjs";
 import { writeBatchReports } from "./report.mjs";
 import { finalizeBatch } from "./finalize.mjs";
 
@@ -46,7 +47,8 @@ const COMMAND_OPTIONS = {
   init: { values: ["input", "workspace", "intake"], flags: [] },
   next: { values: ["workspace"], flags: [] },
   "record-asset": {
-    values: ["workspace", "item", "kind", "file"],
+    requiredValues: ["workspace", "item", "kind", "file"],
+    optionalValues: ["image-id", "view"],
     flags: ["generated"],
   },
   inspect: { values: ["workspace", "item"], flags: [] },
@@ -68,7 +70,9 @@ function parseArguments(argv) {
   if (!contract) {
     throw new UsageError(`Unknown or missing command: ${command ?? "(none)"}`);
   }
-  const values = new Set(contract.values);
+  const values = new Set(contract.values ?? contract.requiredValues);
+  const requiredValues = new Set(contract.requiredValues ?? contract.values);
+  const optionalValues = new Set(contract.optionalValues ?? []);
   const flags = new Set(contract.flags);
   const options = {};
 
@@ -85,7 +89,7 @@ function parseArguments(argv) {
       options[name] = true;
       continue;
     }
-    if (!values.has(name)) {
+    if (!values.has(name) && !optionalValues.has(name)) {
       throw new UsageError(`Unknown option for ${command}: --${name}`);
     }
     const value = tokens[index + 1];
@@ -95,7 +99,7 @@ function parseArguments(argv) {
     options[name] = value;
     index += 1;
   }
-  for (const name of values) {
+  for (const name of requiredValues) {
     if (!Object.hasOwn(options, name)) {
       throw new UsageError(`Missing required option: --${name}`);
     }
@@ -143,10 +147,16 @@ function itemSummary(item) {
     slug: item.slug,
     name: item.name,
     sources: item.sources,
+    ...(item.category ? { category: item.category } : {}),
+    ...(item.profile ? { profile: item.profile } : {}),
+    ...(item.metadata?.images
+      ? { productImages: item.productImages?.length ? item.productImages : item.metadata.images }
+      : item.productImages ? { productImages: item.productImages } : {}),
   };
 }
 
 function acceptedProduct(item) {
+  if (item.metadata?.images) return Object.values(item.acceptedAssets).find((asset) => asset?.kind?.startsWith("product-image:"));
   return item.acceptedAssets["product-image"] ?? item.acceptedAssets.product;
 }
 
@@ -155,6 +165,18 @@ function permitsProductRegeneration(item) {
 }
 
 function latestAssets(item) {
+  if (item.metadata?.images) {
+    const selected = { ...item.acceptedAssets };
+    for (const asset of item.attempts) {
+      if (asset?.kind === "wear-layer" && asset.path) selected["wear-layer"] = asset;
+      if (asset?.kind?.startsWith("product-image:") && asset.path) selected[asset.kind] = asset;
+    }
+    const productImages = item.metadata.images
+      .slice().sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((image) => selected[`product-image:${image.id}`] ?? selected[image.id])
+      .filter(Boolean);
+    return { ...selected, productImages };
+  }
   const selected = { ...item.acceptedAssets };
   const preservedProduct = permitsProductRegeneration(item)
     ? undefined
@@ -165,6 +187,16 @@ function latestAssets(item) {
   }
   if (preservedProduct) selected["product-image"] = preservedProduct;
   return selected;
+}
+
+async function profileForItem(state, item) {
+  if (state.version === 3) return loadProfile();
+  const profiles = await loadProfiles();
+  const profile = profileForCategory(profiles, item.category);
+  if (profile.sha256 !== item.profile?.sha256) {
+    throw new Error(`Profile drift for ${item.slug}: expected ${item.profile?.sha256}, got ${profile.sha256}`);
+  }
+  return profile;
 }
 
 function statusCounts(state) {
@@ -275,7 +307,10 @@ async function commandInit(options) {
 }
 
 async function commandNext(options) {
-  return nextAction(await loadBatch(batchStateFile(options.workspace)));
+  const state = await loadBatch(batchStateFile(options.workspace));
+  const item = state.items.find(({ status }) => !TERMINAL_STATUSES.has(status));
+  if (item) await profileForItem(state, item);
+  return nextAction(state);
 }
 
 async function canonicalWorkspaceFile(workspace, requestedFile) {
@@ -356,6 +391,20 @@ async function commandRecordAsset(options) {
   const state = await loadBatch(statePath);
   const item = state.items.find(({ id }) => id === options.item);
   if (!item) throw new Error(`Batch item not found: ${options.item}`);
+  const isProduct = PRODUCT_KINDS.has(options.kind);
+  if (state.version === 4 && isProduct) {
+    if (!options["image-id"] || !options.view) {
+      throw new UsageError("Product assets require --image-id and --view");
+    }
+    if (!["front", "back", "detail"].includes(options.view)) {
+      throw new UsageError(`Invalid product image view: ${options.view}`);
+    }
+    const image = item.metadata.images.find(({ id }) => id === options["image-id"]);
+    if (!image) throw new Error(`Product image id is not approved for ${item.id}: ${options["image-id"]}`);
+    if (image.view !== options.view) throw new Error(`Product image view does not match approved metadata for ${item.id}`);
+  } else if (!isProduct && (options["image-id"] || options.view)) {
+    throw new UsageError("--image-id and --view are only valid for product assets");
+  }
   if (
     PRODUCT_KINDS.has(options.kind)
     && acceptedProduct(item)
@@ -377,9 +426,10 @@ async function commandRecordAsset(options) {
     state.workspacePath,
     options.file,
   );
-  const version = item.attempts.filter(
-    ({ kind }) => kind === options.kind,
-  ).length + 1;
+  const assetKind = state.version === 4 && isProduct
+    ? `product-image:${options["image-id"]}`
+    : options.kind;
+  const version = item.attempts.filter(({ kind }) => kind === assetKind).length + 1;
   const extension = path.extname(file).toLowerCase() || ".bin";
   const attemptDirectory = await ensureManagedDirectory(
     workspacePath, ["attempts", item.slug],
@@ -392,7 +442,8 @@ async function commandRecordAsset(options) {
   await ensureManagedDirectory(workspacePath, ["attempts", item.slug]);
   const content = await readFile(immutablePath);
   const asset = {
-    kind: options.kind,
+    kind: assetKind,
+    ...(isProduct && state.version === 4 ? { imageId: options["image-id"], view: options.view } : {}),
     version,
     path: await realpath(immutablePath),
     size: content.byteLength,
@@ -427,9 +478,12 @@ async function commandRecordAsset(options) {
 
 function requireSelectedAssets(item) {
   const assets = latestAssets(item);
-  for (const kind of ["product-image", "wear-layer"]) {
-    if (!assets[kind]) throw new Error(`Item ${item.id} has no recorded ${kind}`);
-  }
+  if (!assets["wear-layer"]) throw new Error(`Item ${item.id} has no recorded wear-layer`);
+  if (item.metadata?.images) {
+    for (const image of item.metadata.images.filter((entry) => entry.view === "front" || entry.view === "back")) {
+      if (!assets.productImages?.some((asset) => asset.imageId === image.id)) throw new Error(`Item ${item.id} has no recorded product image ${image.id}`);
+    }
+  } else if (!assets["product-image"]) throw new Error(`Item ${item.id} has no recorded product-image`);
   return assets;
 }
 
@@ -442,9 +496,11 @@ async function commandInspect(options) {
   let product;
   let wear;
   try {
-    const profile = await loadProfile();
+    const profile = await profileForItem(state, item);
+    const productAssets = assets.productImages ?? [assets["product-image"]];
+    const primaryProduct = productAssets.find((asset) => asset?.view === "front") ?? productAssets[0];
     [product, wear] = await Promise.all([
-      inspectProductImage(assets["product-image"].path),
+      inspectProductImage(primaryProduct.path),
       inspectWearLayer(assets["wear-layer"].path, {
         width: profile.canvas.width,
         height: profile.canvas.height,
@@ -461,6 +517,7 @@ async function commandInspect(options) {
     wear,
     assets: {
       "product-image": assets["product-image"],
+      productImages: productAssets,
       "wear-layer": assets["wear-layer"],
     },
   };
@@ -486,19 +543,26 @@ async function commandOptimize(options) {
   const placementDirectory = `placement-v${String(version).padStart(3, "0")}`;
   let result;
   try {
-    const profile = await loadProfile();
+    const profile = await profileForItem(state, item);
     const outputDir = await ensureManagedDirectory(
       state.workspacePath, ["attempts", item.slug, placementDirectory],
     );
     await ensureManagedDirectory(
       state.workspacePath, ["attempts", item.slug, placementDirectory],
     );
-    result = await optimizeJacketPlacement({
+    result = state.version === 4
+      ? await evaluatePlacement({
+        wearLayer: assets["wear-layer"].path,
+        mannequin: process.env.WEARIT_BATCH_MANNEQUIN || DEFAULT_MANNEQUIN,
+        profile,
+        outputDirectory: outputDir,
+      })
+      : await optimizeJacketPlacement({
       wearLayer: assets["wear-layer"].path,
       mannequin: process.env.WEARIT_BATCH_MANNEQUIN || DEFAULT_MANNEQUIN,
       profile,
       outputDir,
-    });
+      });
   } catch (error) {
     throw await failInfrastructure(statePath, item, "optimize", error);
   }
@@ -518,6 +582,7 @@ function deterministicAttempts(item) {
 
 function assetsForKinds(item, kinds) {
   const assets = latestAssets(item);
+  if (item.metadata?.images && (kinds.includes("product-image") || kinds.includes("product-images"))) return Object.fromEntries((assets.productImages ?? []).map((asset) => [asset.kind, asset]));
   return Object.fromEntries(
     kinds.filter((kind) => assets[kind]).map((kind) => [kind, assets[kind]]),
   );
@@ -532,6 +597,8 @@ async function commandRecordReview(options) {
     throw new Error(`Item ${item.id} must be inspected before review`);
   }
   const review = await readJson(path.resolve(options.review), "review");
+  const profile = await profileForItem(state, item);
+  const reviewContract = state.version === 4 ? resolveReviewContract(profile, item.contract) : undefined;
   const attempts = deterministicAttempts(item);
   const decision = decideItem({
     structural: item.structural,
@@ -541,7 +608,7 @@ async function commandRecordReview(options) {
     generationAttempts: item.generationAttempts,
     maxGenerationAttempts: state.policy.maxGenerationAttempts,
     minimumConfidence: state.policy.acceptanceConfidence,
-  });
+  }, reviewContract);
 
   const updated = await updateItem(statePath, item.id, (current) => {
     const next = {
