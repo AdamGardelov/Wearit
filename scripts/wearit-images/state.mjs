@@ -96,7 +96,10 @@ function isTimestamp(value) {
   );
 }
 
-function validateItemMetadata(metadata, slug, stateFile) {
+const IMAGE_VIEWS = new Set(["front", "back", "detail"]);
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+
+function validateV3ItemMetadata(metadata, slug, stateFile) {
   if (!isPlainObject(metadata)) {
     throw stateError(stateFile, `invalid metadata for ${slug}`);
   }
@@ -129,6 +132,26 @@ function validateItemMetadata(metadata, slug, stateFile) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(metadata.productImageId ?? "")) {
     throw stateError(stateFile, `invalid metadata productImageId for ${slug}`);
   }
+}
+
+function validateV4ItemMetadata(metadata, slug, stateFile) {
+  if (!isPlainObject(metadata) || Object.keys(metadata).join(",") !== "images") throw stateError(stateFile, `invalid metadata shape for ${slug}`);
+  if (!Array.isArray(metadata.images) || metadata.images.length === 0) throw stateError(stateFile, `invalid metadata images for ${slug}`);
+  const ids = new Set(); const orders = new Set(); let primaryFronts = 0; let backs = 0;
+  for (const image of metadata.images) {
+    if (!isPlainObject(image) || Object.keys(image).sort().join(",") !== "id,isPrimary,sortOrder,view") throw stateError(stateFile, `invalid metadata image shape for ${slug}`);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(image.id ?? "") || ids.has(image.id) || !IMAGE_VIEWS.has(image.view)) throw stateError(stateFile, `invalid metadata image identity for ${slug}`);
+    if (!Number.isSafeInteger(image.sortOrder) || image.sortOrder < 0 || orders.has(image.sortOrder)) throw stateError(stateFile, `invalid metadata image sortOrder for ${slug}`);
+    if (typeof image.isPrimary !== "boolean") throw stateError(stateFile, `invalid metadata image primary flag for ${slug}`);
+    ids.add(image.id); orders.add(image.sortOrder); if (image.view === "back") backs += 1;
+    if (image.isPrimary && image.view === "front") primaryFronts += 1;
+    if (image.isPrimary && image.view !== "front") throw stateError(stateFile, `only front image may be primary for ${slug}`);
+  }
+  if (primaryFronts !== 1 || backs > 1) throw stateError(stateFile, `metadata images require exactly one primary front and at most one back for ${slug}`);
+}
+
+function validateProductImages(productImages, slug, stateFile) {
+  if (!Array.isArray(productImages) || productImages.some((image) => !isPlainObject(image))) throw stateError(stateFile, `invalid productImages for ${slug}`);
 }
 
 function stateError(stateFile, reason, cause) {
@@ -356,8 +379,11 @@ async function validateBatchState(state, stateFile) {
     if (!isPlainObject(item.acceptedAssets)) {
       throw stateError(stateFile, `invalid acceptedAssets for ${item.slug}`);
     }
-    if (item.metadata !== undefined) {
-      validateItemMetadata(item.metadata, item.slug, stateFile);
+    if (state.version === LEGACY_STATE_VERSION) {
+      if (item.metadata !== undefined) validateV3ItemMetadata(item.metadata, item.slug, stateFile);
+    } else {
+      validateV4ItemMetadata(item.metadata, item.slug, stateFile);
+      validateProductImages(item.productImages, item.slug, stateFile);
     }
     if (
       !Array.isArray(item.attempts)
@@ -782,6 +808,9 @@ async function sourceMetadata(inputPath, source, claimedSources) {
     throw new Error(`Intake filename escapes input directory: ${source.file}`);
   }
 
+  const extension = path.extname(requestedPath).toLowerCase();
+  if (!IMAGE_EXTENSIONS.has(extension)) throw new Error(`Unsupported image format: ${source.file}`);
+
   const sourcePath = await realpath(requestedPath);
   if (!isContained(inputPath, sourcePath)) {
     throw new Error(`Source is outside canonical input directory: ${source.file}`);
@@ -907,18 +936,19 @@ export async function initializeBatch({
       ids.add(item.id);
       slugs.add(item.slug);
 
+      const category = item.category ?? rootCategory;
       const sources = [];
       for (const source of item.sources) {
         if (mixedRoot) {
           const firstSegment = String(source?.file ?? "").split(/[\\/]/)[0];
           const sourceCategory = categoryForSourceFolder(firstSegment);
-          if (!sourceCategory) throw new Error(`Unknown category folder in mixed input: ${firstSegment}`);
+          if (!sourceCategory) throw new Error(`Unknown category folder in mixed input: ${firstSegment}. Valid folders: ${CATEGORY_DEFINITIONS.map(({ sourceFolder }) => sourceFolder).join(", ")}`);
           if (sourceCategory !== category) throw new Error(`Item category ${category} does not match source folder ${firstSegment}`);
         }
         sources.push(await sourceMetadata(inputPath, source, claimedSources));
       }
 
-      const category = item.category ?? rootCategory;
+
       const definition = CATEGORY_DEFINITIONS.find((entry) => entry.id === category);
       if (!definition) throw new Error(`Unknown item category: ${category}`);
       if (!mixedRoot && category !== rootCategory) throw new Error(`Item category ${category} does not match input folder ${sourceFolder}`);
@@ -927,9 +957,10 @@ export async function initializeBatch({
         slug: item.slug,
         name: item.name,
         category,
-        ...(item.metadata === undefined
-          ? {}
-          : { metadata: structuredClone(item.metadata) }),
+        metadata: structuredClone(item.metadata ?? {
+          images: [{ id: randomUUID(), view: "front", sortOrder: 0, isPrimary: true }],
+        }),
+        productImages: structuredClone(item.productImages ?? []),
         sources,
         generationAttempts: 0,
         status: "ready",
