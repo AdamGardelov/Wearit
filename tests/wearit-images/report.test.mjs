@@ -358,6 +358,66 @@ describe("batch quality reports", () => {
     expect(html).toContain("Infrastructure-failure rate: 0%");
   });
 
+  it("reports attempt and one-shot metrics per category", async () => {
+    const mixed = state();
+    mixed.items[0] = {
+      ...mixed.items[0],
+      category: "top",
+      deterministicAttempts: { cleanup: 0, placement: 0 },
+      attempts: [
+        ...mixed.items[0].attempts,
+        {
+          kind: "wear-layer",
+          path: acceptedPreview,
+          version: 1,
+          generated: true,
+        },
+      ],
+    };
+    mixed.items[1] = { ...mixed.items[1], category: "shoes" };
+    mixed.items[2] = { ...mixed.items[2], category: "hat" };
+
+    const result = await writeBatchReports({ state: mixed, workspaceDir: workspace });
+
+    expect(result.counts.oneShot).toBe(1);
+    expect(result.counts.byCategory).toEqual({
+      hat: {
+        total: 1,
+        accepted: 0,
+        quarantined: 0,
+        failedInfrastructure: 1,
+        productAttempts: 0,
+        wearAttempts: 0,
+        oneShot: 0,
+      },
+      shoes: {
+        total: 1,
+        accepted: 0,
+        quarantined: 1,
+        failedInfrastructure: 0,
+        productAttempts: 0,
+        wearAttempts: 1,
+        oneShot: 0,
+      },
+      top: {
+        total: 1,
+        accepted: 1,
+        quarantined: 0,
+        failedInfrastructure: 0,
+        productAttempts: 1,
+        wearAttempts: 1,
+        oneShot: 1,
+      },
+    });
+    const json = JSON.parse(await readFile(result.paths.json, "utf8"));
+    expect(json.counts.byCategory).toEqual(result.counts.byCategory);
+    expect(json.items[0]).toMatchObject({
+      productAttempts: 1,
+      wearAttempts: 1,
+      oneShot: true,
+    });
+  });
+
   it("exposes report through the CLI and rejects replaced managed directories", async () => {
     const cliWorkspace = path.join(root, "cli-workspace");
     const intake = [{
