@@ -104,6 +104,34 @@ describe("inspectWearLayer under small-garment categories", () => {
     expect(result.pass).toBe(true);
   });
 
+  it("accepts a cropped top, which covers ~4% of the body canvas", async () => {
+    // Measured from a real cropped ribbed tank wear layer: 67 127 visible px,
+    // 0.0427 of the canvas, in one component. Crop tops and bralettes are
+    // legitimately small in a way a jacket, coat or dress never is, so `top`
+    // cannot share the large-garment floor.
+    const file = await layerWithBlocks("croptop", [
+      { left: 300, top: 360, width: 290, height: 230 },
+    ]);
+    const profiles = await loadProfiles();
+    const { coverage } = profileForCategory(profiles, "top");
+
+    const result = await inspectWearLayer(file, { ...CANVAS, ...coverage });
+
+    expect(result.content.visibleFraction).toBeLessThan(0.05);
+    expect(result.failures).toEqual([]);
+    expect(result.pass).toBe(true);
+  });
+
+  it("keeps the large-garment floor on dress, jacket, coat and bottom", async () => {
+    const profiles = await loadProfiles();
+    for (const category of ["dress", "jacket", "coat", "bottom"]) {
+      expect(profileForCategory(profiles, category).coverage, category).toEqual({
+        minVisibleFraction: 0.05,
+        minLargestComponentFraction: 0.04,
+      });
+    }
+  });
+
   it("accepts a hat crown and a belt strap, the other sub-5% categories", async () => {
     const profiles = await loadProfiles();
     const cases = [
