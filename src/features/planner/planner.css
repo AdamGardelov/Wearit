@@ -82,16 +82,37 @@
 
 .weekday-planned { margin-top: 12px; }
 .weekday-thumb {
+  width: 100%;
   aspect-ratio: 1 / 2;
   display: grid;
   place-items: center;
   overflow: hidden;
+  border: 0;
+  padding: 0;
   background: #eee8de;
   color: var(--muted);
   font-size: 11px;
+  cursor: pointer;
 }
 .weekday-thumb img { width: 100%; height: 100%; object-fit: contain; }
-.weekday-outfit-name { margin: 10px 0 0; font-size: 14px; font-weight: 560; }
+.weekday-thumb:focus-visible,
+.weekday-outfit-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.weekday-thumb:disabled,
+.weekday-outfit-name:disabled { cursor: not-allowed; opacity: .65; }
+.weekday-info { min-width: 0; }
+.weekday-outfit-name {
+  width: 100%;
+  margin: 10px 0 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 560;
+  text-align: left;
+  cursor: pointer;
+}
+.weekday-outfit-name:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
 .weekday-attention { margin: 6px 0 0; color: var(--accent); font-size: 11px; font-weight: 560; }
 
 .weekday-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
@@ -109,24 +130,27 @@
 .weekday-actions .weekday-wear { flex-basis: 100%; background: var(--ink); color: var(--paper); }
 .weekday-actions .weekday-wear:disabled { background: transparent; }
 .weekday-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.weekday-actions .weekday-more { display: none; }
 
 @media (max-width: 899px) {
   .weekday-planned {
     display: grid;
     grid-template-columns: minmax(112px, 38%) minmax(0, 1fr);
-    grid-template-areas:
-      "thumb name"
-      "thumb attention"
-      "thumb actions";
     column-gap: 14px;
     align-items: start;
   }
-  .weekday-thumb { grid-area: thumb; }
-  .weekday-outfit-name { grid-area: name; margin-top: 0; }
-  .weekday-attention { grid-area: attention; }
-  .weekday-actions { grid-area: actions; align-self: end; flex-direction: column; }
+  .weekday-info {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .weekday-outfit-name { margin-top: 0; }
+  .weekday-actions { flex-direction: column; margin-top: auto; padding-top: 12px; }
   .weekday-actions button,
   .weekday-actions .weekday-wear { flex: 0 0 auto; }
+  .weekday-actions .weekday-more { display: block; }
+  .weekday-actions .weekday-secondary-action { display: none; }
+  .weekday-actions.is-open .weekday-secondary-action { display: block; }
 }
 
 .week-planner-clear { max-width: 1180px; margin: 22px auto 0; }

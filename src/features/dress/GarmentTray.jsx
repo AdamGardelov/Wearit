@@ -70,19 +70,24 @@ export function GarmentTray({
 
       {visibleItems.length ? (
         <div className="garment-strip" aria-label={activeLabel}>
-          {visibleItems.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className="garment-option"
-              onClick={() => onSelect(item)}
-              aria-label={`Välj ${garmentName(item, categoryById)}`}
-              aria-pressed={selectedIds.has(item.id)}
-            >
-              {item.cutoutUrl ? <img src={item.cutoutUrl} alt="" /> : <span aria-hidden="true">—</span>}
-              <span>{garmentName(item, categoryById)}</span>
-            </button>
-          ))}
+          {visibleItems.map((item) => {
+            const name = garmentName(item, categoryById);
+            const selected = selectedIds.has(item.id);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className="garment-option"
+                onClick={() => onSelect(item)}
+                aria-label={selected ? `${name}, valt` : `Välj ${name}`}
+                aria-pressed={selected}
+              >
+                {item.cutoutUrl ? <img src={item.cutoutUrl} alt="" /> : <span aria-hidden="true">—</span>}
+                <span className="garment-option-name">{name}</span>
+                {selected && <span className="garment-selected-mark" aria-hidden="true">✓</span>}
+              </button>
+            );
+          })}
         </div>
       ) : categoryItems.length ? (
         <p className="garment-empty">Inga plagg matchar filtret.</p>

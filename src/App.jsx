@@ -15,7 +15,7 @@ import { supabase } from "./lib/supabase.js";
 
 const SECTIONS = [
   { id: "wardrobe", label: "Garderob" },
-  { id: "dress", label: "Dressing room" },
+  { id: "dress", label: "Styla" },
   { id: "outfits", label: "Outfits" },
   { id: "week", label: "Vecka" },
   { id: "history", label: "Historik" },
@@ -41,6 +41,12 @@ export function App({ repository: injectedRepository }) {
     () => injectedRepository ?? createWardrobeRepository(supabase),
     [injectedRepository],
   );
+
+  useEffect(() => {
+    if (!actionStatus) return undefined;
+    const timeout = window.setTimeout(() => setActionStatus(""), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [actionStatus]);
   const currentRepositoryRef = useRef(baseRepository);
   currentRepositoryRef.current = baseRepository;
   const [itemSnapshot, setItemSnapshot] = useState(() => ({
@@ -368,7 +374,6 @@ export function App({ repository: injectedRepository }) {
           context="Styla"
           {...advancedFilterProps}
         />
-        {actionStatus && <p className="app-action-status" role="status">{actionStatus}</p>}
       </section>
       <section className="app-section" hidden={section !== "outfits"}>
         {typeof repository.listOutfits === "function" ? (
@@ -441,6 +446,12 @@ export function App({ repository: injectedRepository }) {
         <button type="button" className="admin-launch" onClick={() => setSection("admin")}>
           Importera garderob
         </button>
+      )}
+
+      {actionStatus && (
+        <p className="app-action-status" role="status" aria-live="polite">
+          {actionStatus}
+        </p>
       )}
 
       <nav className="bottom-nav" aria-label="Primär">

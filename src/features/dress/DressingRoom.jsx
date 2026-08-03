@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ArrowLineDown, ArrowLineUp } from "@phosphor-icons/react";
 import {
   EMPTY_MANNEQUIN,
@@ -38,6 +38,8 @@ export function DressingRoom({
   const [state, dispatch] = useReducer(mannequinReducer, EMPTY_MANNEQUIN);
   const loadedRequestKeyRef = useRef(null);
   const loadBoundariesRef = useRef([]);
+  const canvasPaneRef = useRef(null);
+  const [canvasVisible, setCanvasVisible] = useState(true);
   const reconciledState = useMemo(
     () => mannequinReducer(state, { type: "reconcile", items }),
     [items, state],
@@ -63,6 +65,17 @@ export function DressingRoom({
     });
     dispatch({ type: "load", items: loadRequest.items });
   }, [loadRequest, reconciledState.history.length]);
+
+  useEffect(() => {
+    const canvasPane = canvasPaneRef.current;
+    if (!canvasPane || typeof IntersectionObserver === "undefined") return undefined;
+    const observer = new IntersectionObserver(
+      ([entry]) => setCanvasVisible(entry.isIntersecting),
+      { threshold: 0.15 },
+    );
+    observer.observe(canvasPane);
+    return () => observer.disconnect();
+  }, []);
 
   const selection = selectedItems(reconciledState);
   const selectedIds = new Set(selection.map((item) => item.id));
@@ -96,9 +109,17 @@ export function DressingRoom({
     dispatch({ type: "move-layer", itemId: item.id, direction });
   };
 
+  const showLook = () => {
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    canvasPaneRef.current?.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  };
+
   return (
     <main className="dressing-room">
-      <section className="dress-canvas-pane" aria-label="Provrum">
+      <section className="dress-canvas-pane" aria-label="Provrum" ref={canvasPaneRef}>
         <div className="dress-heading">
           <p>Styla</p>
           <span>{selection.length} valda</span>
@@ -203,6 +224,13 @@ export function DressingRoom({
           />
         )}
       />
+
+      {selection.length > 0 && !canvasVisible && (
+        <div className="dress-mobile-summary" role="status" aria-live="polite">
+          <span>{selection.length} {selection.length === 1 ? "valt plagg" : "valda plagg"}</span>
+          <button type="button" onClick={showLook}>Visa look</button>
+        </div>
+      )}
     </main>
   );
 }

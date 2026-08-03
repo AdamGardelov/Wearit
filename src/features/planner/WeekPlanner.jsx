@@ -11,6 +11,9 @@ function WeekdayCard({ slot, isToday, busy, onChoose, onOpen, onWear, onRemove }
   const dayLabel = weekdayLabel(slot.weekday);
   const outfit = slot.outfit;
   const needsAttention = outfit ? outfitNeedsAttention(outfit) : false;
+  const [actionsOpen, setActionsOpen] = useState(false);
+
+  useEffect(() => setActionsOpen(false), [outfit?.id]);
 
   return (
     <li className={`weekday-card${isToday ? " is-today" : ""}${needsAttention ? " needs-attention" : ""}`}>
@@ -31,49 +34,69 @@ function WeekdayCard({ slot, isToday, busy, onChoose, onOpen, onWear, onRemove }
         </button>
       ) : (
         <div className="weekday-planned">
-          <div className="weekday-thumb">
+          <button
+            type="button"
+            className="weekday-thumb"
+            onClick={() => onOpen(outfit.items, outfit)}
+            disabled={busy}
+            aria-label={`Öppna ${outfit.name}`}
+          >
             {outfit.thumbnailUrl
               ? <img src={outfit.thumbnailUrl} alt="" />
               : <span aria-hidden="true">Ingen förhandsvisning</span>}
-          </div>
-          <p className="weekday-outfit-name">{outfit.name}</p>
-          {needsAttention && <p className="weekday-attention" role="status">Behöver åtgärdas</p>}
-          <div className="weekday-actions">
+          </button>
+          <div className="weekday-info">
             <button
               type="button"
+              className="weekday-outfit-name"
               onClick={() => onOpen(outfit.items, outfit)}
               disabled={busy}
               aria-label={`Öppna ${outfit.name}`}
             >
-              Öppna
+              {outfit.name}
             </button>
-            <button
-              type="button"
-              onClick={onChoose}
-              disabled={busy}
-              aria-label={`Byt outfit för ${dayLabel}`}
-            >
-              Byt outfit
-            </button>
-            <button
-              type="button"
-              onClick={onRemove}
-              disabled={busy}
-              aria-label={`Ta bort outfit från ${dayLabel}`}
-            >
-              Ta bort
-            </button>
-            {isToday && !needsAttention && (
+            {needsAttention && <p className="weekday-attention" role="status">Behöver åtgärdas</p>}
+            <div className={`weekday-actions${actionsOpen ? " is-open" : ""}`}>
+              {isToday && !needsAttention && (
+                <button
+                  type="button"
+                  className="weekday-wear"
+                  onClick={() => onWear(outfit.items, outfit)}
+                  disabled={busy}
+                  aria-label={`Bär ${outfit.name} idag`}
+                >
+                  Bär idag
+                </button>
+              )}
               <button
                 type="button"
-                className="weekday-wear"
-                onClick={() => onWear(outfit.items, outfit)}
+                className="weekday-more"
+                onClick={() => setActionsOpen((current) => !current)}
                 disabled={busy}
-                aria-label={`Bär ${outfit.name} idag`}
+                aria-expanded={actionsOpen}
+                aria-label={`Hantera ${outfit.name}`}
               >
-                Bär idag
+                ••• Hantera
               </button>
-            )}
+              <button
+                type="button"
+                className="weekday-secondary-action"
+                onClick={onChoose}
+                disabled={busy}
+                aria-label={`Byt outfit för ${dayLabel}`}
+              >
+                Byt outfit
+              </button>
+              <button
+                type="button"
+                className="weekday-secondary-action"
+                onClick={onRemove}
+                disabled={busy}
+                aria-label={`Ta bort outfit från ${dayLabel}`}
+              >
+                Ta bort
+              </button>
+            </div>
           </div>
         </div>
       )}

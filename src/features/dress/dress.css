@@ -140,10 +140,11 @@
 }
 
 .garment-option {
+  position: relative;
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-rows: 88px auto;
+  grid-template-rows: 88px minmax(2.5em, auto);
   gap: 7px;
   align-items: center;
   border-color: transparent;
@@ -154,12 +155,29 @@
 .garment-option[aria-pressed="true"] { border-color: var(--accent); background: rgba(110, 48, 46, .07); }
 .garment-option img { width: 100%; height: 88px; object-fit: contain; }
 
-.garment-option > span:last-child {
+.garment-option-name {
+  display: -webkit-box;
   overflow: hidden;
   font-size: 11px;
   line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.garment-selected-mark {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--paper);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .garment-empty,
@@ -215,10 +233,41 @@
 }
 .layer-move:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+.dress-mobile-summary { display: none; }
+
 @media (max-width: 899px) {
   /* Keep the mannequin useful without pushing the garment collection below the first screen. */
+  .dressing-room { padding-bottom: 150px; }
   .mannequin-stage { width: clamp(190px, 54vw, 240px); }
   .garment-strip { display: grid; }
+  .dress-mobile-summary {
+    position: fixed;
+    right: 0;
+    bottom: calc(58px + env(safe-area-inset-bottom));
+    left: 0;
+    z-index: 14;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 56px;
+    border-top: 1px solid var(--line);
+    padding: 6px 14px;
+    background: rgba(244, 240, 232, .96);
+    color: var(--muted);
+    font-size: 12px;
+    backdrop-filter: blur(16px);
+  }
+  .dress-mobile-summary button {
+    min-width: 112px;
+    min-height: 44px;
+    border: 1px solid var(--ink);
+    padding: 0 16px;
+    background: var(--ink);
+    color: var(--paper);
+    cursor: pointer;
+  }
+  .dress-mobile-summary button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 
 @media (min-width: 900px) {

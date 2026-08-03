@@ -612,7 +612,7 @@ export function ItemEditorDialog({
             </div>
 
             {error && <p className="status error" role="alert">{error}</p>}
-            <div className="viewer-actions">
+            <div className="viewer-secondary-actions" aria-label="Plaggåtgärder">
               <button
                 className="secondary-button"
                 type="button"
@@ -631,7 +631,8 @@ export function ItemEditorDialog({
                 <Archive size={15} weight="regular" aria-hidden="true" />
                 {busyAction === "archive" ? "Arkiverar…" : "Arkivera"}
               </button>
-              <span className="action-spacer" />
+            </div>
+            <div className="viewer-actions">
               <button
                 className="secondary-button"
                 type="button"
