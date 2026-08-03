@@ -14,14 +14,14 @@
 .outfits-status { max-width: 1180px; margin: 60px auto; color: var(--muted); }
 .outfits-status.error, .outfit-error { color: var(--accent); }
 .outfits-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; max-width: 1180px; margin: 0 auto; }
-.outfit-card { position: relative; min-width: 0; border-top: 1px solid var(--line); padding-top: 10px; }
+.outfit-card { position: relative; min-width: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); padding-top: 10px; }
 .outfit-thumbnail { aspect-ratio: 1 / 2; display: grid; place-items: center; overflow: hidden; background: #eee8de; color: var(--muted); font-size: 11px; }
 .outfit-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
-.outfit-card-copy { padding-top: 12px; }
+.outfit-card-copy { flex: 1; display: flex; flex-direction: column; padding-top: 12px; }
 .outfit-card h2 { margin: 0; font-size: 16px; font-weight: 560; }
 .outfit-card-copy > p { margin: 5px 0 12px; color: var(--muted); font-size: 11px; }
 .outfit-card-copy .last-worn-meta { margin: -6px 0 12px; }
-.outfit-card-actions { display: grid; grid-template-columns: 1fr; gap: 7px; }
+.outfit-card-actions { display: grid; grid-template-columns: 1fr; gap: 7px; margin-top: auto; }
 .outfit-card button { width: 100%; min-height: 44px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper); cursor: pointer; }
 .outfit-card .outfit-wear-action { background: transparent; color: var(--ink); }
 .outfit-card button:disabled { border-color: var(--line); background: transparent; color: var(--muted); cursor: not-allowed; }

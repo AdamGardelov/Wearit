@@ -1,6 +1,8 @@
 .dressing-room {
   min-width: 0;
   min-height: calc(100dvh - 70px);
+  display: flex;
+  flex-direction: column;
   padding: 18px 14px 98px;
 }
 
@@ -96,6 +98,7 @@
 .garment-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .garment-tray {
+  order: 2;
   min-width: 0;
   margin-top: 28px;
   border-top: 1px solid var(--line);
@@ -129,10 +132,16 @@
 /* The unified filter sits between the category row and the strip; its panel/chips are
    styled by filters.css, so this only spaces the trigger row. */
 .dress-tray-filter { margin-top: 12px; }
-.garment-strip { margin-top: 12px; padding: 2px; }
+.garment-strip {
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  margin-top: 12px;
+  overflow: visible;
+  padding: 2px 0;
+}
 
 .garment-option {
-  flex: 0 0 104px;
+  width: 100%;
+  min-width: 0;
   display: grid;
   grid-template-rows: 88px auto;
   gap: 7px;
@@ -156,7 +165,7 @@
 .garment-empty,
 .summary-empty { margin: 18px 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 
-.selected-summary { width: min(100%, 360px); margin: 24px auto 0; }
+.selected-summary { order: 3; width: min(100%, 360px); margin: 24px auto 0; }
 .summary-kicker {
   margin: 0 0 4px;
   color: var(--accent);
@@ -205,6 +214,12 @@
   cursor: not-allowed;
 }
 .layer-move:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 899px) {
+  /* Keep the mannequin useful without pushing the garment collection below the first screen. */
+  .mannequin-stage { width: clamp(190px, 54vw, 240px); }
+  .garment-strip { display: grid; }
+}
 
 @media (min-width: 900px) {
   .dressing-room {

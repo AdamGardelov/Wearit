@@ -82,7 +82,7 @@
 
 .weekday-planned { margin-top: 12px; }
 .weekday-thumb {
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 1 / 2;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -90,7 +90,7 @@
   color: var(--muted);
   font-size: 11px;
 }
-.weekday-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.weekday-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .weekday-outfit-name { margin: 10px 0 0; font-size: 14px; font-weight: 560; }
 .weekday-attention { margin: 6px 0 0; color: var(--accent); font-size: 11px; font-weight: 560; }
 
@@ -109,6 +109,25 @@
 .weekday-actions .weekday-wear { flex-basis: 100%; background: var(--ink); color: var(--paper); }
 .weekday-actions .weekday-wear:disabled { background: transparent; }
 .weekday-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 899px) {
+  .weekday-planned {
+    display: grid;
+    grid-template-columns: minmax(112px, 38%) minmax(0, 1fr);
+    grid-template-areas:
+      "thumb name"
+      "thumb attention"
+      "thumb actions";
+    column-gap: 14px;
+    align-items: start;
+  }
+  .weekday-thumb { grid-area: thumb; }
+  .weekday-outfit-name { grid-area: name; margin-top: 0; }
+  .weekday-attention { grid-area: attention; }
+  .weekday-actions { grid-area: actions; align-self: end; flex-direction: column; }
+  .weekday-actions button,
+  .weekday-actions .weekday-wear { flex: 0 0 auto; }
+}
 
 .week-planner-clear { max-width: 1180px; margin: 22px auto 0; }
 .week-planner-clear-trigger {
