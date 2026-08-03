@@ -42,7 +42,16 @@ function WeekdayCard({ slot, isToday, busy, onChoose, onOpen, onWear, onRemove }
             aria-label={`Öppna ${outfit.name}`}
           >
             {outfit.thumbnailUrl
-              ? <img src={outfit.thumbnailUrl} alt="" />
+              ? (
+                <img
+                  src={outfit.thumbnailUrl}
+                  alt=""
+                  width="600"
+                  height="1200"
+                  loading="lazy"
+                  decoding="async"
+                />
+              )
               : <span aria-hidden="true">Ingen förhandsvisning</span>}
           </button>
           <div className="weekday-info">

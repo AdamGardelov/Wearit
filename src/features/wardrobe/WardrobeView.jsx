@@ -16,13 +16,16 @@ function itemLabel(item) {
   return item.name || CATEGORY_BY_ID[item.category]?.label || "Garderobsplagg";
 }
 
-function GalleryItem({ item, selected, onOpen, buttonRef }) {
-  // A failed back asset is the only local state: it falls back to a front-only card without
-  // touching the front image. The back view is derived by semantic view, not array position.
+function GalleryItem({ item, selected, onOpen, buttonRef, canHover }) {
+  // Back images are requested only after real hover/focus on a hover-capable device. The front
+  // remains visible while that asset loads, and a failed back falls back to a front-only card.
   const [backFailed, setBackFailed] = useState(false);
+  const [backRequested, setBackRequested] = useState(false);
+  const [backLoaded, setBackLoaded] = useState(false);
   const frontUrl = item.primaryImageUrl ?? item.cutoutUrl;
   const backUrl = item.images?.find((image) => image.view === "back")?.url ?? null;
-  const showBack = Boolean(backUrl && !backFailed);
+  const renderBack = Boolean(canHover && backRequested && backUrl && !backFailed);
+  const revealBack = renderBack && backLoaded;
   const imageProps = {
     alt: "",
     sizes: "(max-width: 520px) calc(50vw - 16px), (max-width: 860px) calc(33vw - 18px), 180px",
@@ -35,23 +38,26 @@ function GalleryItem({ item, selected, onOpen, buttonRef }) {
       className={`gallery-item${selected ? " selected" : ""}`}
       type="button"
       onClick={() => onOpen(item.id)}
+      onPointerEnter={() => { if (canHover) setBackRequested(true); }}
+      onFocus={() => { if (canHover) setBackRequested(true); }}
       aria-label={`Visa ${itemLabel(item)}`}
       aria-pressed={selected}
       data-testid={`wardrobe-item-${item.id}`}
     >
-      <span className={`gallery-item-media${showBack ? " has-back" : ""}`}>
+      <span className={`gallery-item-media${revealBack ? " has-back" : ""}`}>
         <OptimizedImage
           {...imageProps}
           className="gallery-image gallery-image-front"
           data-view="front"
           src={frontUrl}
         />
-        {showBack && (
+        {renderBack && (
           <OptimizedImage
             {...imageProps}
             className="gallery-image gallery-image-back"
             data-view="back"
             src={backUrl}
+            onLoad={() => setBackLoaded(true)}
             onError={() => setBackFailed(true)}
           />
         )}
@@ -88,6 +94,7 @@ export function WardrobeView({
   const [activeCategory, setActiveCategory] = useState("all");
   const [sortOrder, setSortOrder] = useState(LAST_WORN_SORT.STANDARD);
   const [selectedId, setSelectedId] = useState(null);
+  const [canHover, setCanHover] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const repositoryRef = useRef(repository);
@@ -116,6 +123,15 @@ export function WardrobeView({
   useEffect(() => {
     if (!active) setSelectedId(null);
   }, [active]);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return undefined;
+    const query = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const update = () => setCanHover(query.matches);
+    update();
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
 
   // Open a specific item's editor on request (e.g. followed from the History view). Wait for
   // the wardrobe to finish loading before giving up: an archived item is never in the active
@@ -328,6 +344,7 @@ export function WardrobeView({
                   item={item}
                   selected={selectedId === item.id}
                   onOpen={openItem}
+                  canHover={canHover}
                   buttonRef={(node) => {
                     if (node) galleryButtonRefs.current.set(item.id, node);
                     else galleryButtonRefs.current.delete(item.id);

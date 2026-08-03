@@ -363,6 +363,7 @@ export function App({ repository: injectedRepository }) {
       <section className="app-section" hidden={section !== "dress"}>
         <DressingRoom
           items={items}
+          active={section === "dress"}
           categories={categories}
           loadRequest={loadRequest}
           onLoadedOutfitChange={setLoadedOutfit}

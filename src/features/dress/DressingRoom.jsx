@@ -22,6 +22,7 @@ function garmentName(item) {
 
 export function DressingRoom({
   items,
+  active = true,
   loadRequest = null,
   onLoadedOutfitChange,
   onSave,
@@ -204,6 +205,7 @@ export function DressingRoom({
 
       <GarmentTray
         items={items}
+        active={active}
         categories={categories}
         selectedIds={selectedIds}
         onSelect={(item) => dispatch({ type: "select", item })}

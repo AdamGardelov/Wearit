@@ -7,6 +7,7 @@ function garmentName(item, categoryById) {
 
 export function GarmentTray({
   items,
+  active = true,
   categories = CATEGORIES,
   selectedIds,
   onSelect,
@@ -82,7 +83,18 @@ export function GarmentTray({
                 aria-label={selected ? `${name}, valt` : `Välj ${name}`}
                 aria-pressed={selected}
               >
-                {item.cutoutUrl ? <img src={item.cutoutUrl} alt="" /> : <span aria-hidden="true">—</span>}
+                {active && item.cutoutUrl
+                  ? (
+                    <img
+                      src={item.cutoutUrl}
+                      alt=""
+                      width="887"
+                      height="1774"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  )
+                  : <span aria-hidden="true">—</span>}
                 <span className="garment-option-name">{name}</span>
                 {selected && <span className="garment-selected-mark" aria-hidden="true">✓</span>}
               </button>

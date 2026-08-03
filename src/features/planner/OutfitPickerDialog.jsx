@@ -153,7 +153,16 @@ export function OutfitPickerDialog({
                   >
                     <span className="picker-thumb">
                       {outfit.thumbnailUrl
-                        ? <img src={outfit.thumbnailUrl} alt="" />
+                        ? (
+                          <img
+                            src={outfit.thumbnailUrl}
+                            alt=""
+                            width="600"
+                            height="1200"
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        )
                         : <span aria-hidden="true">Ingen förhandsvisning</span>}
                     </span>
                     <span className="picker-name">{outfit.name}</span>

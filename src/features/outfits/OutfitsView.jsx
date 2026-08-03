@@ -157,7 +157,14 @@ export function OutfitsView({
                 )}
                 <div className="outfit-thumbnail">
                   {outfit.thumbnailUrl ? (
-                    <img src={outfit.thumbnailUrl} alt={outfit.name} />
+                    <img
+                      src={outfit.thumbnailUrl}
+                      alt={outfit.name}
+                      width="600"
+                      height="1200"
+                      loading="lazy"
+                      decoding="async"
+                    />
                   ) : (
                     <span aria-hidden="true">Ingen förhandsvisning</span>
                   )}
