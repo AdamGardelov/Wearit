@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { ArrowLineDown, ArrowLineUp } from "@phosphor-icons/react";
+import { ArrowLineDown, ArrowLineUp, X } from "@phosphor-icons/react";
 import {
   EMPTY_MANNEQUIN,
   mannequinReducer,
@@ -18,6 +18,148 @@ import { MannequinCanvas } from "./MannequinCanvas.jsx";
 
 function garmentName(item) {
   return item.name || "Namnlöst plagg";
+}
+
+const FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "[href]",
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
+
+function LayerList({ items, onMove, onRemove = null, thumbnails = false }) {
+  return (
+    <ol className={`layer-list${thumbnails ? " layer-list--visual" : ""}`}>
+      {items.map((item, index) => {
+        const name = garmentName(item);
+        const isFront = index === 0;
+        const isBack = index === items.length - 1;
+        return (
+          <li key={item.id} className="layer-row">
+            {thumbnails && (
+              <span className="layer-thumbnail" aria-hidden="true">
+                {item.cutoutUrl ? <img src={item.cutoutUrl} alt="" loading="lazy" decoding="async" /> : "—"}
+              </span>
+            )}
+            <span className="layer-name">{name}</span>
+            <div className="layer-actions">
+              <button
+                type="button"
+                className="layer-move"
+                onClick={() => onMove(item, "forward")}
+                disabled={isFront}
+                aria-label={`Flytta ${name} framåt`}
+                title="Flytta framåt"
+              >
+                <ArrowLineUp size={18} weight="bold" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="layer-move"
+                onClick={() => onMove(item, "backward")}
+                disabled={isBack}
+                aria-label={`Flytta ${name} bakåt`}
+                title="Flytta bakåt"
+              >
+                <ArrowLineDown size={18} weight="bold" aria-hidden="true" />
+              </button>
+              {onRemove && (
+                <button
+                  type="button"
+                  className="layer-remove"
+                  onClick={() => onRemove(item)}
+                  aria-label={`Ta bort ${name} från looken`}
+                  title="Ta bort från looken"
+                >
+                  <X size={18} weight="bold" aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function LayerSheet({ items, onMove, onRemove, onClose }) {
+  const sheetRef = useRef(null);
+  const closeRef = useRef(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (previouslyFocused?.isConnected && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
+    };
+  }, []);
+
+  const handleKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = sheetRef.current
+      ? [...sheetRef.current.querySelectorAll(FOCUSABLE_SELECTOR)]
+      : [];
+    if (!focusable.length) {
+      event.preventDefault();
+      sheetRef.current?.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && (document.activeElement === first || !sheetRef.current.contains(document.activeElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !sheetRef.current.contains(document.activeElement))) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return (
+    <div
+      className="layer-sheet-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        ref={sheetRef}
+        className="layer-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="layer-sheet-heading"
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+      >
+        <span className="layer-sheet-handle" aria-hidden="true" />
+        <header>
+          <div>
+            <p>Aktuell look</p>
+            <h2 id="layer-sheet-heading">Lager · {items.length} plagg</h2>
+          </div>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Stäng lager">
+            <X size={22} weight="bold" aria-hidden="true" />
+          </button>
+        </header>
+        <LayerList
+          items={items}
+          onMove={onMove}
+          onRemove={onRemove}
+          thumbnails
+        />
+      </section>
+    </div>
+  );
 }
 
 export function DressingRoom({
@@ -41,6 +183,7 @@ export function DressingRoom({
   const loadBoundariesRef = useRef([]);
   const canvasPaneRef = useRef(null);
   const [canvasVisible, setCanvasVisible] = useState(true);
+  const [layerSheetOpen, setLayerSheetOpen] = useState(false);
   const reconciledState = useMemo(
     () => mannequinReducer(state, { type: "reconcile", items }),
     [items, state],
@@ -110,6 +253,11 @@ export function DressingRoom({
     dispatch({ type: "move-layer", itemId: item.id, direction });
   };
 
+  const removeLayer = (item) => {
+    dispatch({ type: "select", item });
+    if (selection.length === 1) setLayerSheetOpen(false);
+  };
+
   const showLook = () => {
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     canvasPaneRef.current?.scrollIntoView({
@@ -123,7 +271,17 @@ export function DressingRoom({
       <section className="dress-canvas-pane" aria-label="Provrum" ref={canvasPaneRef}>
         <div className="dress-heading">
           <p>Styla</p>
-          <span>{selection.length} valda</span>
+          <span className="dress-selection-count">{selection.length} valda</span>
+          {selection.length > 0 && (
+            <button
+              type="button"
+              className="dress-layer-trigger"
+              onClick={() => setLayerSheetOpen(true)}
+              aria-haspopup="dialog"
+            >
+              Lager · {selection.length} valda
+            </button>
+          )}
         </div>
         <MannequinCanvas items={selection} />
         <div className="composition-controls" aria-label="Kompositionskontroller">
@@ -164,40 +322,7 @@ export function DressingRoom({
         <p className="summary-kicker">Aktuell look</p>
         <h2>Lager</h2>
         {layerRows.length ? (
-          <ol className="layer-list">
-            {layerRows.map((item, index) => {
-              const name = garmentName(item);
-              const isFront = index === 0;
-              const isBack = index === layerRows.length - 1;
-              return (
-                <li key={item.id} className="layer-row">
-                  <span className="layer-name">{name}</span>
-                  <div className="layer-actions">
-                    <button
-                      type="button"
-                      className="layer-move"
-                      onClick={() => moveLayer(item, "forward")}
-                      disabled={isFront}
-                      aria-label={`Flytta ${name} framåt`}
-                      title="Flytta framåt"
-                    >
-                      <ArrowLineUp size={18} weight="bold" aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      className="layer-move"
-                      onClick={() => moveLayer(item, "backward")}
-                      disabled={isBack}
-                      aria-label={`Flytta ${name} bakåt`}
-                      title="Flytta bakåt"
-                    >
-                      <ArrowLineDown size={18} weight="bold" aria-hidden="true" />
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
+          <LayerList items={layerRows} onMove={moveLayer} />
         ) : (
           <p className="summary-empty">Välj plagg från lådan för att bygga en outfit.</p>
         )}
@@ -228,10 +353,29 @@ export function DressingRoom({
       />
 
       {selection.length > 0 && !canvasVisible && (
-        <div className="dress-mobile-summary" role="status" aria-live="polite">
-          <span>{selection.length} {selection.length === 1 ? "valt plagg" : "valda plagg"}</span>
-          <button type="button" onClick={showLook}>Visa look</button>
+        <div className="dress-mobile-summary">
+          <span aria-live="polite">{selection.length} {selection.length === 1 ? "valt plagg" : "valda plagg"}</span>
+          <div className="dress-mobile-summary-actions">
+            <button
+              type="button"
+              className="dress-mobile-layers"
+              onClick={() => setLayerSheetOpen(true)}
+              aria-haspopup="dialog"
+            >
+              Lager
+            </button>
+            <button type="button" onClick={showLook}>Visa look</button>
+          </div>
         </div>
+      )}
+
+      {layerSheetOpen && selection.length > 0 && (
+        <LayerSheet
+          items={layerRows}
+          onMove={moveLayer}
+          onRemove={removeLayer}
+          onClose={() => setLayerSheetOpen(false)}
+        />
       )}
     </main>
   );

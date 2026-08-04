@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
 import { CATEGORIES } from "../../domain/slots.js";
 
+const SELECTED_CATEGORY_ID = "__selected__";
+const SELECTED_CATEGORY = { id: SELECTED_CATEGORY_ID, label: "Valda" };
+
 function garmentName(item, categoryById) {
   return item.name || categoryById[item.category]?.label || "Garderobsplagg";
 }
@@ -27,25 +30,43 @@ export function GarmentTray({
     [items],
   );
   const visibleCategories = useMemo(
-    () => categoryList.filter((category) => category.id === "all" || availableCategoryIds.has(category.id)),
-    [availableCategoryIds, categoryList],
+    () => {
+      const available = categoryList.filter(
+        (category) => category.id === "all" || availableCategoryIds.has(category.id),
+      );
+      if (!selectedIds.size) return available;
+      const allIndex = available.findIndex((category) => category.id === "all");
+      const insertAt = allIndex >= 0 ? allIndex + 1 : 0;
+      return [
+        ...available.slice(0, insertAt),
+        SELECTED_CATEGORY,
+        ...available.slice(insertAt),
+      ];
+    },
+    [availableCategoryIds, categoryList, selectedIds],
   );
   // Fall back to All only when the selected category no longer exists in complete items.
-  const effectiveCategory = activeCategory === "all" || availableCategoryIds.has(activeCategory)
+  const effectiveCategory = activeCategory === SELECTED_CATEGORY_ID && selectedIds.size
+    ? SELECTED_CATEGORY_ID
+    : activeCategory === "all" || availableCategoryIds.has(activeCategory)
     ? activeCategory
     : "all";
   const categoryItems = useMemo(
-    () => effectiveCategory === "all"
+    () => effectiveCategory === SELECTED_CATEGORY_ID
+      ? items.filter((item) => selectedIds.has(item.id))
+      : effectiveCategory === "all"
       ? items
       : items.filter((item) => item.category === effectiveCategory),
-    [effectiveCategory, items],
+    [effectiveCategory, items, selectedIds],
   );
   // The advanced predicate narrows only the displayed strip; category state is untouched.
   const visibleItems = useMemo(
     () => categoryItems.filter((item) => itemFilter(item)),
     [categoryItems, itemFilter],
   );
-  const activeLabel = categoryById[effectiveCategory]?.label || "Plagg";
+  const activeLabel = effectiveCategory === SELECTED_CATEGORY_ID
+    ? SELECTED_CATEGORY.label
+    : categoryById[effectiveCategory]?.label || "Plagg";
 
   return (
     <section className="garment-tray" aria-label="Plagglåda">
