@@ -23,6 +23,9 @@ const IMAGE_VIEWS = new Set(["front", "back", "detail"]);
 const MANNEQUIN_WIDTH = 887;
 const MANNEQUIN_HEIGHT = 1774;
 const PRODUCT_MAX_EDGE = 1600;
+const PRODUCT_THUMBNAIL_MAX_EDGE = 480;
+const WEAR_THUMBNAIL_WIDTH = 384;
+const WEAR_THUMBNAIL_HEIGHT = 768;
 
 function normalizeUuid(value, label) {
   if (typeof value !== "string" || !UUID.test(value)) throw new Error(`${label} must be a UUID`);
@@ -233,6 +236,17 @@ async function prepareProductImage(file, label) {
     .toBuffer();
 }
 
+async function prepareThumbnail(bytes, width, height) {
+  return sharp(bytes, { failOn: "error" })
+    .resize(width, height, {
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .toColorspace("srgb")
+    .webp({ quality: 76, alphaQuality: 90, effort: 6 })
+    .toBuffer();
+}
+
 async function prepareAcceptedItem(raw, index, itemsRoot) {
   const label = `items[${index}]`;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${label} must be an object`);
@@ -303,6 +317,11 @@ async function prepareAcceptedItemV2(raw, index, itemsRoot) {
 
   const wearLayer = await resolveReviewedFile(itemsRoot, raw.wearLayerFile, `${label}.wearLayerFile`);
   const wearBytes = await prepareWearLayer(wearLayer.absolute, `${label}.wearLayerFile (${raw.wearLayerFile})`);
+  const wearThumbnailBytes = await prepareThumbnail(
+    wearBytes,
+    WEAR_THUMBNAIL_WIDTH,
+    WEAR_THUMBNAIL_HEIGHT,
+  );
 
   const rawImages = raw.images;
   if (!Array.isArray(rawImages) || rawImages.length < 1) {
@@ -340,6 +359,11 @@ async function prepareAcceptedItemV2(raw, index, itemsRoot) {
 
     const source = await resolveReviewedFile(itemsRoot, rawImage.file, `${imageLabel}.file`);
     const bytes = await prepareProductImage(source.absolute, `${imageLabel}.file`);
+    const thumbnailBytes = await prepareThumbnail(
+      bytes,
+      PRODUCT_THUMBNAIL_MAX_EDGE,
+      PRODUCT_THUMBNAIL_MAX_EDGE,
+    );
     images.push({
       id: imageId,
       view: rawImage.view,
@@ -347,6 +371,8 @@ async function prepareAcceptedItemV2(raw, index, itemsRoot) {
       isPrimary: rawImage.isPrimary,
       output: `assets/${id}/images/${imageId}.webp`,
       bytes,
+      thumbnailOutput: `assets/${id}/thumbnails/${imageId}.webp`,
+      thumbnailBytes,
     });
   }
   if (primaryCount !== 1) throw new Error(`${label} must have exactly one primary image`);
@@ -359,7 +385,9 @@ async function prepareAcceptedItemV2(raw, index, itemsRoot) {
     id,
     assets: [
       { output: `assets/${id}/wear-layer.png`, bytes: wearBytes },
+      { output: `assets/${id}/thumbnails/wear-layer.webp`, bytes: wearThumbnailBytes },
       ...images.map((image) => ({ output: image.output, bytes: image.bytes })),
+      ...images.map((image) => ({ output: image.thumbnailOutput, bytes: image.thumbnailBytes })),
     ],
     manifest: {
       id,
@@ -367,9 +395,11 @@ async function prepareAcceptedItemV2(raw, index, itemsRoot) {
       category,
       slot,
       wearLayerFile: `assets/${id}/wear-layer.png`,
+      wearLayerThumbnailFile: `assets/${id}/thumbnails/wear-layer.webp`,
       images: images.map((image) => ({
         id: image.id,
         file: image.output,
+        thumbnailFile: image.thumbnailOutput,
         view: image.view,
         sortOrder: image.sortOrder,
         isPrimary: image.isPrimary,
@@ -536,7 +566,13 @@ export async function prepareImportBundle({ itemsDir, manifestFile, outputDir, d
   );
   const productImages = prepared.reduce(
     (total, item) => total + item.assets
-      .filter((asset) => !asset.output.endsWith("/wear-layer.png") && !asset.output.endsWith("/cutout.png"))
+      .filter((asset) => asset.output.includes("/images/"))
+      .reduce((itemTotal, asset) => itemTotal + asset.bytes.length, 0),
+    0,
+  );
+  const thumbnails = prepared.reduce(
+    (total, item) => total + item.assets
+      .filter((asset) => asset.output.includes("/thumbnails/"))
       .reduce((itemTotal, asset) => itemTotal + asset.bytes.length, 0),
     0,
   );
@@ -551,8 +587,9 @@ export async function prepareImportBundle({ itemsDir, manifestFile, outputDir, d
     bytes: {
       wearLayers,
       productImages,
+      thumbnails,
       manifest: manifestBytes,
-      total: wearLayers + productImages + manifestBytes,
+      total: wearLayers + productImages + thumbnails + manifestBytes,
     },
   };
   if (dryRun || !changed) return result;

@@ -4,6 +4,7 @@
 }
 
 .import-admin-header,
+.thumbnail-backfill-panel,
 .reconciliation-panel {
   display: flex;
   align-items: flex-start;
@@ -31,6 +32,7 @@
 
 .import-admin-header > div > p:last-child,
 .import-bundle-picker > p,
+.thumbnail-backfill-panel p,
 .reconciliation-panel p { color: var(--muted); }
 
 .text-action,
@@ -50,6 +52,7 @@
 button:disabled { cursor: not-allowed; opacity: .55; }
 
 .import-bundle-picker,
+.thumbnail-backfill-panel,
 .reconciliation-panel {
   margin-top: 40px;
   border-top: 1px solid var(--line);
@@ -96,7 +99,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .alignment-controls output { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .admin-error { color: var(--accent) !important; }
+.thumbnail-backfill-panel,
 .reconciliation-panel { flex-wrap: wrap; }
+.thumbnail-backfill-panel > p,
+.thumbnail-backfill-panel > details { flex: 1 0 100%; }
+.thumbnail-backfill-panel h2,
+.reconciliation-panel h2 { margin-top: 0; }
+.thumbnail-backfill-panel details { border: 1px solid var(--line); padding: 12px 14px; }
+.thumbnail-backfill-panel summary { cursor: pointer; font-weight: 600; }
+.thumbnail-backfill-panel li { overflow-wrap: anywhere; }
 .reconciliation-results { flex: 1 0 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
 .reconciliation-results h3 { font-size: 14px; }
 .reconciliation-results li { overflow-wrap: anywhere; }
@@ -105,7 +116,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 
 @media (max-width: 760px) {
   .import-admin { padding-top: 32px; }
-  .import-admin-header { align-items: stretch; flex-direction: column; }
+  .import-admin-header,
+  .thumbnail-backfill-panel,
+  .reconciliation-panel { align-items: stretch; flex-direction: column; }
+  .thumbnail-backfill-panel .text-action,
+  .reconciliation-panel > .text-action { width: 100%; }
   .import-review-layout,
   .alignment-editor,
   .reconciliation-results { grid-template-columns: 1fr; }

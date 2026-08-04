@@ -62,6 +62,12 @@ function validateManifestItemV2(item, index) {
   if (item.wearLayerFile !== `assets/${item.id}/wear-layer.png`) {
     throw new Error(`${label}.wearLayerFile must be the exact wear-layer path for its stable ID.`);
   }
+  if (item.wearLayerThumbnailFile !== undefined) {
+    assertAssetPath(item.wearLayerThumbnailFile, `${label}.wearLayerThumbnailFile`);
+    if (item.wearLayerThumbnailFile !== `assets/${item.id}/thumbnails/wear-layer.webp`) {
+      throw new Error(`${label}.wearLayerThumbnailFile must be the exact thumbnail path for its stable ID.`);
+    }
+  }
   if (!Array.isArray(item.images) || item.images.length < 1) {
     throw new Error(`${label}.images must list at least one product image.`);
   }
@@ -81,6 +87,12 @@ function validateManifestItemV2(item, index) {
     assertAssetPath(image.file, `${imageLabel}.file`);
     if (!image.file.startsWith(`assets/${item.id}/images/`) || !DETAIL_EXTENSIONS.has(extension(image.file))) {
       throw new Error(`${imageLabel}.file is not an approved product image derivative.`);
+    }
+    if (image.thumbnailFile !== undefined) {
+      assertAssetPath(image.thumbnailFile, `${imageLabel}.thumbnailFile`);
+      if (image.thumbnailFile !== `assets/${item.id}/thumbnails/${image.id}.webp`) {
+        throw new Error(`${imageLabel}.thumbnailFile is not the exact product thumbnail path.`);
+      }
     }
     if (!VIEWS.has(image.view)) throw new Error(`${imageLabel}.view must be front, back, or detail.`);
     if (!Number.isInteger(image.sortOrder) || image.sortOrder < 0) {
@@ -176,9 +188,21 @@ function buildBundleV2(manifest, filesByPath) {
       throw new Error(`The manifest has a duplicate wear-layer path: ${item.wearLayerFile}`);
     }
     referencedPaths.add(item.wearLayerFile);
+    if (item.wearLayerThumbnailFile) {
+      if (referencedPaths.has(item.wearLayerThumbnailFile)) {
+        throw new Error(`The manifest has a duplicate thumbnail path: ${item.wearLayerThumbnailFile}`);
+      }
+      referencedPaths.add(item.wearLayerThumbnailFile);
+    }
     item.images.forEach((image) => {
       if (referencedPaths.has(image.file)) throw new Error(`The manifest has a duplicate asset path: ${image.file}`);
       referencedPaths.add(image.file);
+      if (image.thumbnailFile) {
+        if (referencedPaths.has(image.thumbnailFile)) {
+          throw new Error(`The manifest has a duplicate thumbnail path: ${image.thumbnailFile}`);
+        }
+        referencedPaths.add(image.thumbnailFile);
+      }
     });
   }
 
@@ -188,8 +212,22 @@ function buildBundleV2(manifest, filesByPath) {
     if (extension(item.wearLayerFile) !== "png" || (wearLayer.type && wearLayer.type !== "image/png")) {
       throw new Error(`Wear layer ${item.wearLayerFile} must be a PNG derivative.`);
     }
+    if (item.wearLayerThumbnailFile) {
+      const thumbnail = filesByPath.get(item.wearLayerThumbnailFile);
+      if (!thumbnail) throw new Error(`Missing wear-layer thumbnail for ${item.name}.`);
+      if (extension(item.wearLayerThumbnailFile) !== "webp" || (thumbnail.type && thumbnail.type !== "image/webp")) {
+        throw new Error(`Wear-layer thumbnail ${item.wearLayerThumbnailFile} must be WebP.`);
+      }
+    }
     for (const image of item.images) {
       if (!filesByPath.has(image.file)) throw new Error(`Missing product image derivative: ${image.file}`);
+      if (image.thumbnailFile) {
+        const thumbnail = filesByPath.get(image.thumbnailFile);
+        if (!thumbnail) throw new Error(`Missing product thumbnail: ${image.thumbnailFile}`);
+        if (extension(image.thumbnailFile) !== "webp" || (thumbnail.type && thumbnail.type !== "image/webp")) {
+          throw new Error(`Product thumbnail ${image.thumbnailFile} must be WebP.`);
+        }
+      }
     }
   }
 
@@ -227,6 +265,9 @@ function buildBundleV2(manifest, filesByPath) {
           })),
         },
         cutoutFile: wearLayerFile,
+        cutoutThumbnailFile: manifestItem.wearLayerThumbnailFile
+          ? filesByPath.get(manifestItem.wearLayerThumbnailFile)
+          : null,
         detailFiles: [],
         imageFiles: manifestItem.images.map((image) => ({
           id: image.id,
@@ -234,6 +275,7 @@ function buildBundleV2(manifest, filesByPath) {
           sortOrder: image.sortOrder,
           isPrimary: image.isPrimary,
           file: filesByPath.get(image.file),
+          thumbnailFile: image.thumbnailFile ? filesByPath.get(image.thumbnailFile) : null,
         })),
         cutoutUrl,
         placement: { ...manifestItem.placement },

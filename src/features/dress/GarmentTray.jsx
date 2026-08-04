@@ -95,6 +95,7 @@ export function GarmentTray({
           {visibleItems.map((item) => {
             const name = garmentName(item, categoryById);
             const selected = selectedIds.has(item.id);
+            const thumbnailUrl = item.cutoutThumbnailUrl ?? item.cutoutUrl;
             return (
               <button
                 key={item.id}
@@ -104,10 +105,10 @@ export function GarmentTray({
                 aria-label={selected ? `${name}, valt` : `Välj ${name}`}
                 aria-pressed={selected}
               >
-                {active && item.cutoutUrl
+                {active && thumbnailUrl
                   ? (
                     <img
-                      src={item.cutoutUrl}
+                      src={thumbnailUrl}
                       alt=""
                       width="887"
                       height="1774"

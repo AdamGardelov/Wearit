@@ -122,7 +122,7 @@ export function createWardrobeRepository(client) {
     try {
       result = await client
         .from("wardrobe_item_images")
-        .select("id, wardrobe_item_id, storage_path, view, sort_order, is_primary")
+        .select("id, wardrobe_item_id, storage_path, thumbnail_path, view, sort_order, is_primary")
         .in("wardrobe_item_id", itemIds);
     } catch (error) {
       if (isMissingRelationError(error)) return imagesByItem;
@@ -179,10 +179,13 @@ export function createWardrobeRepository(client) {
 
     const imagesByItem = await fetchItemImages(items.map((item) => item.id));
     const imagePaths = items.flatMap((item) => (
-      (imagesByItem.get(item.id) || []).map((image) => image.storage_path)
+      (imagesByItem.get(item.id) || []).flatMap((image) => [
+        image.storage_path,
+        image.thumbnail_path,
+      ].filter(Boolean))
     ));
     const signedAssets = await createSignedAssetUrls([
-      ...items.map((item) => item.cutout_path),
+      ...items.flatMap((item) => [item.cutout_path, item.cutout_thumbnail_path].filter(Boolean)),
       ...imagePaths,
     ]);
     const signedUrlByPath = new Map(
@@ -192,19 +195,31 @@ export function createWardrobeRepository(client) {
     return items.map((item) => {
       const { wardrobe_item_labels, ...itemFields } = item;
       const cutoutUrl = signedUrlByPath.get(item.cutout_path) ?? null;
+      const cutoutThumbnailUrl = item.cutout_thumbnail_path
+        ? signedUrlByPath.get(item.cutout_thumbnail_path) ?? null
+        : null;
       const images = (imagesByItem.get(item.id) || []).map((image) => ({
         id: image.id,
         view: image.view,
         sortOrder: image.sort_order,
         isPrimary: image.is_primary,
+        storagePath: image.storage_path,
+        thumbnailPath: image.thumbnail_path,
         url: signedUrlByPath.get(image.storage_path) ?? null,
+        thumbnailUrl: image.thumbnail_path
+          ? signedUrlByPath.get(image.thumbnail_path) ?? null
+          : null,
       }));
       const primary = images.find((image) => image.isPrimary) ?? images[0] ?? null;
       return {
         ...itemFields,
+        cutoutPath: item.cutout_path,
+        cutoutThumbnailPath: item.cutout_thumbnail_path,
         cutoutUrl,
+        cutoutThumbnailUrl,
         images,
         primaryImageUrl: primary?.url ?? cutoutUrl,
+        primaryImageThumbnailUrl: primary?.thumbnailUrl ?? cutoutThumbnailUrl,
         labelIds: assignmentIds(wardrobe_item_labels),
       };
     });
@@ -351,6 +366,90 @@ export function createWardrobeRepository(client) {
       return result?.error ?? null;
     } catch (error) {
       return error;
+    }
+  }
+
+  async function saveWardrobeThumbnails({
+    itemId,
+    cutoutThumbnailFile = null,
+    imageThumbnails = [],
+  }) {
+    const ownerId = await authenticatedOwnerId();
+    const existingItem = dataOrThrow(await client
+      .from("wardrobe_items")
+      .select("id, cutout_thumbnail_path")
+      .eq("id", itemId)
+      .eq("owner_id", ownerId)
+      .single());
+    const existingImages = dataOrThrow(await client
+      .from("wardrobe_item_images")
+      .select("id, thumbnail_path")
+      .eq("wardrobe_item_id", itemId)
+      .eq("owner_id", ownerId)) || [];
+    const imageIds = new Set(existingImages.map((image) => image.id));
+    if (imageThumbnails.some((thumbnail) => !imageIds.has(thumbnail.imageId))) {
+      throw new Error("A thumbnail references an unknown product image.");
+    }
+
+    const version = crypto.randomUUID();
+    const cutoutThumbnailPath = cutoutThumbnailFile
+      ? `${ownerId}/items/${itemId}/thumbnails/wear-${version}.webp`
+      : null;
+    const productThumbnails = imageThumbnails.map((thumbnail) => ({
+      ...thumbnail,
+      storagePath: `${ownerId}/items/${itemId}/thumbnails/${thumbnail.imageId}-${version}.webp`,
+    }));
+    const uploadedPaths = [];
+    let committed = false;
+    try {
+      const storage = client.storage.from("wardrobe-assets");
+      if (cutoutThumbnailFile) {
+        dataOrThrow(await storage.upload(cutoutThumbnailPath, cutoutThumbnailFile, {
+          contentType: "image/webp",
+          cacheControl: "31536000",
+          upsert: false,
+        }));
+        uploadedPaths.push(cutoutThumbnailPath);
+      }
+      for (const thumbnail of productThumbnails) {
+        dataOrThrow(await storage.upload(thumbnail.storagePath, thumbnail.file, {
+          contentType: "image/webp",
+          cacheControl: "31536000",
+          upsert: false,
+        }));
+        uploadedPaths.push(thumbnail.storagePath);
+      }
+
+      dataOrThrow(await client.rpc("set_wardrobe_item_thumbnails", {
+        p_item_id: itemId,
+        p_cutout_thumbnail_path: cutoutThumbnailPath,
+        p_image_thumbnails: productThumbnails.map((thumbnail) => ({
+          image_id: thumbnail.imageId,
+          thumbnail_path: thumbnail.storagePath,
+        })),
+      }));
+      committed = true;
+
+      const newPaths = new Set(uploadedPaths);
+      const previousPaths = [
+        existingItem.cutout_thumbnail_path,
+        ...existingImages.map((image) => image.thumbnail_path),
+      ].filter(Boolean);
+      const obsoletePaths = [...new Set(previousPaths)].filter((path) => !newPaths.has(path));
+      const cleanupError = obsoletePaths.length ? await removeAssets(obsoletePaths) : null;
+      return {
+        cutoutThumbnailPath,
+        imageThumbnails: productThumbnails.map((thumbnail) => ({
+          imageId: thumbnail.imageId,
+          thumbnailPath: thumbnail.storagePath,
+        })),
+        ...(cleanupError
+          ? { cleanupWarning: "Thumbnails sparades, men tidigare thumbnail-filer kunde inte rensas." }
+          : {}),
+      };
+    } catch (cause) {
+      if (!committed && uploadedPaths.length) await removeAssets(uploadedPaths);
+      throw cause;
     }
   }
 
@@ -586,8 +685,14 @@ export function createWardrobeRepository(client) {
     return importWardrobeItemV1(request);
   }
 
-  async function importWardrobeItemV2({ manifestItem, cutoutFile, imageFiles, placement }) {
-    const stages = { wearLayer: false, images: false, database: false, all: false };
+  async function importWardrobeItemV2({
+    manifestItem,
+    cutoutFile,
+    cutoutThumbnailFile = null,
+    imageFiles,
+    placement,
+  }) {
+    const stages = { wearLayer: false, images: false, thumbnails: false, database: false, all: false };
     const uploadedPaths = [];
     try {
       const ownerId = await authenticatedOwnerId();
@@ -612,29 +717,35 @@ export function createWardrobeRepository(client) {
 
       const existingResult = await client
         .from("wardrobe_items")
-        .select("id, cutout_path")
+        .select("id, cutout_path, cutout_thumbnail_path")
         .eq("id", manifestItem.id)
         .eq("owner_id", ownerId)
         .maybeSingle();
       if (existingResult.error) throw existingResult.error;
       const alreadyImported = Boolean(existingResult.data);
       const previousPaths = [];
+      const previousCutoutThumbnailPath = existingResult.data?.cutout_thumbnail_path ?? null;
       if (existingResult.data?.cutout_path) previousPaths.push(existingResult.data.cutout_path);
+      if (previousCutoutThumbnailPath) previousPaths.push(previousCutoutThumbnailPath);
       if (alreadyImported) {
         const previousImagesResult = await client
           .from("wardrobe_item_images")
-          .select("storage_path")
+          .select("storage_path, thumbnail_path")
           .eq("wardrobe_item_id", manifestItem.id)
           .eq("owner_id", ownerId);
         if (previousImagesResult.error) throw previousImagesResult.error;
         previousPaths.push(
-          ...(previousImagesResult.data || []).map((image) => image.storage_path).filter(Boolean),
+          ...(previousImagesResult.data || []).flatMap((image) => [
+            image.storage_path,
+            image.thumbnail_path,
+          ]).filter(Boolean),
         );
       }
 
       const storage = client.storage.from("wardrobe-assets");
       dataOrThrow(await storage.upload(wearLayerPath, cutoutFile, {
         contentType: cutoutFile.type || "image/png",
+        cacheControl: "31536000",
         upsert: true,
       }));
       uploadedPaths.push(wearLayerPath);
@@ -643,6 +754,7 @@ export function createWardrobeRepository(client) {
       for (const image of images) {
         dataOrThrow(await storage.upload(image.storagePath, image.file, {
           contentType: image.file?.type || "application/octet-stream",
+          cacheControl: "31536000",
           upsert: true,
         }));
         uploadedPaths.push(image.storagePath);
@@ -672,8 +784,37 @@ export function createWardrobeRepository(client) {
       }));
       stages.database = true;
 
+      let thumbnailWarning = "";
+      let thumbnailStateUpdated = false;
+      try {
+        const thumbnailResult = await saveWardrobeThumbnails({
+          itemId: manifestItem.id,
+          cutoutThumbnailFile,
+          imageThumbnails: imageFiles
+            .filter((image) => image.thumbnailFile)
+            .map((image) => ({ imageId: image.id, file: image.thumbnailFile })),
+        });
+        stages.thumbnails = true;
+        thumbnailStateUpdated = true;
+        thumbnailWarning = thumbnailResult.cleanupWarning || "";
+      } catch {
+        thumbnailWarning = "Plagget importerades, men dess thumbnails kunde inte sparas.";
+        try {
+          // The full assets and image rows have already been replaced. Clear any thumbnail
+          // pointer left on the item so the gallery never displays a stale previous garment.
+          await saveWardrobeThumbnails({ itemId: manifestItem.id });
+          thumbnailStateUpdated = true;
+        } catch {
+          // Keep the still-referenced previous wear thumbnail in storage. A later Admin
+          // backfill or storage reconciliation can repair this exceptional state.
+        }
+      }
+
       const newPaths = new Set([wearLayerPath, ...images.map((image) => image.storagePath)]);
-      const obsoletePaths = [...new Set(previousPaths)].filter((path) => !newPaths.has(path));
+      const obsoletePaths = [...new Set(previousPaths)].filter((path) => (
+        !newPaths.has(path)
+        && (thumbnailStateUpdated || path !== previousCutoutThumbnailPath)
+      ));
       const cleanupError = obsoletePaths.length ? await removeAssets(obsoletePaths) : null;
       const cleanupWarning = cleanupError
         ? "The replacement was saved, but its old images could not be removed and will need orphan cleanup."
@@ -703,6 +844,7 @@ export function createWardrobeRepository(client) {
           stages,
           refreshWarning: "The wardrobe item was saved, but its refreshed image preview could not be loaded.",
           ...(cleanupWarning ? { cleanupWarning } : {}),
+          ...(thumbnailWarning ? { thumbnailWarning } : {}),
         };
       }
       const signedUrlByPath = new Map(
@@ -726,6 +868,7 @@ export function createWardrobeRepository(client) {
         primaryImageUrl: primary?.url ?? signedUrlByPath.get(wearLayerPath) ?? null,
         stages,
         ...(cleanupWarning ? { cleanupWarning } : {}),
+        ...(thumbnailWarning ? { thumbnailWarning } : {}),
       };
     } catch (cause) {
       // A committed import owns its objects; only clean up when the database never
@@ -837,7 +980,7 @@ export function createWardrobeRepository(client) {
     try {
       result = await client
         .from("wardrobe_item_images")
-        .select("storage_path")
+        .select("storage_path, thumbnail_path")
         .eq("owner_id", ownerId);
     } catch (error) {
       if (isMissingRelationError(error)) return [];
@@ -847,7 +990,10 @@ export function createWardrobeRepository(client) {
       if (isMissingRelationError(result.error)) return [];
       throw result.error;
     }
-    return (result.data || []).map((row) => row.storage_path).filter(Boolean);
+    return (result.data || []).flatMap((row) => [
+      row.storage_path,
+      row.thumbnail_path,
+    ]).filter(Boolean);
   }
 
   async function reconcileWardrobeAssets() {
@@ -855,7 +1001,7 @@ export function createWardrobeRepository(client) {
     const rows = dataOrThrow(
       await client
         .from("wardrobe_items")
-        .select("id, cutout_path, detail_image_paths")
+        .select("id, cutout_path, cutout_thumbnail_path, detail_image_paths")
         .eq("owner_id", ownerId),
     ) || [];
     const imagePaths = await ownerImagePaths(ownerId);
@@ -865,8 +1011,9 @@ export function createWardrobeRepository(client) {
     const databasePaths = new Set([
       ...rows.flatMap((row) => [
         row.cutout_path,
+        row.cutout_thumbnail_path,
         ...(row.detail_image_paths || []),
-      ]),
+      ].filter(Boolean)),
       ...imagePaths,
     ]);
     return {
@@ -874,7 +1021,11 @@ export function createWardrobeRepository(client) {
         .filter((path) => !databasePaths.has(path))
         .sort(),
       missingStorageItemIds: rows
-        .filter((row) => [row.cutout_path, ...(row.detail_image_paths || [])]
+        .filter((row) => [
+          row.cutout_path,
+          row.cutout_thumbnail_path,
+          ...(row.detail_image_paths || []),
+        ].filter(Boolean)
           .some((path) => !storagePaths.has(path)))
         .map((row) => row.id)
         .sort(),
@@ -922,6 +1073,7 @@ export function createWardrobeRepository(client) {
     clearWeeklyPlan,
     createSignedAssetUrls,
     importWardrobeItem,
+    saveWardrobeThumbnails,
     reconcileWardrobeAssets,
     removeOrphanedWardrobeAssets,
   };

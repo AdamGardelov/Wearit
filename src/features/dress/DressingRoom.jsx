@@ -38,7 +38,9 @@ function LayerList({ items, onMove, onRemove = null, thumbnails = false }) {
           <li key={item.id} className="layer-row">
             {thumbnails && (
               <span className="layer-thumbnail" aria-hidden="true">
-                {item.cutoutUrl ? <img src={item.cutoutUrl} alt="" loading="lazy" decoding="async" /> : "—"}
+                {item.cutoutThumbnailUrl || item.cutoutUrl
+                  ? <img src={item.cutoutThumbnailUrl ?? item.cutoutUrl} alt="" loading="lazy" decoding="async" />
+                  : "—"}
               </span>
             )}
             <span className="layer-name">{name}</span>

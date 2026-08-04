@@ -176,6 +176,13 @@ Run every command from the Wearit repository root.
        --bundle /home/adam/Dev/Lab/Wearit/data/import-bundles/<batch>
      ```
 
+   - Finalization deterministically creates lightweight WebP thumbnails from
+     the exact accepted assets: a maximum `384x768` wear-layer thumbnail and
+     maximum `480x480` product thumbnails. This is resize/compression only;
+     never invoke `imagegen`, add another review step, or ask the user to scale
+     thumbnails manually. Confirm that `manifest.json` references every
+     generated file under `assets/<item-id>/thumbnails/`.
+
    - If report generation or bundle validation fails, treat it as
      infrastructure failure: stop the batch and move no sources.
    - Report the exact package and `review.html` paths, accepted and quarantined
@@ -194,4 +201,5 @@ Run every command from the Wearit repository root.
 - Only infrastructure failures stop the batch.
 - Quarantined and unbundled sources remain untouched.
 - Nothing uploads.
-
+- Thumbnail generation is package-only. Existing wardrobe thumbnails are
+  backfilled separately by the authenticated user in Wearit's Admin screen.

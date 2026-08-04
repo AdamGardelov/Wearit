@@ -17,7 +17,7 @@ import { CATEGORY_BY_ID, CATEGORY_BY_SOURCE_FOLDER, slotForCategory, defaultLaye
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-const BYTE_FIELDS = ["wearLayers", "productImages", "manifest", "total"];
+const BYTE_FIELDS = ["wearLayers", "productImages", "thumbnails", "manifest", "total"];
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -419,7 +419,8 @@ function validateFinalBundle(result, accepted) {
       (field) => !Number.isSafeInteger(result.bytes[field]) || result.bytes[field] < 0,
     )
     || result.bytes.total !== (
-      result.bytes.wearLayers + result.bytes.productImages + result.bytes.manifest
+      result.bytes.wearLayers + result.bytes.productImages
+      + result.bytes.thumbnails + result.bytes.manifest
     )
   ) {
     throw new Error("Final bundle result must include valid byte totals");

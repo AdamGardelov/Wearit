@@ -22,8 +22,12 @@ function GalleryItem({ item, selected, onOpen, buttonRef, canHover }) {
   const [backFailed, setBackFailed] = useState(false);
   const [backRequested, setBackRequested] = useState(false);
   const [backLoaded, setBackLoaded] = useState(false);
-  const frontUrl = item.primaryImageUrl ?? item.cutoutUrl;
-  const backUrl = item.images?.find((image) => image.view === "back")?.url ?? null;
+  const frontUrl = item.primaryImageThumbnailUrl
+    ?? item.primaryImageUrl
+    ?? item.cutoutThumbnailUrl
+    ?? item.cutoutUrl;
+  const backImage = item.images?.find((image) => image.view === "back");
+  const backUrl = backImage?.thumbnailUrl ?? backImage?.url ?? null;
   const renderBack = Boolean(canHover && backRequested && backUrl && !backFailed);
   const revealBack = renderBack && backLoaded;
   const imageProps = {

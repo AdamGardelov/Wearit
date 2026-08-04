@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AlignmentEditor } from "./AlignmentEditor.jsx";
 import { parseImportBundle } from "./importBundle.js";
+import { createImageThumbnail } from "./createImageThumbnail.js";
 import "./admin.css";
 
 function statusLabel(status) {
@@ -20,6 +21,14 @@ export function ImportAdminView({ repository, onClose, onImported }) {
   const [reconciliationError, setReconciliationError] = useState("");
   const [checkingStorage, setCheckingStorage] = useState(false);
   const [confirmCleanup, setConfirmCleanup] = useState(false);
+  const [thumbnailBackfill, setThumbnailBackfill] = useState({
+    running: false,
+    total: 0,
+    processed: 0,
+    skipped: 0,
+    failed: [],
+    complete: false,
+  });
   const bundleRef = useRef(null);
   const selectionSequence = useRef(0);
 
@@ -95,6 +104,7 @@ export function ImportAdminView({ repository, onClose, onImported }) {
     const request = {
       manifestItem: current.manifestItem,
       cutoutFile: current.cutoutFile,
+      cutoutThumbnailFile: current.cutoutThumbnailFile,
       detailFiles: current.detailFiles,
       imageFiles: current.imageFiles,
       placement: current.placement,
@@ -144,6 +154,75 @@ export function ImportAdminView({ repository, onClose, onImported }) {
     } catch (error) {
       setReconciliationError(error.message || "Föräldralösa filer kunde inte raderas.");
     }
+  };
+
+  const backfillThumbnails = async () => {
+    setThumbnailBackfill({
+      running: true,
+      total: 0,
+      processed: 0,
+      skipped: 0,
+      failed: [],
+      complete: false,
+    });
+    let items;
+    try {
+      items = await repository.listItems({ includeArchived: true });
+    } catch (error) {
+      setThumbnailBackfill((current) => ({
+        ...current,
+        running: false,
+        failed: [error.message || "Garderoben kunde inte laddas."],
+      }));
+      return;
+    }
+    setThumbnailBackfill((current) => ({ ...current, total: items.length }));
+
+    for (const item of items) {
+      const complete = Boolean(item.cutoutThumbnailUrl)
+        && (item.images || []).every((image) => image.thumbnailUrl);
+      if (complete) {
+        setThumbnailBackfill((current) => ({
+          ...current,
+          processed: current.processed + 1,
+          skipped: current.skipped + 1,
+        }));
+        continue;
+      }
+      try {
+        if (!item.cutoutUrl) throw new Error("Wear-lagret saknar bild.");
+        const cutoutThumbnailFile = await createImageThumbnail(item.cutoutUrl, {
+          maxWidth: 384,
+          maxHeight: 768,
+        });
+        const imageThumbnails = [];
+        for (const image of item.images || []) {
+          if (!image.url) throw new Error("En produktbild saknar bild-URL.");
+          imageThumbnails.push({
+            imageId: image.id,
+            file: await createImageThumbnail(image.url, { maxWidth: 480, maxHeight: 480 }),
+          });
+        }
+        await repository.saveWardrobeThumbnails({
+          itemId: item.id,
+          cutoutThumbnailFile,
+          imageThumbnails,
+        });
+        setThumbnailBackfill((current) => ({
+          ...current,
+          processed: current.processed + 1,
+        }));
+      } catch (error) {
+        setThumbnailBackfill((current) => ({
+          ...current,
+          processed: current.processed + 1,
+          failed: [...current.failed, `${item.name || item.id}: ${error.message || "Okänt fel"}`],
+        }));
+      }
+    }
+
+    setThumbnailBackfill((current) => ({ ...current, running: false, complete: true }));
+    await onImported?.();
   };
 
   return (
@@ -232,6 +311,37 @@ export function ImportAdminView({ repository, onClose, onImported }) {
           )}
         </div>
       )}
+
+      <section className="thumbnail-backfill-panel" aria-labelledby="thumbnail-heading">
+        <div>
+          <h2 id="thumbnail-heading">Snabbare bildvisning</h2>
+          <p>
+            Skapa endast små WebP-thumbnails från garderobens nuvarande privata original.
+            Plagg, placeringar och fullstora bilder ändras inte.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="text-action"
+          disabled={thumbnailBackfill.running}
+          onClick={backfillThumbnails}
+        >
+          {thumbnailBackfill.running ? "Skapar thumbnails…" : "Skapa saknade thumbnails"}
+        </button>
+        {(thumbnailBackfill.running || thumbnailBackfill.complete) && (
+          <p role="status">
+            {thumbnailBackfill.processed} av {thumbnailBackfill.total} behandlade
+            {thumbnailBackfill.skipped ? ` · ${thumbnailBackfill.skipped} redan klara` : ""}
+            {thumbnailBackfill.failed.length ? ` · ${thumbnailBackfill.failed.length} misslyckades` : ""}
+          </p>
+        )}
+        {thumbnailBackfill.failed.length > 0 && (
+          <details>
+            <summary>Visa fel</summary>
+            <ul>{thumbnailBackfill.failed.map((failure, index) => <li key={`${index}-${failure}`}>{failure}</li>)}</ul>
+          </details>
+        )}
+      </section>
 
       <section className="reconciliation-panel" aria-labelledby="storage-heading">
         <div>

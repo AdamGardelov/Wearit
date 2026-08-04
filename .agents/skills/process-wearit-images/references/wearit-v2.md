@@ -191,3 +191,22 @@ untouched. If validation fails, source movement does not begin.
 The final package contains `manifest.json` and `assets/`. The user may later
 select it manually in Wearit's import screen. This workflow never uploads it.
 
+### Deterministic thumbnails in the final package
+
+The reviewed manifest above remains the source input. During finalization, the
+repository-owned builder derives small WebP browsing assets from the exact
+accepted wear layer and product images. It does not modify either source asset
+and does not use `imagegen`:
+
+- `assets/<item-id>/thumbnails/wear-layer.webp`, maximum `384x768`
+- `assets/<item-id>/thumbnails/<image-id>.webp`, maximum `480x480`
+
+The finalized `manifest.json` adds `wearLayerThumbnailFile` to each item and
+`thumbnailFile` to each product image. Its byte report includes a separate
+`thumbnails` total. Thumbnail creation is deterministic resize/compression and
+requires no fit review or manual scaling.
+
+Older version 2 packages without these fields remain importable, but every new
+finalization must emit and validate them. The local package workflow never
+uploads thumbnails or backfills an existing wardrobe; the authenticated user
+does that separately from Wearit's Admin screen.
