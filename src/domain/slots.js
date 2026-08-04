@@ -1,8 +1,8 @@
 // Slots a user-created category may be assigned to. Must stay in sync with the
-// check constraint in supabase/migrations/202607300001_custom_wardrobe_categories.sql;
-// the image-pipeline slots (hat, belt, bag, scarf) are deliberately not included
-// until a migration widens that constraint.
-const SUPPORTED_SLOTS = ["top", "bottom", "dress", "outerwear", "shoes", "accessory"];
+// widened check constraint in 202607300001_expand_wardrobe_categories.sql.
+const SUPPORTED_SLOTS = [
+  "top", "bottom", "dress", "outerwear", "shoes", "hat", "belt", "bag", "scarf", "accessory",
+];
 
 export const CATEGORY_DEFINITIONS = Object.freeze([
   { id: "top", label: "Överdelar", sourceFolder: "Tops", slot: "top", layerOrder: 20 },
@@ -57,6 +57,10 @@ export const SLOT_OPTIONS = Object.freeze([
   { id: "dress", label: "Klänningar" },
   { id: "outerwear", label: "Ytterplagg" },
   { id: "shoes", label: "Skor" },
+  { id: "hat", label: "Hattar" },
+  { id: "belt", label: "Bälten" },
+  { id: "bag", label: "Väskor" },
+  { id: "scarf", label: "Halsdukar" },
   { id: "accessory", label: "Accessoarer" },
 ].map((option) => Object.freeze(option)));
 
