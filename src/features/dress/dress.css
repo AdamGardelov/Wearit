@@ -239,7 +239,12 @@
   /* Keep the mannequin useful without pushing the garment collection below the first screen. */
   .dressing-room { padding-bottom: 150px; }
   .mannequin-stage { width: clamp(190px, 54vw, 240px); }
-  .garment-strip { display: grid; }
+  .garment-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .garment-option { grid-template-rows: clamp(132px, 40vw, 170px) minmax(2.5em, auto); }
+  .garment-option img { height: clamp(132px, 40vw, 170px); }
   .dress-mobile-summary {
     position: fixed;
     right: 0;
