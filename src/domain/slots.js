@@ -1,5 +1,5 @@
 // Slots a user-created category may be assigned to. Must stay in sync with the
-// widened check constraint in 202607300001_expand_wardrobe_categories.sql.
+// widened check constraint in 202608040000_expand_wardrobe_categories.sql.
 const SUPPORTED_SLOTS = [
   "top", "bottom", "dress", "outerwear", "shoes", "hat", "belt", "bag", "scarf", "accessory",
 ];
