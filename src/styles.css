@@ -1084,6 +1084,31 @@ button { font: inherit; }
 }
 .bottom-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
+.scroll-top-button {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: calc(72px + env(safe-area-inset-bottom));
+  z-index: 14;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 70px;
+  min-height: 48px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  padding: 0 16px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .03em;
+  box-shadow: 0 8px 24px rgba(25, 24, 22, .2);
+  cursor: pointer;
+}
+.scroll-top-button--raised { bottom: calc(128px + env(safe-area-inset-bottom)); }
+.scroll-top-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 .placeholder-section {
   min-height: 100vh;
   padding: 72px 28px 120px;
@@ -1157,4 +1182,6 @@ button { font: inherit; }
   .placeholder-section { padding: 110px 8vw 140px; }
 
   .admin-launch { display: block; }
+  .scroll-top-button,
+  .scroll-top-button--raised { right: 28px; bottom: 28px; }
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { ArrowLineDown, ArrowLineUp, ArrowUp, X } from "@phosphor-icons/react";
+import { ArrowLineDown, ArrowLineUp, X } from "@phosphor-icons/react";
 import {
   EMPTY_MANNEQUIN,
   mannequinReducer,
@@ -12,6 +12,7 @@ import {
   matchesAdvancedFilter,
 } from "../../domain/filters.js";
 import { CATEGORIES } from "../../domain/slots.js";
+import { ScrollToTopButton } from "../../ScrollToTopButton.jsx";
 import { UnifiedFilter } from "../filters/UnifiedFilter.jsx";
 import { GarmentTray } from "./GarmentTray.jsx";
 import { MannequinCanvas } from "./MannequinCanvas.jsx";
@@ -183,7 +184,6 @@ export function DressingRoom({
   const loadBoundariesRef = useRef([]);
   const canvasPaneRef = useRef(null);
   const [layerSheetOpen, setLayerSheetOpen] = useState(false);
-  const [scrollTopVisible, setScrollTopVisible] = useState(false);
   const reconciledState = useMemo(
     () => mannequinReducer(state, { type: "reconcile", items }),
     [items, state],
@@ -209,24 +209,6 @@ export function DressingRoom({
     });
     dispatch({ type: "load", items: loadRequest.items });
   }, [loadRequest, reconciledState.history.length]);
-
-  useEffect(() => {
-    if (!active) {
-      setScrollTopVisible(false);
-      return undefined;
-    }
-    const updateScrollTopVisibility = () => {
-      const threshold = Math.max(420, window.innerHeight * 0.65);
-      setScrollTopVisible(window.scrollY > threshold);
-    };
-    updateScrollTopVisibility();
-    window.addEventListener("scroll", updateScrollTopVisibility, { passive: true });
-    window.addEventListener("resize", updateScrollTopVisibility);
-    return () => {
-      window.removeEventListener("scroll", updateScrollTopVisibility);
-      window.removeEventListener("resize", updateScrollTopVisibility);
-    };
-  }, [active]);
 
   const selection = selectedItems(reconciledState);
   const selectedIds = new Set(selection.map((item) => item.id));
@@ -381,17 +363,11 @@ export function DressingRoom({
         </div>
       )}
 
-      {scrollTopVisible && (
-        <button
-          type="button"
-          className={`dress-scroll-top${selection.length > 0 ? " has-selection" : ""}`}
-          onClick={scrollToTop}
-          aria-label="Scrolla till toppen av Styla"
-        >
-          <ArrowUp size={18} weight="bold" aria-hidden="true" />
-          <span>Upp</span>
-        </button>
-      )}
+      <ScrollToTopButton
+        active={active}
+        raised={selection.length > 0}
+        onActivate={scrollToTop}
+      />
 
       {layerSheetOpen && selection.length > 0 && (
         <LayerSheet

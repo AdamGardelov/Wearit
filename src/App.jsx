@@ -3,6 +3,7 @@ import { availableColorFamilies } from "./domain/colors.js";
 import { CATEGORIES } from "./domain/slots.js";
 import { emptyAdvancedFilter, sanitizeAdvancedFilter } from "./domain/filters.js";
 import { createWardrobeRepository } from "./data/wardrobeRepository.js";
+import { ScrollToTopButton } from "./ScrollToTopButton.jsx";
 import { ImportAdminView } from "./features/admin/ImportAdminView.jsx";
 import { DressingRoom } from "./features/dress/DressingRoom.jsx";
 import { HistoryView } from "./features/history/HistoryView.jsx";
@@ -453,6 +454,10 @@ export function App({ repository: injectedRepository }) {
         <p className="app-action-status" role="status" aria-live="polite">
           {actionStatus}
         </p>
+      )}
+
+      {section !== "dress" && section !== "admin" && (
+        <ScrollToTopButton key={section} />
       )}
 
       <nav className="bottom-nav" aria-label="Primär">
