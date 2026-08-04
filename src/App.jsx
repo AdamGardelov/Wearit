@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { availableColorFamilies } from "./domain/colors.js";
 import { CATEGORIES } from "./domain/slots.js";
 import { emptyAdvancedFilter, sanitizeAdvancedFilter } from "./domain/filters.js";
@@ -38,6 +38,11 @@ export function App({ repository: injectedRepository }) {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [wearRequest, setWearRequest] = useState(null);
   const [pendingItemId, setPendingItemId] = useState(null);
+
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [section]);
+
   const baseRepository = useMemo(
     () => injectedRepository ?? createWardrobeRepository(supabase),
     [injectedRepository],
