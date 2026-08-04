@@ -182,7 +182,6 @@ export function DressingRoom({
   const loadedRequestKeyRef = useRef(null);
   const loadBoundariesRef = useRef([]);
   const canvasPaneRef = useRef(null);
-  const [canvasVisible, setCanvasVisible] = useState(true);
   const [layerSheetOpen, setLayerSheetOpen] = useState(false);
   const reconciledState = useMemo(
     () => mannequinReducer(state, { type: "reconcile", items }),
@@ -209,17 +208,6 @@ export function DressingRoom({
     });
     dispatch({ type: "load", items: loadRequest.items });
   }, [loadRequest, reconciledState.history.length]);
-
-  useEffect(() => {
-    const canvasPane = canvasPaneRef.current;
-    if (!canvasPane || typeof IntersectionObserver === "undefined") return undefined;
-    const observer = new IntersectionObserver(
-      ([entry]) => setCanvasVisible(entry.isIntersecting),
-      { threshold: 0.15 },
-    );
-    observer.observe(canvasPane);
-    return () => observer.disconnect();
-  }, []);
 
   const selection = selectedItems(reconciledState);
   const selectedIds = new Set(selection.map((item) => item.id));
@@ -352,7 +340,7 @@ export function DressingRoom({
         )}
       />
 
-      {selection.length > 0 && !canvasVisible && (
+      {selection.length > 0 && (
         <div className="dress-mobile-summary">
           <span aria-live="polite">{selection.length} {selection.length === 1 ? "valt plagg" : "valda plagg"}</span>
           <div className="dress-mobile-summary-actions">
