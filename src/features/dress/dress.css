@@ -3,7 +3,7 @@
   min-height: calc(100dvh - 70px);
   display: flex;
   flex-direction: column;
-  padding: 18px 14px 98px;
+  padding: max(70px, calc(env(safe-area-inset-top) + 58px)) 14px 98px;
 }
 
 .dress-canvas-pane { width: 100%; min-width: 0; outline: none; }
@@ -350,7 +350,7 @@
   .dress-mobile-summary {
     position: fixed;
     right: 0;
-    bottom: calc(58px + env(safe-area-inset-bottom));
+    bottom: calc(70px + env(safe-area-inset-bottom));
     left: 0;
     z-index: 14;
     display: flex;
@@ -393,7 +393,7 @@
     align-items: start;
     max-width: 1480px;
     margin: 0 auto;
-    padding: 48px clamp(28px, 4vw, 72px) 120px;
+    padding: 78px clamp(28px, 4vw, 72px) 120px;
   }
 
   .dress-canvas-pane { grid-area: canvas; }

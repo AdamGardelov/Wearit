@@ -280,13 +280,10 @@ export function WardrobeView({
       >
         <header className="gallery-header">
           <div className="gallery-meta-row">
-            <div>
-              {ownerName ? (
-                <p className="wardrobe-owner"><span>Gästvy</span>{ownerName}s garderob</p>
-              ) : null}
-              <p className="piece-count">
-                {items.length} plagg
-              </p>
+            <div className="gallery-heading">
+              <p className="wardrobe-eyebrow">{ownerName ? "Gästvy" : "Din samling"}</p>
+              <h1>{ownerName ? `${ownerName}s garderob` : "Garderob"}</h1>
+              <p className="piece-count">{items.length} plagg</p>
             </div>
           </div>
           <div className="wardrobe-toolbar">

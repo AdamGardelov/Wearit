@@ -50,6 +50,10 @@ export function AuthenticatedApp({ client = supabase }) {
 
   return (
     <>
+      <div className="app-brand" aria-label="Wearit">
+        <span aria-hidden="true">W</span>
+        <strong aria-hidden="true">wearit</strong>
+      </div>
       {currentWardrobe.isOwner ? (
         <App navigationRequest={appNavigationRequest} />
       ) : (

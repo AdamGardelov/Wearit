@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { CoatHanger, PersonSimple, TShirt } from "@phosphor-icons/react";
 import { createGuestWardrobeRepository } from "../../data/wardrobeRepository.js";
 import { availableColorFamilies } from "../../domain/colors.js";
 import { emptyAdvancedFilter } from "../../domain/filters.js";
@@ -9,9 +10,9 @@ import { OutfitsView } from "../outfits/OutfitsView.jsx";
 import { WardrobeView } from "./WardrobeView.jsx";
 
 const GUEST_SECTIONS = [
-  { id: "wardrobe", label: "Garderob" },
-  { id: "dress", label: "Styla" },
-  { id: "outfits", label: "Outfits" },
+  { id: "wardrobe", label: "Garderob", icon: TShirt },
+  { id: "dress", label: "Styla", icon: PersonSimple },
+  { id: "outfits", label: "Outfits", icon: CoatHanger },
 ];
 
 export function GuestWardrobeView({ client, wardrobe }) {
@@ -176,6 +177,7 @@ export function GuestWardrobeView({ client, wardrobe }) {
       <nav className="bottom-nav guest-bottom-nav" aria-label="Delad garderob">
         {GUEST_SECTIONS.map((entry) => {
           const active = section === entry.id;
+          const Icon = entry.icon;
           return (
             <button
               key={entry.id}
@@ -184,7 +186,10 @@ export function GuestWardrobeView({ client, wardrobe }) {
               aria-pressed={active}
               aria-current={active ? "page" : undefined}
             >
-              {entry.label}
+              <span className="bottom-nav-icon" aria-hidden="true">
+                <Icon size={21} weight={active ? "bold" : "regular"} />
+              </span>
+              <span>{entry.label}</span>
             </button>
           );
         })}

@@ -1,6 +1,6 @@
 .outfits-view {
   min-height: 100dvh;
-  padding: 34px 16px 112px;
+  padding: max(78px, calc(env(safe-area-inset-top) + 66px)) 16px 112px;
 }
 
 .outfits-header { max-width: 1180px; margin: 0 auto 30px; }
@@ -9,7 +9,7 @@
 /* The look count sits left; the sort control and filter share the right side of the toolbar. */
 .outfits-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 16px; }
 .outfits-count { flex: 0 0 auto; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
-.outfits-controls { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.outfits-controls { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .outfits-controls .unified-filter { flex: 0 1 auto; min-width: 0; }
 .outfits-status { max-width: 1180px; margin: 60px auto; color: var(--muted); }
 .outfits-status.error, .outfit-error { color: var(--accent); }

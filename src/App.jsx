@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  CalendarBlank,
+  ClockCounterClockwise,
+  CoatHanger,
+  PersonSimple,
+  TShirt,
+} from "@phosphor-icons/react";
 import { availableColorFamilies } from "./domain/colors.js";
 import { CATEGORIES } from "./domain/slots.js";
 import { emptyAdvancedFilter, sanitizeAdvancedFilter } from "./domain/filters.js";
@@ -15,11 +22,11 @@ import { WardrobeView } from "./features/wardrobe/WardrobeView.jsx";
 import { supabase } from "./lib/supabase.js";
 
 const SECTIONS = [
-  { id: "wardrobe", label: "Garderob" },
-  { id: "dress", label: "Styla" },
-  { id: "outfits", label: "Outfits" },
-  { id: "week", label: "Vecka" },
-  { id: "history", label: "Historik" },
+  { id: "wardrobe", label: "Garderob", icon: TShirt },
+  { id: "dress", label: "Styla", icon: PersonSimple },
+  { id: "outfits", label: "Outfits", icon: CoatHanger },
+  { id: "week", label: "Vecka", icon: CalendarBlank },
+  { id: "history", label: "Historik", icon: ClockCounterClockwise },
 ];
 
 // Stable empty fallback so `items` keeps a constant identity while the snapshot belongs to a
@@ -466,6 +473,7 @@ export function App({ repository: injectedRepository, navigationRequest = null }
       <nav className="bottom-nav" aria-label="Primär">
         {SECTIONS.map((entry) => {
           const active = section === entry.id;
+          const Icon = entry.icon;
           return (
             <button
               key={entry.id}
@@ -474,7 +482,10 @@ export function App({ repository: injectedRepository, navigationRequest = null }
               aria-pressed={active}
               aria-current={active ? "page" : undefined}
             >
-              {entry.label}
+              <span className="bottom-nav-icon" aria-hidden="true">
+                <Icon size={21} weight={active ? "bold" : "regular"} />
+              </span>
+              <span>{entry.label}</span>
             </button>
           );
         })}

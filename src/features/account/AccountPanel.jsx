@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { SignOut, Trash, UserCircle, X } from "@phosphor-icons/react";
+import { List, SignOut, Trash, X } from "@phosphor-icons/react";
 import "./account.css";
 
 export function AccountPanel({
@@ -141,7 +141,7 @@ export function AccountPanel({
         onClick={() => setOpen(true)}
         aria-label="Öppna meny"
       >
-        <UserCircle size={20} weight="regular" aria-hidden="true" />
+        <List size={19} weight="regular" aria-hidden="true" />
         <span>Meny</span>
       </button>
 
