@@ -29,6 +29,9 @@ export function OutfitsView({
   labelsLoading = false,
   labelsError = "",
   context = "",
+  ownerName = "",
+  readOnly = false,
+  loadDisabled = false,
 }) {
   const [outfits, setOutfits] = useState([]);
   const [sortOrder, setSortOrder] = useState(LAST_WORN_SORT.STANDARD);
@@ -96,16 +99,18 @@ export function OutfitsView({
   return (
     <main className="outfits-view" aria-busy={loading}>
       <header className="outfits-header">
-        <p>Outfits</p>
+        <p>{readOnly && ownerName ? `Gästvy · ${ownerName}s garderob` : "Outfits"}</p>
         <h1>Sparade outfits</h1>
         <div className="outfits-toolbar">
           <span className="outfits-count">{outfits.length} {outfits.length === 1 ? "outfit" : "outfits"}</span>
           <div className="outfits-controls">
-            <LastWornSort
-              value={sortOrder}
-              onChange={setSortOrder}
-              context="outfits"
-            />
+            {!readOnly && (
+              <LastWornSort
+                value={sortOrder}
+                onChange={setSortOrder}
+                context="outfits"
+              />
+            )}
             <UnifiedFilter
               groups={OUTFIT_FILTER_GROUPS}
               colors={colors}
@@ -122,7 +127,7 @@ export function OutfitsView({
             />
           </div>
         </div>
-        {chronologicalRequested && lastWornUnavailable && (
+        {!readOnly && chronologicalRequested && lastWornUnavailable && (
           <p className="last-worn-alert" role="alert">
             Kunde inte ladda senast använd. Försök igen.
           </p>
@@ -132,7 +137,9 @@ export function OutfitsView({
       {error && <p className="outfits-status error" role="alert">{error}</p>}
       {!error && loading && <p className="outfits-status">Laddar outfits</p>}
       {!error && !loading && !outfits.length && (
-        <p className="outfits-status">Inga sparade outfits än. Skapa en under Styla.</p>
+        <p className="outfits-status">
+          {readOnly ? "Inga sparade outfits." : "Inga sparade outfits än. Skapa en under Styla."}
+        </p>
       )}
       {!error && !loading && !!outfits.length && !visibleOutfits.length && (
         <p className="outfits-status">Inga outfits matchar filtret.</p>
@@ -210,7 +217,7 @@ export function OutfitsView({
                       <button
                         type="button"
                         onClick={() => onLoad(outfit.items, outfit)}
-                        disabled={unavailable}
+                        disabled={unavailable || loadDisabled}
                         aria-label={`Ladda ${outfit.name}`}
                       >
                         Ladda outfit

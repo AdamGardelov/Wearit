@@ -1125,6 +1125,14 @@ button { font: inherit; }
 }
 .bottom-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
+.bottom-nav.guest-bottom-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.guest-section-loading {
+  margin: 18px 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .scroll-top-button {
   position: fixed;
   right: max(14px, env(safe-area-inset-right));
@@ -1188,26 +1196,6 @@ button { font: inherit; }
   box-shadow: 0 8px 26px rgba(25, 25, 25, .1);
 }
 
-.admin-launch {
-  /* Import is a desktop-only workflow: hidden below the breakpoint, shown from 900px up. */
-  display: none;
-  position: fixed;
-  top: max(12px, env(safe-area-inset-top));
-  right: max(12px, env(safe-area-inset-right));
-  z-index: 14;
-  min-height: 38px;
-  border: 1px solid var(--line);
-  padding: 8px 12px;
-  background: rgba(244, 240, 232, .94);
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: .04em;
-  cursor: pointer;
-  backdrop-filter: blur(12px);
-}
-
-.admin-launch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
 .wearit-app .app-shell { padding-bottom: 72px; }
 
 @media (min-width: 900px) {
@@ -1222,7 +1210,6 @@ button { font: inherit; }
 
   .placeholder-section { padding: 110px 8vw 140px; }
 
-  .admin-launch { display: block; }
   .scroll-top-button,
   .scroll-top-button--raised { right: 28px; bottom: 28px; }
 }

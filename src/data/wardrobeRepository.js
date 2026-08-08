@@ -343,15 +343,21 @@ export function createWardrobeRepository(client, { viewOwnerId = null } = {}) {
   }
 
   async function listOutfits() {
-    const [outfits, lastWorn] = await Promise.all([
-      dataOrThrow(
-        await client
-          .from("outfits")
-          .select(OUTFIT_SELECT)
-          .order("updated_at", { ascending: false }),
-      ) || [],
-      outfitLastWorn(),
-    ]);
+    const ownerId = await readableOwnerId();
+    const outfitsRequest = dataOrThrow(
+      await client
+        .from("outfits")
+        .select(OUTFIT_SELECT)
+        .eq("owner_id", ownerId)
+        .order("updated_at", { ascending: false }),
+    ) || [];
+
+    // A guest can inspect saved compositions but never receives the owner's wear
+    // history. The owner path keeps its chronological metadata unchanged.
+    if (viewOwnerId) return signOutfits(outfitsRequest);
+
+    const lastWorn = await outfitLastWorn();
+    const outfits = outfitsRequest;
     return signOutfits(outfits.map((outfit) => ({
       ...outfit,
       last_worn_at: lastWorn.byOutfit.get(outfit.id) ?? null,
@@ -1096,5 +1102,6 @@ export function createGuestWardrobeRepository(client, ownerId) {
     listItems: repository.listItems,
     listCategories: repository.listCategories,
     listLabels: repository.listLabels,
+    listOutfits: repository.listOutfits,
   };
 }

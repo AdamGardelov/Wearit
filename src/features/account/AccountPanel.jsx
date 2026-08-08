@@ -11,6 +11,7 @@ export function AccountPanel({
   accessError = "",
   onSelectWardrobe,
   onWardrobesChanged,
+  onOpenImport,
   onSignOut,
 }) {
   const [open, setOpen] = useState(false);
@@ -138,10 +139,10 @@ export function AccountPanel({
         className="account-launch"
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Öppna konto och garderober"
+        aria-label="Öppna meny"
       >
         <UserCircle size={20} weight="regular" aria-hidden="true" />
-        <span>{currentWardrobe?.isOwner ? "Min garderob" : currentWardrobe?.displayName}</span>
+        <span>Meny</span>
       </button>
 
       {open && (
@@ -151,7 +152,7 @@ export function AccountPanel({
           <aside className="account-panel" role="dialog" aria-modal="true" aria-labelledby="account-heading">
             <header className="account-heading">
               <div>
-                <p>Konto</p>
+                <p>Meny</p>
                 <h2 id="account-heading">{user.email}</h2>
               </div>
               <button ref={closeButtonRef} type="button" onClick={() => setOpen(false)} aria-label="Stäng konto">
@@ -179,12 +180,25 @@ export function AccountPanel({
                 ))}
               </div>
               {accessError && <p className="account-error" role="alert">{accessError}</p>}
+              {onOpenImport && (
+                <button
+                  className="account-import-action"
+                  type="button"
+                  onClick={() => {
+                    onOpenImport();
+                    setOpen(false);
+                  }}
+                >
+                  Importera garderob
+                  {!currentWardrobe?.isOwner && <small>Till min garderob</small>}
+                </button>
+              )}
             </section>
 
             <section className="account-section" aria-labelledby="sharing-heading">
               <h3 id="sharing-heading">Dela min garderob</h3>
               <p className="account-help">
-                Gästen får en läsvy av dina plagg och bilder. E-postadressen måste redan ha ett Wearit-konto.
+                Gästen får se dina plagg och outfits samt testa kläder i Styla utan att kunna spara. E-postadressen måste redan ha ett Wearit-konto.
               </p>
               <form className="guest-form" onSubmit={grantGuest}>
                 <label htmlFor="guest-email">Gästens e-post</label>

@@ -21,6 +21,7 @@ export function AuthenticatedApp({ client = supabase }) {
   const [wardrobes, setWardrobes] = useState([fallbackWardrobe]);
   const [currentOwnerId, setCurrentOwnerId] = useState(user.id);
   const [accessError, setAccessError] = useState("");
+  const [appNavigationRequest, setAppNavigationRequest] = useState(null);
 
   const refreshWardrobes = useCallback(async () => {
     setAccessError("");
@@ -50,9 +51,13 @@ export function AuthenticatedApp({ client = supabase }) {
   return (
     <>
       {currentWardrobe.isOwner ? (
-        <App />
+        <App navigationRequest={appNavigationRequest} />
       ) : (
-        <GuestWardrobeView client={client} wardrobe={currentWardrobe} />
+        <GuestWardrobeView
+          key={currentWardrobe.ownerId}
+          client={client}
+          wardrobe={currentWardrobe}
+        />
       )}
       <AccountPanel
         user={user}
@@ -61,8 +66,20 @@ export function AuthenticatedApp({ client = supabase }) {
         wardrobes={wardrobes}
         currentOwnerId={currentOwnerId}
         accessError={accessError}
-        onSelectWardrobe={setCurrentOwnerId}
+        onSelectWardrobe={(ownerId) => {
+          setCurrentOwnerId(ownerId);
+          setAppNavigationRequest(ownerId === user.id
+            ? (current) => ({ key: (current?.key ?? 0) + 1, section: "wardrobe" })
+            : null);
+        }}
         onWardrobesChanged={refreshWardrobes}
+        onOpenImport={() => {
+          setCurrentOwnerId(user.id);
+          setAppNavigationRequest((current) => ({
+            key: (current?.key ?? 0) + 1,
+            section: "admin",
+          }));
+        }}
         onSignOut={signOut}
       />
     </>

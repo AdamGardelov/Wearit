@@ -28,7 +28,7 @@ const SECTIONS = [
 const EMPTY_ITEMS = [];
 const EMPTY_CATEGORIES = [];
 
-export function App({ repository: injectedRepository }) {
+export function App({ repository: injectedRepository, navigationRequest = null }) {
   const [section, setSection] = useState("wardrobe");
   const [actionStatus, setActionStatus] = useState("");
   const [saveSelection, setSaveSelection] = useState(null);
@@ -42,6 +42,10 @@ export function App({ repository: injectedRepository }) {
   useLayoutEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [section]);
+
+  useEffect(() => {
+    if (navigationRequest?.section) setSection(navigationRequest.section);
+  }, [navigationRequest]);
 
   const baseRepository = useMemo(
     () => injectedRepository ?? createWardrobeRepository(supabase),
@@ -447,12 +451,6 @@ export function App({ repository: injectedRepository }) {
             }}
           />
         </section>
-      )}
-
-      {section !== "admin" && typeof repository.importWardrobeItem === "function" && (
-        <button type="button" className="admin-launch" onClick={() => setSection("admin")}>
-          Importera garderob
-        </button>
       )}
 
       {actionStatus && (

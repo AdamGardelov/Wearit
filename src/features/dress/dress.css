@@ -97,6 +97,17 @@
 
 .outfit-actions button { border-color: var(--ink); background: var(--ink); color: var(--paper); }
 
+.guest-styling-note {
+  width: min(100%, 360px);
+  margin: 14px auto 0;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .09em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
 .composition-controls button:disabled,
 .outfit-actions button:disabled {
   border-color: var(--line);

@@ -180,6 +180,7 @@ export function DressingRoom({
   labelsLoading = false,
   labelsError = "",
   context = "",
+  readOnly = false,
 }) {
   const [state, dispatch] = useReducer(mannequinReducer, EMPTY_MANNEQUIN);
   const loadedRequestKeyRef = useRef(null);
@@ -266,7 +267,7 @@ export function DressingRoom({
     <main className="dressing-room">
       <section className="dress-canvas-pane" aria-label="Provrum" ref={canvasPaneRef} tabIndex={-1}>
         <div className="dress-heading">
-          <p>Styla</p>
+          <p>{readOnly ? "Gäststyling" : "Styla"}</p>
           <span className="dress-selection-count">{selection.length} valda</span>
           {selection.length > 0 && (
             <button
@@ -296,7 +297,7 @@ export function DressingRoom({
             Rensa
           </button>
         </div>
-        <div className="outfit-actions">
+        {!readOnly && <div className="outfit-actions">
           <button
             type="button"
             onClick={() => onSave?.(selectedItems(reconciledState))}
@@ -311,7 +312,12 @@ export function DressingRoom({
           >
             Bär outfit
           </button>
-        </div>
+        </div>}
+        {readOnly && (
+          <p className="guest-styling-note">
+            Testa fritt · ändringarna sparas inte
+          </p>
+        )}
       </section>
 
       <aside className="selected-summary" aria-label="Lager">
