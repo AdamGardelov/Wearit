@@ -31,7 +31,9 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Copy the local publishable/anon key printed by `npx supabase status` into `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local`. Open [127.0.0.1:5173](http://127.0.0.1:5173). Local passwordless sign-in messages appear in Supabase Mailpit.
+Copy the local publishable/anon key printed by `npx supabase status` into `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local`. Open [127.0.0.1:5173](http://127.0.0.1:5173). Users can sign in with email and password or request a magic link. Password setup, recovery, and magic-link messages appear in Supabase Mailpit locally.
+
+Accounts remain invitation-only. An authenticated owner can open the account panel, grant another existing Wearit account guest access by email, and switch between their own wardrobe and wardrobes shared with them. Guest access is read-only and covers garments and their private images; outfits, wear history, weekly plans, imports, and writes remain private to the owner.
 
 ## Import clothes with Codex
 

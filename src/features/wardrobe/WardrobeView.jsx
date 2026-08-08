@@ -90,6 +90,8 @@ export function WardrobeView({
   openItemId = null,
   onOpenItemHandled = () => {},
   context = "",
+  ownerName = "",
+  readOnly = false,
 }) {
   const galleryButtonRefs = useRef(new Map());
   const categoryButtonRefs = useRef(new Map());
@@ -278,9 +280,14 @@ export function WardrobeView({
       >
         <header className="gallery-header">
           <div className="gallery-meta-row">
-            <p className="piece-count">
-              {items.length} plagg
-            </p>
+            <div>
+              {ownerName ? (
+                <p className="wardrobe-owner"><span>Gästvy</span>{ownerName}s garderob</p>
+              ) : null}
+              <p className="piece-count">
+                {items.length} plagg
+              </p>
+            </div>
           </div>
           <div className="wardrobe-toolbar">
             <nav className="category-nav" aria-label="Filtrera garderob efter typ">
@@ -302,11 +309,13 @@ export function WardrobeView({
               ))}
             </nav>
             <div className="wardrobe-controls">
-              <LastWornSort
-                value={sortOrder}
-                onChange={setSortOrder}
-                context="garderob"
-              />
+              {!readOnly && (
+                <LastWornSort
+                  value={sortOrder}
+                  onChange={setSortOrder}
+                  context="garderob"
+                />
+              )}
               <UnifiedFilter
                 groups={ITEM_FILTER_GROUPS}
                 colors={availableColors}
@@ -334,7 +343,7 @@ export function WardrobeView({
         {error && <p className="status error" role="alert">{error}</p>}
         {!error && loading && <p className="status">Laddar garderob</p>}
         {!error && !loading && !items.length && (
-          <p className="status empty">Din garderob är tom.</p>
+          <p className="status empty">{readOnly ? "Garderoben är tom." : "Din garderob är tom."}</p>
         )}
         {!error && !loading && !!items.length && !visibleItems.length && (
           <p className="status empty">Inga plagg matchar filtret.</p>
@@ -379,6 +388,7 @@ export function WardrobeView({
           onCreateTheme={onCreateTheme}
           onRenameTheme={onRenameTheme}
           onDeleteTheme={onDeleteTheme}
+          readOnly={readOnly}
         />
       )}
     </div>

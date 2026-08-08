@@ -128,9 +128,11 @@ export function ItemEditorDialog({
   onCreateTheme,
   onRenameTheme,
   onDeleteTheme,
+  readOnly = false,
 }) {
   const dialogRef = useRef(null);
   const nameInputRef = useRef(null);
+  const closeButtonRef = useRef(null);
   const [draft, setDraft] = useState(() => initialDraft(item));
   const [colorsText, setColorsText] = useState(() => (item.colors || []).join(", "));
   const [tagsText, setTagsText] = useState(() => (item.tags || []).join(", "));
@@ -186,7 +188,8 @@ export function ItemEditorDialog({
     const previousOverflow = document.body.style.overflow;
 
     document.body.style.overflow = "hidden";
-    nameInputRef.current?.focus();
+    if (readOnly) closeButtonRef.current?.focus();
+    else nameInputRef.current?.focus();
 
     return () => {
       document.body.style.overflow = previousOverflow;
@@ -241,6 +244,7 @@ export function ItemEditorDialog({
   };
 
   const handleImageLoad = (event) => {
+    if (readOnly) return;
     try {
       const extracted = extractPalette(event.currentTarget);
       setPalette((current) => [...new Set([...current, ...extracted])].slice(0, 5));
@@ -329,6 +333,7 @@ export function ItemEditorDialog({
 
   const save = async (event) => {
     event.preventDefault();
+    if (readOnly) return;
     if (labelsUnavailable || !categoryResolved) return;
     setError("");
     setBusyAction("save");
@@ -368,18 +373,19 @@ export function ItemEditorDialog({
       <div className="viewer-entry">
         <aside
           ref={dialogRef}
-          className="viewer editing"
+          className={`viewer editing${readOnly ? " read-only" : ""}`}
           role="dialog"
           aria-modal="true"
-          aria-label={`Redigera ${item.name || "garderobsplagg"}`}
+          aria-label={`${readOnly ? "Visa" : "Redigera"} ${item.name || "garderobsplagg"}`}
           tabIndex={-1}
           onKeyDown={handleKeyDown}
         >
           <button
+            ref={closeButtonRef}
             className="viewer-icon-close"
             type="button"
             onClick={onClose}
-            aria-label="Stäng redigering"
+            aria-label={readOnly ? "Stäng plagg" : "Stäng redigering"}
             disabled={Boolean(busyAction)}
           >
             <X size={24} weight="light" aria-hidden="true" />
@@ -446,12 +452,15 @@ export function ItemEditorDialog({
           </div>
 
           <form className="viewer-details editing" onSubmit={save}>
-            <p className="item-last-worn">
-              Senast buren: {item.last_worn_at
-                ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium" })
-                  .format(new Date(item.last_worn_at))
-                : "Aldrig"}
-            </p>
+            {!readOnly && (
+              <p className="item-last-worn">
+                Senast buren: {item.last_worn_at
+                  ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium" })
+                    .format(new Date(item.last_worn_at))
+                  : "Aldrig"}
+              </p>
+            )}
+            {readOnly && <p className="guest-read-only">Gästvy · endast läsning</p>}
             <div className="item-editor">
               <label className="field">
                 <span>Namn</span>
@@ -460,6 +469,7 @@ export function ItemEditorDialog({
                   aria-label="Namn"
                   value={draft.name}
                   onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+                  readOnly={readOnly}
                   required
                 />
               </label>
@@ -470,7 +480,7 @@ export function ItemEditorDialog({
                   aria-label="Kategori"
                   value={categoryFormOpen ? NEW_CATEGORY_VALUE : draft.category}
                   onChange={selectCategory}
-                  disabled={categoryCreating}
+                  disabled={categoryCreating || readOnly}
                 >
                   {availableCategories.filter((category) => category.id !== "all").map((category) => (
                     <option value={category.id} key={category.id}>{category.label}</option>
@@ -540,6 +550,7 @@ export function ItemEditorDialog({
                   aria-label="Märke"
                   value={draft.brand}
                   onChange={(event) => setDraft((current) => ({ ...current, brand: event.target.value }))}
+                  readOnly={readOnly}
                 />
               </label>
               <label className="field">
@@ -548,6 +559,7 @@ export function ItemEditorDialog({
                   aria-label="Storlek"
                   value={draft.size}
                   onChange={(event) => setDraft((current) => ({ ...current, size: event.target.value }))}
+                  readOnly={readOnly}
                 />
               </label>
               <label className="field details-field">
@@ -557,6 +569,7 @@ export function ItemEditorDialog({
                   rows="3"
                   value={draft.notes}
                   onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
+                  readOnly={readOnly}
                 />
               </label>
               <label className="field details-field">
@@ -565,10 +578,11 @@ export function ItemEditorDialog({
                   aria-label="Färger"
                   value={colorsText}
                   onChange={(event) => setColorsText(event.target.value)}
+                  readOnly={readOnly}
                   placeholder="#112233, #445566"
                 />
               </label>
-              {!!palette.length && (
+              {!readOnly && !!palette.length && (
                 <div className="palette details-field" aria-label="Färgförslag från bild">
                   {palette.map((color) => (
                     <button
@@ -588,6 +602,7 @@ export function ItemEditorDialog({
                   aria-label="Taggar"
                   value={tagsText}
                   onChange={(event) => setTagsText(event.target.value)}
+                  readOnly={readOnly}
                   placeholder="ull, vardag"
                 />
               </label>
@@ -599,20 +614,22 @@ export function ItemEditorDialog({
                   labels={labels}
                   selectedIds={selectedLabelIds}
                   onChange={setSelectedLabelIds}
-                  disabled={Boolean(busyAction) || labelsLoading}
+                  disabled={readOnly || Boolean(busyAction) || labelsLoading}
                 />
-                <ThemeManager
-                  themes={themes}
-                  onCreate={createTheme}
-                  onRename={onRenameTheme}
-                  onDelete={deleteTheme}
-                  disabled={Boolean(busyAction)}
-                />
+                {!readOnly && (
+                  <ThemeManager
+                    themes={themes}
+                    onCreate={createTheme}
+                    onRename={onRenameTheme}
+                    onDelete={deleteTheme}
+                    disabled={Boolean(busyAction)}
+                  />
+                )}
               </div>
             </div>
 
             {error && <p className="status error" role="alert">{error}</p>}
-            <div className="viewer-secondary-actions" aria-label="Plaggåtgärder">
+            {!readOnly && <div className="viewer-secondary-actions" aria-label="Plaggåtgärder">
               <button
                 className="secondary-button"
                 type="button"
@@ -631,7 +648,7 @@ export function ItemEditorDialog({
                 <Archive size={15} weight="regular" aria-hidden="true" />
                 {busyAction === "archive" ? "Arkiverar…" : "Arkivera"}
               </button>
-            </div>
+            </div>}
             <div className="viewer-actions">
               <button
                 className="secondary-button"
@@ -639,16 +656,16 @@ export function ItemEditorDialog({
                 onClick={onClose}
                 disabled={Boolean(busyAction)}
               >
-                Avbryt
+                {readOnly ? "Stäng" : "Avbryt"}
               </button>
-              <button
+              {!readOnly && <button
                 className="primary-button"
                 type="submit"
                 disabled={Boolean(busyAction) || labelsUnavailable || !categoryResolved}
               >
                 <Check size={15} weight="bold" aria-hidden="true" />
                 {busyAction === "save" ? "Sparar…" : "Spara"}
-              </button>
+              </button>}
             </div>
           </form>
         </aside>

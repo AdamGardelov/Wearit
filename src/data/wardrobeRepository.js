@@ -69,13 +69,17 @@ function orderedOutfitItems(rows = []) {
     }));
 }
 
-export function createWardrobeRepository(client) {
+export function createWardrobeRepository(client, { viewOwnerId = null } = {}) {
   async function authenticatedOwnerId() {
     const result = await client.auth.getUser();
     if (result.error) throw result.error;
     const ownerId = result.data?.user?.id;
     if (!ownerId) throw new Error("Authentication is required.");
     return ownerId;
+  }
+
+  async function readableOwnerId() {
+    return viewOwnerId ?? authenticatedOwnerId();
   }
 
   async function createSignedAssetUrls(paths, expiresIn = 3600) {
@@ -114,7 +118,7 @@ export function createWardrobeRepository(client) {
     });
   }
 
-  async function fetchItemImages(itemIds) {
+  async function fetchItemImages(itemIds, ownerId) {
     const imagesByItem = new Map();
     if (!itemIds.length) return imagesByItem;
 
@@ -123,6 +127,7 @@ export function createWardrobeRepository(client) {
       result = await client
         .from("wardrobe_item_images")
         .select("id, wardrobe_item_id, storage_path, thumbnail_path, view, sort_order, is_primary")
+        .eq("owner_id", ownerId)
         .in("wardrobe_item_id", itemIds);
     } catch (error) {
       if (isMissingRelationError(error)) return imagesByItem;
@@ -148,9 +153,11 @@ export function createWardrobeRepository(client) {
   }
 
   async function listCategories() {
+    const ownerId = await readableOwnerId();
     const rows = dataOrThrow(await client
       .from("wardrobe_categories")
       .select("id, name, slot, created_at")
+      .eq("owner_id", ownerId)
       .order("created_at", { ascending: true })
       .order("name", { ascending: true }));
     return [...CATEGORIES, ...(rows || []).map(normalizeCustomCategory)];
@@ -167,9 +174,11 @@ export function createWardrobeRepository(client) {
   }
 
   async function listItems({ includeArchived = false } = {}) {
+    const ownerId = await readableOwnerId();
     let query = client
       .from("wardrobe_items")
       .select("*, wardrobe_item_labels(label_id)")
+      .eq("owner_id", ownerId)
       .order("created_at", { ascending: false });
 
     if (!includeArchived) query = query.eq("status", "active");
@@ -177,7 +186,7 @@ export function createWardrobeRepository(client) {
     const items = dataOrThrow(await query) || [];
     if (!items.length) return [];
 
-    const imagesByItem = await fetchItemImages(items.map((item) => item.id));
+    const imagesByItem = await fetchItemImages(items.map((item) => item.id), ownerId);
     const imagePaths = items.flatMap((item) => (
       (imagesByItem.get(item.id) || []).flatMap((image) => [
         image.storage_path,
@@ -257,10 +266,12 @@ export function createWardrobeRepository(client) {
   }
 
   async function listLabels() {
+    const ownerId = await readableOwnerId();
     const labels = dataOrThrow(
       await client
         .from("wardrobe_labels")
         .select(LABEL_SELECT)
+        .eq("owner_id", ownerId)
         .order("kind", { ascending: true })
         .order("season_key", { ascending: true, nullsFirst: false })
         .order("name", { ascending: true }),
@@ -1076,5 +1087,14 @@ export function createWardrobeRepository(client) {
     saveWardrobeThumbnails,
     reconcileWardrobeAssets,
     removeOrphanedWardrobeAssets,
+  };
+}
+
+export function createGuestWardrobeRepository(client, ownerId) {
+  const repository = createWardrobeRepository(client, { viewOwnerId: ownerId });
+  return {
+    listItems: repository.listItems,
+    listCategories: repository.listCategories,
+    listLabels: repository.listLabels,
   };
 }

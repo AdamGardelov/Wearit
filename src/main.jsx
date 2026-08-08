@@ -1,12 +1,12 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App.jsx";
 import { AuthProvider, useAuth } from "./auth/AuthProvider.jsx";
-import { LoginScreen } from "./auth/LoginScreen.jsx";
+import { AuthenticatedApp } from "./auth/AuthenticatedApp.jsx";
+import { LoginScreen, PasswordRecoveryScreen } from "./auth/LoginScreen.jsx";
 import "./styles.css";
 
 function AuthGate() {
-  const { loading, session } = useAuth();
+  const { finishPasswordRecovery, loading, passwordRecovery, session } = useAuth();
 
   if (loading) {
     return (
@@ -17,7 +17,10 @@ function AuthGate() {
   }
 
   if (!session) return <LoginScreen />;
-  return <App />;
+  if (passwordRecovery) {
+    return <PasswordRecoveryScreen onComplete={finishPasswordRecovery} />;
+  }
+  return <AuthenticatedApp />;
 }
 
 createRoot(document.getElementById("root")).render(
